@@ -1,0 +1,29 @@
+{
+  "name": "Obsidian Plugin — ${localWorkspaceFolderBasename}",
+  "dockerComposeFile": ["docker-compose.yml"],
+  "dockerComposeProject": "plugin-${localWorkspaceFolderBasename}",
+  "service": "dev",
+  "workspaceFolder": "/workspace/plugin",
+  "shutdownAction": "stopCompose",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "editorconfig.editorconfig"
+      ],
+      "settings": {
+        "editor.formatOnSave": true,
+        "typescript.tsdk": "node_modules/typescript/lib",
+        "typescript.enablePromptUseWorkspaceTsdk": true
+      }
+    }
+  },
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "remoteUser": "node",
+  "remoteEnv": {
+    "OBSIDIAN_VAULT_PATH": "/vault",
+    "OBSIDIAN_VAULT_EXPORT": "1",
+    "PLUGIN_DEV_HOST_ROOT_MOUNT": "/workspaces/SoftwareEntwicklung"
+  }
+}
