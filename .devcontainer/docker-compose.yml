@@ -3,7 +3,7 @@
 # - Compose project name: set by Dev Containers via `dockerComposeProject` in devcontainer.json
 #   (defaults would collide across repos because the compose file lives under `.devcontainer/`).
 # - Do NOT use a fixed `container_name`: otherwise reopening another clone can reuse the wrong bind mount.
-# - This repo is bind-mounted at `..:/workspace/plugin` (parent of `.devcontainer/` = repo root).
+# - This repo is bind-mounted at `..:/workspace/obsidian-universal-daily-note-plugin` (repo root).
 # - Sibling repos: optional host bind at PLUGIN_DEV_HOST_ROOT → /workspaces/SoftwareEntwicklung
 # Image: obsidian-plugin-dev:1 (Dockerfile LABEL: Obsidian_Plugin_Dev)
 
@@ -22,9 +22,9 @@ services:
       OBSIDIAN_VAULT_PATH: /vault
       OBSIDIAN_VAULT_EXPORT: "1"
     volumes:
-      - ..:/workspace/plugin:cached
+      - ..:/workspace/obsidian-universal-daily-note-plugin:cached
       - ${OBSIDIAN_VAULT_HOST_PATH:-/home/hfx/KnowledgeHub/Denkarium_Development}:/vault:cached
       # Sibling plugin repos (same parent on host); each repo stays its own git clone under this tree.
       - ${PLUGIN_DEV_HOST_ROOT:-/home/hfx/SoftwareEntwicklung}:/workspaces/SoftwareEntwicklung:cached
-    working_dir: /workspace/plugin
+    working_dir: /workspace/obsidian-universal-daily-note-plugin
     command: sleep infinity

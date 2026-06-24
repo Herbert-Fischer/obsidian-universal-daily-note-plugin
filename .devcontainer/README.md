@@ -20,7 +20,7 @@ Or create `.devcontainer/.env` (see `.env.example`) — `docker-compose` loads i
 
 ## One repo per plugin
 
-This repository is mounted at **`/workspace/plugin`**. Each Obsidian plugin stays its own git clone; only this repo is the Dev Container **workspace folder**.
+This repository is mounted at **`/workspace/obsidian-universal-daily-note-plugin`**. Each Obsidian plugin stays its own git clone; only this repo is the Dev Container **workspace folder**.
 
 ## Same Docker stack for every plugin repo
 
@@ -32,9 +32,9 @@ All clones then share:
 - **Container name** `obsidian_plugin_dev`.
 - **Image** `obsidian-plugin-dev:1` (built from the same `Dockerfile`; Docker layer cache is shared after the first build).
 
-When you **Reopen in Container** from another plugin folder, Compose recreates the `dev` service so **`..` is that repo** mounted at **`/workspace/plugin`**. Vault and **`/workspaces/SoftwareEntwicklung`** stay the same as long as your `.env` (or defaults) match.
+When you **Reopen in Container** from another plugin folder, Compose recreates the `dev` service so **`..` is that repo** mounted at **`/workspace/obsidian-universal-daily-note-plugin`** (this clone; other Denkarium plugins may still use `/workspace/plugin` in their own `.devcontainer/`). Vault and **`/workspaces/SoftwareEntwicklung`** stay the same as long as your `.env` (or defaults) match.
 
-**One running dev container at a time** is normal: `/workspace/plugin` cannot bind two different clones at once. To edit another plugin **without** switching the opened repo, use **`/workspaces/SoftwareEntwicklung/<plugin-folder>/`** (and add that path to the workspace for the AI if needed).
+**One running dev container at a time** is normal: the plugin bind mount cannot point at two different clones at once. To edit another plugin **without** switching the opened repo, use **`/workspaces/SoftwareEntwicklung/<plugin-folder>/`** (and add that path to the workspace for the AI if needed).
 
 ## Sibling plugin repos (shared mount)
 
@@ -42,7 +42,7 @@ By default the host directory
 
 **`/home/hfx/SoftwareEntwicklung`**
 
-is bind-mounted to **`/workspaces/SoftwareEntwicklung`** in the container (note **`workspaces`** with an **`s`** — not **`/workspace/...`**). The image also provides a symlink **`/workspace/SoftwareEntwicklung`** → that path so it sits next to **`/workspace/plugin`**. Rebuild the dev container image after this Dockerfile change; until then, use **`cd /workspaces/SoftwareEntwicklung`** directly.
+is bind-mounted to **`/workspaces/SoftwareEntwicklung`** in the container (note **`workspaces`** with an **`s`** — not **`/workspace/...`**). The image also provides a symlink **`/workspace/SoftwareEntwicklung`** → that path so it sits next to **`/workspace/obsidian-universal-daily-note-plugin`**. Rebuild the dev container image after this Dockerfile change; until then, use **`cd /workspaces/SoftwareEntwicklung`** directly.
 
 Every plugin repo under that path (for example `obsidian-universal-tasks-plugin/`) appears next to each other inside the container, without merging git histories.
 

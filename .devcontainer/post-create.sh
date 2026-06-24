@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PLATFORM="/workspaces/SoftwareEntwicklung/obsidian-platform"
-PLUGIN_ROOT="/workspace/plugin"
+PLUGIN_ROOT="/workspace/obsidian-universal-daily-note-plugin"
 
 if [[ -d "$PLATFORM" ]]; then
   sudo ln -sfn "$PLATFORM" /workspace/obsidian-platform
