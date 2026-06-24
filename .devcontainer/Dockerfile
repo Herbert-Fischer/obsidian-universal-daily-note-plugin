@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Default working directory when opening a terminal (repo is bind-mounted here).
-WORKDIR /workspace/obsidian-universal-daily-note-plugin
+WORKDIR /workspace/universal-daily-note-plugin
 
 # Convenience: same sibling mount as compose (`/workspaces/SoftwareEntwicklung`) under `/workspace/…`.
 RUN mkdir -p /workspace /workspaces && \

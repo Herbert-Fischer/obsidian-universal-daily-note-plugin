@@ -55,4 +55,4 @@ Plugin-spezifisch: `obsidian-daily-notes-interface`.
 
 ## Dev Container
 
-Siehe **[`.devcontainer/README.md`](.devcontainer/README.md)**. Repo-Mount: **`/workspace/obsidian-universal-daily-note-plugin`**.
+Siehe **[`.devcontainer/README.md`](.devcontainer/README.md)**. Repo-Mount: **`/workspace/universal-daily-note-plugin`**.

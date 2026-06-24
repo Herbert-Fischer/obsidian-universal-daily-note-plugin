@@ -1,5 +1,5 @@
 {
-  "name": "obsidian-universal-daily-note-plugin",
+  "name": "universal-daily-note-plugin",
   "version": "0.8.0",
   "description": "Universal Daily Note plugin for Obsidian (Denkarium conventions).",
   "main": "main.js",

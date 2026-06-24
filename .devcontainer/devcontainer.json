@@ -3,7 +3,7 @@
   "dockerComposeFile": ["docker-compose.yml"],
   "dockerComposeProject": "plugin-${localWorkspaceFolderBasename}",
   "service": "dev",
-  "workspaceFolder": "/workspace/obsidian-universal-daily-note-plugin",
+  "workspaceFolder": "/workspace/universal-daily-note-plugin",
   "shutdownAction": "stopCompose",
   "customizations": {
     "vscode": {
