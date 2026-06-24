@@ -59,10 +59,20 @@
 .udn-timelineHead {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 3px;
   margin-bottom: 2px;
   padding: 2px 4px 4px;
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.udn-timelineHeadSpacer {
+  flex: 1 1 auto;
+  min-width: 4px;
+}
+
+.udn-timelineHeadComposer {
   flex-shrink: 0;
 }
 
@@ -228,6 +238,7 @@
   align-items: center;
   gap: 8px;
   padding: 6px 8px 5px;
+  min-width: 0;
   border-bottom: 1px solid color-mix(
     in srgb,
     hsl(var(--ref-hue), 12%, var(--row-lightness)) 28%,
@@ -244,6 +255,17 @@
   flex-shrink: 0;
   align-self: center;
   margin: 0;
+}
+
+.udn-timelineDaySummary {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--dk-font-caption);
+  color: var(--text-muted);
+  line-height: 1.2;
 }
 
 .udn-timelineDayCount {

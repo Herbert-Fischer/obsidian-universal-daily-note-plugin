@@ -1,10 +1,9 @@
 <script lang="ts">
   import { afterUpdate, onMount } from "svelte";
   import type { App } from "obsidian";
-  import { Menu, setIcon } from "obsidian";
+  import { Menu, setIcon, TFile } from "obsidian";
   import { dk } from "@denkarium/obsidian-lib-ui";
   import type { Writable } from "svelte/store";
-  import type { TFile } from "obsidian";
   import type {
     DailyNoteFallbackSettings,
     OutlineSettings,
@@ -22,12 +21,14 @@
   import type { CalendarSyncContext, OutlineRangeMode } from "../../integrations/calendarRange";
   import { outlineRangeModeLabel, resolveOutlineDateBounds } from "../../integrations/calendarRange";
   import { filterLinesByText } from "../../notes/entryTextFilter";
+  import { readDailyNoteSummary } from "../../notes/dailyNoteSummary";
   import FlexTextFilter from "./FlexTextFilter.svelte";
 
   type RefDayGroup = {
     dateKey: string;
     filePath: string;
     label: string;
+    summary: string;
     entries: TagebuchVerweisEntry[];
   };
 
@@ -59,6 +60,7 @@
   let headingBtn: HTMLButtonElement;
   let headingIconEl: HTMLSpanElement;
   let lastLoadSignature = "";
+  let loadGeneration = 0;
 
   $: refreshKey = $refreshTick;
   $: noteDate = $selectedDate;
@@ -114,6 +116,16 @@
     return `${targetPath}|${mode}|${boundsPart}|${heading}|${refresh}`;
   }
 
+  function summaryForDailyNotePath(filePath: string): string {
+    const file = app.vault.getAbstractFileByPath(filePath);
+    if (!(file instanceof TFile)) return "";
+    try {
+      return readDailyNoteSummary(app, file);
+    } catch {
+      return "";
+    }
+  }
+
   function groupEntriesByDay(rows: TagebuchVerweisEntry[]): RefDayGroup[] {
     const groups: RefDayGroup[] = [];
     const indexByPath = new Map<string, number>();
@@ -125,6 +137,7 @@
           dateKey: row.dailyNoteLabel,
           filePath: row.dailyNotePath,
           label: row.dailyNoteLabel,
+          summary: summaryForDailyNotePath(row.dailyNotePath),
           entries: [row],
         });
       } else {
@@ -139,6 +152,7 @@
   }
 
   async function reload(file: TFile | null) {
+    const generation = ++loadGeneration;
     targetLabel = file ? formatTargetPageLabel(file) : "";
     if (!file) {
       entries = [];
@@ -146,6 +160,7 @@
       emptyMessage = followMainPage
         ? "Keine Markdown-Hauptseite geöffnet."
         : "Keine Zielseite fixiert.";
+      loading = false;
       return;
     }
 
@@ -164,6 +179,7 @@
           bounds,
         }),
       ]);
+      if (generation !== loadGeneration) return;
       entries = rows;
       usedHeadings = headings;
       const rangeHint = rangeMode !== "scroll" ? ` · ${outlineRangeModeLabel(rangeMode)}` : "";
@@ -172,12 +188,13 @@
           ? `Keine Verweise auf ${targetLabel} (${journalHeading}${rangeHint}).`
           : "";
     } catch (e) {
+      if (generation !== loadGeneration) return;
       console.error("Universal Daily Note: Tagebuch-Verweise", e);
       entries = [];
       usedHeadings = [];
       emptyMessage = "Fehler beim Laden der Verweise.";
     } finally {
-      loading = false;
+      if (generation === loadGeneration) loading = false;
     }
   }
 
@@ -318,6 +335,7 @@
       query={textFilterQuery}
       onPatch={onOutlinePatch}
     />
+    <span class="udn-timelineHeadSpacer" aria-hidden="true"></span>
     <button
       type="button"
       bind:this={timeToggleBtn}
@@ -360,6 +378,9 @@
             <button type="button" class="udn-dateBubble" on:click={() => openDayNote(day.filePath)}>
               {formatDayBubbleLabel(day.label)}
             </button>
+            {#if day.summary}
+              <span class="udn-timelineDaySummary" title={day.summary}>{day.summary}</span>
+            {/if}
             <span class="udn-timelineDayCount">{refCountLabel(day.entries.length)}</span>
           </div>
           <div class="udn-timelineDayEntries">

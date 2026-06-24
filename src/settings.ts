@@ -80,7 +80,7 @@ export const DEFAULT_SETTINGS: UniversalDailyNoteSettings = {
   tagebuchVerweise: {
     dailyNotesFolder: "Calendar/Notes",
     dailyNotesFileClass: "Daily Notes",
-    showTimeBubbles: false,
+    showTimeBubbles: true,
   },
   quickCapture: {
     enabled: false,

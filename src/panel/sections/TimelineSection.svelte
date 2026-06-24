@@ -436,6 +436,7 @@
       query={textFilterQuery}
       onPatch={onOutlinePatch}
     />
+    <span class="udn-timelineHeadSpacer" aria-hidden="true"></span>
     <button
       type="button"
       bind:this={timeToggleBtn}
@@ -445,7 +446,7 @@
     <button
       type="button"
       bind:this={dailyNoteBtn}
-      class={dk.iconRoundBtnToolbar}
+      class="{dk.iconRoundBtnToolbar} udn-timelineHeadComposer"
       on:click={openDailyNote}
     ></button>
   </div>
@@ -485,6 +486,9 @@
             <button type="button" class="udn-dateBubble" on:click={() => openDayNote(day.filePath)}>
               {formatDayBubbleLabel(day.label)}
             </button>
+            {#if day.summary}
+              <span class="udn-timelineDaySummary" title={day.summary}>{day.summary}</span>
+            {/if}
             <span class="udn-timelineDayCount">
               {day.entries.length === 1 ? "1 Eintrag" : `${day.entries.length} Einträge`}
             </span>
