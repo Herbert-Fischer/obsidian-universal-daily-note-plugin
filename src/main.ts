@@ -1,14 +1,20 @@
-import { Plugin } from "obsidian";
+import { Plugin, Platform, TFile, type Menu } from "obsidian";
 import { DEFAULT_SETTINGS, DEFAULT_SECTIONS_COLLAPSED, type SectionId, type UniversalDailyNoteSettings } from "./settings";
 import { normalizeActiveJournalHeading } from "./notes/journalHeadingFilter";
 import { UniversalDailyNoteSettingTab } from "./settingsTab";
 import { openOrCreateDailyNoteForDate } from "./notes/dailyNote";
+import { ensureDailyNoteFileForDate } from "./notes/appendLogLine";
 import { DailyPanelView } from "./views/dailyPanelView";
 import { VerweisePanelView } from "./views/verweisePanelView";
 import { VIEW_TYPE_DAILY_PANEL, VIEW_TYPE_VERWEISE } from "./views/viewTypes";
 import { activateDailyPanel } from "./views/activateDailyPanel";
 import { activateVerweisePanel } from "./views/activateVerweisePanel";
-import { openDailyComposer } from "./panel/composer/openDailyComposer";
+import { COMPOSER_ICON, COMPOSER_LABEL } from "./panel/composer/composerUi";
+import {
+  openDailyComposer,
+  resolveComposerDateFromFile as resolveComposerDateFromActiveFile,
+} from "./panel/composer/openDailyComposer";
+import { dateFromDailyNoteFile } from "./integrations/universalCalendar";
 
 function migrateCollapsed(raw: Partial<Record<string, boolean>> | undefined): Record<SectionId, boolean> {
   const merged = { ...DEFAULT_SECTIONS_COLLAPSED, ...raw };
@@ -87,10 +93,87 @@ export default class UniversalDailyNotePlugin extends Plugin {
 
     this.addCommand({
       id: "open-daily-composer",
-      name: "Tages-Composer öffnen",
+      name: `${COMPOSER_LABEL} öffnen`,
+      icon: COMPOSER_ICON,
       callback: () => {
         openDailyComposer(this, { date: new Date() });
       },
+    });
+
+    this.addCommand({
+      id: "open-daily-composer-for-active-note",
+      name: `${COMPOSER_LABEL} (aktuelle Daily Note)`,
+      icon: COMPOSER_ICON,
+      checkCallback: (checking) => {
+        const date = resolveComposerDateFromActiveFile(this);
+        if (!date) return false;
+        if (!checking) {
+          this.openComposerForDate(date);
+        }
+        return true;
+      },
+    });
+
+    if (Platform.isMobileApp) {
+      this.addCommand({
+        id: "open-daily-composer-mobile",
+        name: COMPOSER_LABEL,
+        icon: COMPOSER_ICON,
+        mobileOnly: true,
+        callback: () => {
+          openDailyComposer(this, { date: new Date() });
+        },
+      });
+    }
+
+    const addComposerMenuItem = (menu: Menu, file: TFile): void => {
+      const date = dateFromDailyNoteFile(
+        file,
+        this.settings.dailyNoteFallback,
+        this.settings.tagebuchVerweise,
+      );
+      if (!date) return;
+      menu.addItem((item) => {
+        item
+          .setTitle(COMPOSER_LABEL)
+          .setIcon(COMPOSER_ICON)
+          .onClick(() => {
+            this.openComposerForDate(date);
+          });
+      });
+    };
+
+    this.registerEvent(
+      this.app.workspace.on("editor-menu", (menu, _editor, view) => {
+        const file = view.file;
+        if (file instanceof TFile) addComposerMenuItem(menu, file);
+      }),
+    );
+
+    this.registerEvent(
+      this.app.workspace.on("file-menu", (menu, file) => {
+        if (file instanceof TFile) addComposerMenuItem(menu, file);
+      }),
+    );
+
+    this.registerObsidianProtocolHandler("udn-composer", (params) => {
+      const dateParam = params.date?.trim();
+      let date = new Date();
+      if (dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
+        const [y, m, d] = dateParam.split("-").map(Number);
+        date = new Date(y, m - 1, d);
+      }
+      const heading = params.heading?.trim();
+      openDailyComposer(this, {
+        date,
+        journalHeading: heading
+          ? normalizeActiveJournalHeading(heading, this.settings.outline.excludedHeadings)
+          : undefined,
+        onHeadingChange: (h) => {
+          this.settings.outline.journalHeading = h;
+          void this.saveSettings();
+        },
+      });
     });
 
     this.addCommand({
@@ -123,5 +206,36 @@ export default class UniversalDailyNotePlugin extends Plugin {
 
   async saveSettings() {
     await this.saveData(this.settings);
+  }
+
+  /** Open composer for the active daily note, or false when the file is not a daily note. */
+  openComposerForActiveDailyNote(file?: TFile | null): boolean {
+    const date = resolveComposerDateFromActiveFile(this, file);
+    if (!date) return false;
+    this.openComposerForDate(date);
+    return true;
+  }
+
+  /** Used by Universal Tasks Aufgaben-Composer to create/open daily notes. */
+  async ensureDailyNoteForDate(date: Date): Promise<TFile> {
+    return ensureDailyNoteFileForDate(this.app, date, this.settings.dailyNoteFallback);
+  }
+
+  /** Active daily note date for Universal Tasks context resolution. */
+  resolveComposerDateFromFile(): Date | null {
+    return resolveComposerDateFromActiveFile(this);
+  }
+
+  /** Called by Universal Calendar and other integrations. */
+  openComposerForDate(date: Date, options?: { onSaved?: () => void }): void {
+    openDailyComposer(this, {
+      date,
+      journalHeading: this.settings.outline.journalHeading,
+      onSaved: options?.onSaved,
+      onHeadingChange: (heading) => {
+        this.settings.outline.journalHeading = heading;
+        void this.saveSettings();
+      },
+    });
   }
 }

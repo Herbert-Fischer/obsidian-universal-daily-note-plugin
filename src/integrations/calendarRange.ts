@@ -35,6 +35,15 @@ export function isoWeekBounds(date: Date): { start: Date; end: Date } {
   return { start, end };
 }
 
+/** Anchor for paginated outline loads — scroll mode stays on „today“, not the selected day. */
+export function resolveOutlineLoadAnchor(
+  mode: OutlineRangeMode,
+  ctx: CalendarSyncContext,
+): Date {
+  if (mode === "scroll") return normalizeLocalDay(new Date());
+  return normalizeLocalDay(ctx.selectedDate);
+}
+
 export function resolveOutlineDateBounds(
   mode: OutlineRangeMode,
   ctx: CalendarSyncContext,

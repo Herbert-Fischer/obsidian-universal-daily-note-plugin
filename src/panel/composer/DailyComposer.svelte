@@ -1,14 +1,16 @@
 <script lang="ts">
-  import { onMount, afterUpdate } from "svelte";
+  import { onMount, onDestroy, afterUpdate } from "svelte";
   import type { App } from "obsidian";
-  import { setIcon } from "obsidian";
+  import { Menu, setIcon } from "obsidian";
   import { dk } from "@denkarium/obsidian-lib-ui";
-  import type { DailyNoteFallbackSettings } from "../../settings";
+  import type { DailyNoteFallbackSettings, TagebuchVerweiseSettings } from "../../settings";
   import { addLocalDays, formatTimeLocal, normalizeLocalDay } from "../dateUtils";
   import { formatDayBubbleLabel } from "../formatDayBubble";
   import {
     buildChipEntryText,
     chipsFromPrefixes,
+    composerEntryText,
+    loadComposerSectionHeadings,
     loadComposerState,
     saveComposerState,
     suggestSummaryFromEntries,
@@ -16,43 +18,73 @@
     type ComposerEntry,
   } from "../../notes/dailyComposer";
   import { openOrCreateDailyNoteForDate } from "../../notes/dailyNote";
-  import { parseJournalEntryDisplay } from "../../notes/parseJournalEntryDisplay";
+  import { formatJournalEntryText, parseJournalEntryDisplay } from "../../notes/parseJournalEntryDisplay";
+  import { openWikiLinkInMain } from "../../notes/openInMainPane";
+  import JournalBodyInput from "./JournalBodyInput.svelte";
+  import { wikiLinkSuggest } from "../wikiLinkInputSuggest";
+  import {
+    observeDockHeight,
+    scrollInputIntoView,
+  } from "./mobileViewport";
 
   export let app: App;
   export let date: Date;
   export let fallback: DailyNoteFallbackSettings;
-  export let journalHeading: string;
+  export let initialJournalHeading: string;
+  export let excludedHeadings: string[] = [];
+  export let durationDays = 365;
+  export let tagebuchSettings: TagebuchVerweiseSettings;
   export let entryPrefixes: string[] = [];
   export let timeFormat = "HH:mm";
   export let onClose: () => void = () => {};
   export let onSaved: () => void = () => {};
   export let onDateChange: (d: Date) => void = () => {};
+  export let onHeadingChange: (heading: string) => void = () => {};
+  export let isMobile = false;
 
   let currentDate = normalizeLocalDay(date);
+  let activeHeading = initialJournalHeading.trim() || "Tagebuch";
+  let sectionHeadings: string[] = [activeHeading];
   let loading = true;
   let saving = false;
   let loadError = "";
   let filePath = "";
   let summary = "";
+  let calloutTitle = "";
   let summaryTouched = false;
   let entries: ComposerEntry[] = [];
   let chips: ComposerChip[] = [];
   let newEntryText = "";
+  let newEntryTime = "";
   let modified = false;
   let prevBtn: HTMLButtonElement;
   let nextBtn: HTMLButtonElement;
   let nowBtn: HTMLButtonElement;
+  let closeBtn: HTMLButtonElement;
+  let headingBtn: HTMLButtonElement;
+  let headingIconEl: HTMLSpanElement;
+  let prefixBtn: HTMLButtonElement;
+  let prefixIconEl: HTMLSpanElement;
+  let composerRoot: HTMLDivElement;
+  let mobileDock: HTMLDivElement;
+  let addInput: HTMLInputElement;
+  let detachDockObserver: (() => void) | null = null;
+  let dockObserverAttached = false;
   let loadGeneration = 0;
 
   $: chips = chipsFromPrefixes(entryPrefixes);
   $: dateLabel = formatDayBubbleLabel(
     `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, "0")}-${String(currentDate.getDate()).padStart(2, "0")}`,
   );
-  $: weekdayLabel = currentDate.toLocaleDateString("de-DE", { weekday: "long" });
+  $: weekdayShort = currentDate.toLocaleDateString("de-DE", { weekday: "short" });
 
   onMount(() => {
     void reload();
     updateNavButtons();
+  });
+
+  onDestroy(() => {
+    detachDockObserver?.();
   });
 
   async function reload() {
@@ -62,13 +94,26 @@
     modified = false;
     onDateChange(currentDate);
     try {
-      const state = await loadComposerState(app, currentDate, fallback, journalHeading);
+      const [state, headings] = await Promise.all([
+        loadComposerState(app, currentDate, fallback, activeHeading),
+        loadComposerSectionHeadings(app, currentDate, fallback, tagebuchSettings, {
+          excludedHeadings,
+          defaultHeading: activeHeading,
+          durationDays,
+        }),
+      ]);
       if (generation !== loadGeneration) return;
+      sectionHeadings = headings.length > 0 ? headings : [activeHeading];
+      if (!sectionHeadings.some((h) => h.toLowerCase() === activeHeading.toLowerCase())) {
+        sectionHeadings = [activeHeading, ...sectionHeadings];
+      }
       filePath = state.file.path;
       entries = state.entries.map((e) => ({ ...e }));
+      calloutTitle = state.calloutTitle;
       summary = state.summary;
       summaryTouched = Boolean(state.summary.trim());
       newEntryText = "";
+      newEntryTime = currentTime();
     } catch (e) {
       if (generation !== loadGeneration) return;
       loadError = "Tagesnotiz konnte nicht geladen werden.";
@@ -88,36 +133,40 @@
 
   function addChipEntry(chip: ComposerChip) {
     const time = chip.defaultTime ?? currentTime();
-    const text = buildChipEntryText(chip, time);
-    entries = [...entries, makeNewEntry(text)];
+    const { time: entryTime, body } = parseJournalEntryDisplay(buildChipEntryText(chip, time));
+    entries = [...entries, makeNewEntry(entryTime ?? time, body)];
     markModified();
     if (!summaryTouched) {
-      summary = suggestSummaryFromEntries(entries.map((e) => e.text));
+      summary = suggestSummaryFromEntries(entries.map(composerEntryText));
     }
   }
 
-  function makeNewEntry(text: string): ComposerEntry {
+  function makeNewEntry(time: string, body: string): ComposerEntry {
     const id = `new-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    return { id, line: -1, text: text.trim(), rawLine: `- ${text.trim()}` };
+    const text = composerEntryText({ time, body }).trim();
+    return { id, line: -1, time, body, rawLine: `- ${text}` };
   }
 
   function addFreeEntry() {
-    const text = newEntryText.trim();
-    if (!text) return;
-    const withTime = /^\d{1,2}:\d{2}\s/.test(text) ? text : `${currentTime()} ${text}`;
-    entries = [...entries, makeNewEntry(withTime)];
+    const body = newEntryText.trim();
+    if (!body) return;
+    const time = newEntryTime.trim() || currentTime();
+    entries = [...entries, makeNewEntry(time, body)];
     newEntryText = "";
     markModified();
     if (!summaryTouched) {
-      summary = suggestSummaryFromEntries(entries.map((e) => e.text));
+      summary = suggestSummaryFromEntries(entries.map(composerEntryText));
+    }
+    if (isMobile && addInput) {
+      addInput.focus();
     }
   }
 
-  function updateEntry(id: string, text: string) {
-    entries = entries.map((e) => (e.id === id ? { ...e, text: text.trim() } : e));
+  function updateEntry(id: string, patch: Partial<Pick<ComposerEntry, "time" | "body">>) {
+    entries = entries.map((e) => (e.id === id ? { ...e, ...patch } : e));
     markModified();
     if (!summaryTouched) {
-      summary = suggestSummaryFromEntries(entries.map((e) => e.text));
+      summary = suggestSummaryFromEntries(entries.map(composerEntryText));
     }
   }
 
@@ -135,6 +184,11 @@
     markModified();
   }
 
+  function onCalloutTitleInput(ev: Event) {
+    calloutTitle = (ev.currentTarget as HTMLInputElement).value;
+    markModified();
+  }
+
   async function shiftDate(delta: number) {
     if (modified && !confirm("Ungespeicherte Änderungen verwerfen?")) return;
     currentDate = addLocalDays(currentDate, delta);
@@ -149,15 +203,77 @@
     await reload();
   }
 
+  async function selectHeading(heading: string) {
+    if (heading.toLowerCase() === activeHeading.toLowerCase()) return;
+    if (modified && !confirm("Ungespeicherte Änderungen verwerfen?")) return;
+    activeHeading = heading;
+    onHeadingChange(heading);
+    await reload();
+  }
+
+  function openHeadingMenu(ev: MouseEvent) {
+    if (sectionHeadings.length <= 1) return;
+    const menu = new Menu();
+    for (const heading of sectionHeadings) {
+      menu.addItem((item) => {
+        item.setTitle(heading);
+        item.setChecked(heading.toLowerCase() === activeHeading.toLowerCase());
+        item.onClick(() => {
+          void selectHeading(heading);
+        });
+      });
+    }
+    const target = ev.currentTarget as HTMLElement;
+    const rect = target.getBoundingClientRect();
+    menu.showAtPosition({ x: rect.left, y: rect.bottom + 4 });
+  }
+
+  function onHeadingFilterClick(ev: MouseEvent) {
+    openHeadingMenu(ev);
+  }
+
+  function openPrefixMenu(ev: MouseEvent) {
+    if (chips.length === 0) return;
+    const menu = new Menu();
+    for (const chip of chips) {
+      menu.addItem((item) => {
+        item.setTitle(chip.label);
+        item.onClick(() => addChipEntry(chip));
+      });
+    }
+    const target = ev.currentTarget as HTMLElement;
+    const rect = target.getBoundingClientRect();
+    menu.showAtPosition({ x: rect.left, y: rect.bottom + 4 });
+  }
+
+  function onPrefixFilterClick(ev: MouseEvent) {
+    openPrefixMenu(ev);
+  }
+
+  function collectEntryTextsForSave(): string[] {
+    const texts = entries.map(composerEntryText);
+    const pending = newEntryText.trim();
+    if (pending) {
+      texts.push(formatJournalEntryText(newEntryTime.trim() || currentTime(), pending));
+    }
+    return texts;
+  }
+
   async function save() {
     if (saving) return;
     saving = true;
     try {
-      const state = await loadComposerState(app, currentDate, fallback, journalHeading);
+      const state = await loadComposerState(app, currentDate, fallback, activeHeading);
       await saveComposerState(
         app,
-        { file: state.file, journalHeading, summary },
-        entries.map((e) => e.text),
+        {
+          file: state.file,
+          journalHeading: activeHeading,
+          calloutTitle,
+          summary,
+          dateKey: state.dateKey,
+        },
+        collectEntryTextsForSave(),
       );
       onSaved();
       summaryTouched = Boolean(summary.trim());
@@ -174,19 +290,33 @@
     await openOrCreateDailyNoteForDate(app, currentDate, fallback);
   }
 
-  function onEntryInput(id: string, ev: Event) {
-    updateEntry(id, (ev.currentTarget as HTMLInputElement).value);
+  function onEntryTimeInput(id: string, ev: Event) {
+    updateEntry(id, { time: (ev.currentTarget as HTMLInputElement).value });
   }
 
-  function entryTime(text: string): string | null {
-    return parseJournalEntryDisplay(text).time;
+  function openComposerWikiLink(dest: string) {
+    void openWikiLinkInMain(app, dest, filePath);
+  }
+
+  function onEntryBodyInput(id: string, body: string) {
+    updateEntry(id, { body });
   }
 
   function onNewEntryKeydown(ev: KeyboardEvent) {
-    if (ev.key === "Enter") {
-      ev.preventDefault();
-      addFreeEntry();
-    }
+    if (ev.key !== "Enter" || ev.isComposing || ev.shiftKey) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    addFreeEntry();
+  }
+
+  function onInputFocus(ev: FocusEvent) {
+    if (!isMobile) return;
+    scrollInputIntoView(ev.currentTarget as HTMLElement);
+  }
+
+  function onAddInputFocus(ev: FocusEvent) {
+    if (!isMobile) return;
+    scrollInputIntoView(ev.currentTarget as HTMLElement);
   }
 
   function updateNavButtons() {
@@ -202,66 +332,190 @@
       setIcon(nowBtn, "calendar-check");
       nowBtn.title = "Heute";
     }
+    if (closeBtn) {
+      setIcon(closeBtn, "x");
+      closeBtn.title = "Schließen";
+    }
+    if (headingIconEl) {
+      setIcon(headingIconEl, "heading");
+    }
+    if (headingBtn) {
+      headingBtn.setAttribute("aria-label", `Abschnitt: ${activeHeading}`);
+      headingBtn.title = activeHeading;
+    }
+    if (prefixIconEl) {
+      setIcon(prefixIconEl, "list-plus");
+    }
+    if (prefixBtn) {
+      prefixBtn.setAttribute("aria-label", "Vorlage wählen");
+      prefixBtn.title = "Vorlage wählen";
+    }
   }
 
   afterUpdate(() => {
     updateNavButtons();
+    if (isMobile && mobileDock && composerRoot && !dockObserverAttached) {
+      detachDockObserver = observeDockHeight(mobileDock, composerRoot);
+      dockObserverAttached = true;
+    }
   });
 </script>
 
-<div class="udn-composer">
+<div class="udn-composer" class:udn-composer--mobile={isMobile} bind:this={composerRoot}>
   <header class="udn-composerHead">
-    <div class="udn-composerHeadNav">
-      <button type="button" bind:this={prevBtn} class={dk.iconRoundBtn} on:click={() => shiftDate(-1)} aria-label="Vorheriger Tag"></button>
-      <div class="udn-composerHeadDate">
-        <strong>{weekdayLabel}, {dateLabel}</strong>
-        <span class="udn-composerHeadSub">{journalHeading}</span>
+    {#if isMobile}
+      <div class="udn-composerHeadCompact">
+        <div class="udn-composerHeadCompactTop">
+          <button type="button" bind:this={closeBtn} class={dk.iconRoundBtn} on:click={onClose} aria-label="Schließen"></button>
+          <span class="udn-composerDateShort">{weekdayShort} · {dateLabel}</span>
+          <div class="udn-composerHeadCompactNav">
+            <button type="button" bind:this={prevBtn} class={dk.iconRoundBtn} on:click={() => shiftDate(-1)} aria-label="Vorheriger Tag"></button>
+            <button type="button" bind:this={nextBtn} class={dk.iconRoundBtn} on:click={() => shiftDate(1)} aria-label="Nächster Tag"></button>
+            <button type="button" bind:this={nowBtn} class={dk.iconRoundBtn} on:click={goToday} aria-label="Heute"></button>
+          </div>
+        </div>
+        <div class="udn-composerFilterBubbles">
+          <button
+            type="button"
+            bind:this={headingBtn}
+            class="udn-headingFilter udn-composerHeadingFilter"
+            class:udn-headingFilter--menu={sectionHeadings.length > 1}
+            disabled={sectionHeadings.length <= 1}
+            on:click={onHeadingFilterClick}
+          >
+            <span class="udn-headingFilterIcon" bind:this={headingIconEl} aria-hidden="true"></span>
+            <span class="udn-headingFilterLabel">{activeHeading}</span>
+          </button>
+          <button
+            type="button"
+            bind:this={prefixBtn}
+            class="udn-headingFilter udn-composerPrefixFilter udn-headingFilter--menu"
+            disabled={chips.length === 0}
+            on:click={onPrefixFilterClick}
+          >
+            <span class="udn-headingFilterIcon" bind:this={prefixIconEl} aria-hidden="true"></span>
+            <span class="udn-headingFilterLabel">Vorlage</span>
+          </button>
+        </div>
       </div>
-      <button type="button" bind:this={nextBtn} class={dk.iconRoundBtn} on:click={() => shiftDate(1)} aria-label="Nächster Tag"></button>
-      <button type="button" bind:this={nowBtn} class={dk.iconRoundBtn} on:click={goToday} aria-label="Heute"></button>
-    </div>
-    <label class="udn-composerSummary">
-      <span class="udn-composerSummaryLabel">Zusammenfassung</span>
-      <input
-        type="text"
-        class="{dk.input} udn-composerSummaryInput"
-        value={summary}
-        on:input={onSummaryInput}
-        placeholder="Kurzüberblick für Frontmatter…"
-      />
-    </label>
+    {:else}
+      <div class="udn-composerHeadNav">
+        <button type="button" bind:this={prevBtn} class={dk.iconRoundBtn} on:click={() => shiftDate(-1)} aria-label="Vorheriger Tag"></button>
+        <div class="udn-composerHeadDate">
+          <strong>{currentDate.toLocaleDateString("de-DE", { weekday: "long" })}, {dateLabel}</strong>
+        </div>
+        <button type="button" bind:this={nextBtn} class={dk.iconRoundBtn} on:click={() => shiftDate(1)} aria-label="Nächster Tag"></button>
+        <button type="button" bind:this={nowBtn} class={dk.iconRoundBtn} on:click={goToday} aria-label="Heute"></button>
+      </div>
+      <div class="udn-composerFilterBubbles">
+        <button
+          type="button"
+          bind:this={headingBtn}
+          class="udn-headingFilter udn-composerHeadingFilter"
+          class:udn-headingFilter--menu={sectionHeadings.length > 1}
+          disabled={sectionHeadings.length <= 1}
+          on:click={onHeadingFilterClick}
+        >
+          <span class="udn-headingFilterIcon" bind:this={headingIconEl} aria-hidden="true"></span>
+          <span class="udn-headingFilterLabel">{activeHeading}</span>
+        </button>
+        <button
+          type="button"
+          bind:this={prefixBtn}
+          class="udn-headingFilter udn-composerPrefixFilter udn-headingFilter--menu"
+          disabled={chips.length === 0}
+          on:click={onPrefixFilterClick}
+        >
+          <span class="udn-headingFilterIcon" bind:this={prefixIconEl} aria-hidden="true"></span>
+          <span class="udn-headingFilterLabel">Vorlage</span>
+        </button>
+      </div>
+    {/if}
+
+    {#if !isMobile}
+      <label class="udn-composerSummary">
+        <span class="udn-composerSummaryLabel">Zusammenfassung</span>
+        <input
+          type="text"
+          class="{dk.input} udn-composerSummaryInput"
+          value={summary}
+          on:input={onSummaryInput}
+          on:focus={onInputFocus}
+          placeholder="Kurzüberblick für Frontmatter…"
+        />
+      </label>
+      <label class="udn-composerSummary">
+        <span class="udn-composerSummaryLabel">Callout-Titel</span>
+        <input
+          type="text"
+          class="{dk.input} udn-composerSummaryInput"
+          value={calloutTitle}
+          on:input={onCalloutTitleInput}
+          on:focus={onInputFocus}
+          placeholder="Titel in der Callout-Zeile…"
+        />
+      </label>
+    {/if}
   </header>
 
   {#if loading}
-    <p class={dk.empty}>Lade Tagesnotiz…</p>
+    <p class={dk.empty}>Lade…</p>
   {:else if loadError}
     <p class="{dk.empty} udn-composerError">{loadError}</p>
   {:else}
     <section class="udn-composerSection">
-      <div class="udn-composerSectionHead">
-        <h3 class="udn-composerSectionTitle">Chronik</h3>
-        <span class="udn-composerSectionMeta">{entries.length} Einträge</span>
-      </div>
-
-      <div class="udn-composerChips">
-        {#each chips as chip (chip.template)}
-          <button type="button" class="udn-composerChip" on:click={() => addChipEntry(chip)}>
-            {chip.label}
-          </button>
-        {/each}
-      </div>
+      {#if isMobile}
+        <label class="udn-composerCalloutTitle">
+          <span class="udn-composerSummaryLabel">Zusammenfassung</span>
+          <input
+            type="text"
+            class="{dk.input} udn-composerSummaryInput"
+            value={summary}
+            on:input={onSummaryInput}
+            on:focus={onInputFocus}
+            placeholder="Kurzüberblick für Frontmatter…"
+          />
+        </label>
+        <label class="udn-composerCalloutTitle">
+          <span class="udn-composerSummaryLabel">Callout-Titel</span>
+          <input
+            type="text"
+            class="{dk.input} udn-composerSummaryInput"
+            value={calloutTitle}
+            on:input={onCalloutTitleInput}
+            on:focus={onInputFocus}
+            placeholder="Titel in der Callout-Zeile…"
+          />
+        </label>
+      {/if}
+      {#if !isMobile}
+        <div class="udn-composerSectionHead">
+          <h3 class="udn-composerSectionTitle">Chronik</h3>
+          <span class="udn-composerSectionMeta">{entries.length} Einträge</span>
+        </div>
+      {/if}
 
       <ul class="udn-composerEntries">
         {#each entries as entry (entry.id)}
-          <li class="udn-composerEntry">
-            {#if entryTime(entry.text)}
-              <span class="udn-composerEntryTime">{entryTime(entry.text)}</span>
-            {/if}
+          <li class="udn-outlineEntry udn-composerEntry">
             <input
               type="text"
-              class="{dk.input} udn-composerEntryInput"
-              value={entry.text}
-              on:input={(ev) => onEntryInput(entry.id, ev)}
+              class="{dk.input} udn-timeBubble udn-timeBubbleInput"
+              value={entry.time}
+              placeholder="HH:mm"
+              inputmode="numeric"
+              aria-label="Zeit"
+              on:input={(ev) => onEntryTimeInput(entry.id, ev)}
+              on:focus={onInputFocus}
+            />
+            <JournalBodyInput
+              {app}
+              value={entry.body}
+              className="udn-timelineEntryEdit udn-composerEntryInput"
+              sourcePath={filePath}
+              onInput={(body) => onEntryBodyInput(entry.id, body)}
+              onFocus={onInputFocus}
+              onOpenWikiLink={openComposerWikiLink}
             />
             <button
               type="button"
@@ -272,28 +526,86 @@
           </li>
         {/each}
         {#if entries.length === 0}
-          <li class="udn-composerEntry udn-composerEntry--empty">Noch keine Einträge — Chip wählen oder unten eingeben.</li>
+          <li class="udn-composerEntry udn-composerEntry--empty">
+            {isMobile ? "Keine Einträge — Vorlage oder Eingabe unten." : "Noch keine Einträge — Vorlage wählen oder unten eingeben."}
+          </li>
         {/if}
       </ul>
 
-      <div class="udn-composerAddRow">
-        <input
-          type="text"
-          class="{dk.input} udn-composerAddInput"
-          placeholder="Neuer Eintrag (Enter) — Zeit wird ergänzt wenn fehlend"
-          bind:value={newEntryText}
-          on:keydown={onNewEntryKeydown}
-        />
-        <button type="button" class={dk.btn} on:click={addFreeEntry} disabled={!newEntryText.trim()}>+</button>
-      </div>
+      {#if !isMobile}
+        <div class="udn-composerAddRow">
+          <input
+            type="text"
+            class="{dk.input} udn-timeBubble udn-timeBubbleInput"
+            bind:value={newEntryTime}
+            placeholder="HH:mm"
+            inputmode="numeric"
+            aria-label="Zeit für neuen Eintrag"
+            on:focus={onInputFocus}
+          />
+          <input
+            type="text"
+            class="{dk.input} udn-composerAddInput"
+            placeholder="Neuer Eintrag (Enter)"
+            bind:value={newEntryText}
+            use:wikiLinkSuggest={{ app, sourcePath: filePath }}
+            on:keydown={onNewEntryKeydown}
+            on:focus={onInputFocus}
+          />
+          <button type="button" class={dk.btn} on:click={addFreeEntry} disabled={!newEntryText.trim()}>+</button>
+        </div>
+      {/if}
     </section>
   {/if}
 
-  <footer class="udn-composerFoot">
-    <button type="button" class={dk.btn} on:click={onClose}>Schließen</button>
-    <button type="button" class={dk.btn} on:click={openInEditor} disabled={loading}>In Notiz öffnen</button>
-    <button type="button" class={dk.btnPrimary} on:click={save} disabled={loading || saving}>
-      {saving ? "Speichern…" : "Speichern"}
-    </button>
-  </footer>
+  {#if !loading && !loadError && isMobile}
+    <div class="udn-composerMobileDock" bind:this={mobileDock}>
+      <div class="udn-composerAddRow udn-composerAddRow--pinned">
+        <input
+          type="text"
+          class="{dk.input} udn-timeBubble udn-timeBubbleInput"
+          bind:value={newEntryTime}
+          placeholder="HH:mm"
+          inputmode="numeric"
+          aria-label="Zeit für neuen Eintrag"
+          on:focus={onAddInputFocus}
+        />
+        <input
+          type="text"
+          bind:this={addInput}
+          class="{dk.input} udn-composerAddInput"
+          placeholder="Neuer Eintrag"
+          enterkeyhint="done"
+          bind:value={newEntryText}
+          use:wikiLinkSuggest={{ app, sourcePath: filePath }}
+          on:keydown={onNewEntryKeydown}
+          on:focus={onAddInputFocus}
+        />
+        <button
+          type="button"
+          class={dk.btnPrimary}
+          on:mousedown|preventDefault
+          on:click={addFreeEntry}
+          disabled={!newEntryText.trim()}
+          aria-label="Eintrag hinzufügen"
+        >+</button>
+      </div>
+      <footer class="udn-composerFoot udn-composerFoot--mobile">
+        <button type="button" class={dk.btn} on:click={openInEditor} disabled={loading}>Notiz</button>
+        <button type="button" class={dk.btnPrimary} on:click={save} disabled={loading || saving}>
+          {saving ? "…" : "Speichern"}
+        </button>
+      </footer>
+    </div>
+  {/if}
+
+  {#if !isMobile}
+    <footer class="udn-composerFoot">
+      <button type="button" class={dk.btn} on:click={onClose}>Schließen</button>
+      <button type="button" class={dk.btn} on:click={openInEditor} disabled={loading}>In Notiz öffnen</button>
+      <button type="button" class={dk.btnPrimary} on:click={save} disabled={loading || saving}>
+        {saving ? "Speichern…" : "Speichern"}
+      </button>
+    </footer>
+  {/if}
 </div>

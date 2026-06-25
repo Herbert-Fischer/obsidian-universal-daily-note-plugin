@@ -1,6 +1,7 @@
 import type { App, TFile } from "obsidian";
 import type { DailyNoteFallbackSettings } from "../settings";
 import { getFallbackDailyNoteVaultPath } from "./dailyNoteFallbackPaths";
+import { readDailyNoteTemplate } from "./dailyNoteTemplate";
 import { openOrCreateCoreDailyNote } from "./dailyNotesCore";
 
 async function ensureFolder(app: App, folderPath: string) {
@@ -8,20 +9,6 @@ async function ensureFolder(app: App, folderPath: string) {
   const existing = app.vault.getAbstractFileByPath(folderPath);
   if (existing) return;
   await app.vault.createFolder(folderPath);
-}
-
-async function readTemplateIfAny(app: App, path: string | null): Promise<string | null> {
-  if (!path) return null;
-  const f = app.vault.getAbstractFileByPath(path);
-  if (!f) return null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const maybeFile = f as any;
-  if (typeof maybeFile?.path !== "string") return null;
-  try {
-    return await app.vault.read(maybeFile);
-  } catch {
-    return null;
-  }
 }
 
 async function openFile(app: App, file: TFile) {
@@ -44,7 +31,7 @@ async function openOrCreateDailyNoteFallback(
     return existing as any as TFile;
   }
 
-  const template = await readTemplateIfAny(app, fallback.templatePath);
+  const template = await readDailyNoteTemplate(app, fallback.templatePath, date);
   const created = await app.vault.create(fullPath, template ?? "");
   return created;
 }

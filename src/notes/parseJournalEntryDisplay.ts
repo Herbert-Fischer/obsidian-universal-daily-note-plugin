@@ -12,3 +12,12 @@ export function parseJournalEntryDisplay(text: string): JournalEntryDisplay {
   if (!match) return { time: null, body: trimmed };
   return { time: match[1] ?? null, body: (match[2] ?? "").trim() };
 }
+
+/** Rebuild stored journal line text from editable time + body fields. */
+export function formatJournalEntryText(time: string | null | undefined, body: string): string {
+  const trimmedBody = body.trim();
+  const trimmedTime = time?.trim() ?? "";
+  if (trimmedTime && trimmedBody) return `${trimmedTime} ${trimmedBody}`;
+  if (trimmedTime) return trimmedTime;
+  return trimmedBody;
+}

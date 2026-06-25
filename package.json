@@ -1,6 +1,6 @@
 {
   "name": "universal-daily-note-plugin",
-  "version": "0.9.0",
+  "version": "1.0.0",
   "description": "Universal Daily Note plugin for Obsidian (Denkarium conventions).",
   "main": "main.js",
   "scripts": {

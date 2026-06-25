@@ -1,7 +1,7 @@
 <script lang="ts">
   import { afterUpdate, onMount } from "svelte";
   import { setIcon } from "obsidian";
-  import { dk } from "@denkarium/obsidian-lib-ui";
+  import { dk, sidebarPointerAction } from "@denkarium/obsidian-lib-ui";
   import type { SectionId } from "../settings";
 
   export let sectionId: SectionId;
@@ -34,7 +34,7 @@
     id="udn-section-{sectionId}"
     class={dk.sectionHeader}
     aria-expanded={!collapsed}
-    on:click={handleToggle}
+    use:sidebarPointerAction={handleToggle}
   >
     <span class={dk.sectionChevron} bind:this={chevronEl}></span>
     <span>{title}</span>

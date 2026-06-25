@@ -1,5 +1,14 @@
 import { DEFAULT_EXCLUDED_JOURNAL_HEADINGS, DEFAULT_JOURNAL_HEADING } from "../settings";
 
+/** Show journal lines from every ## section (except excluded). */
+export const ALL_JOURNAL_HEADINGS = "Alle";
+
+export function isAllJournalHeadings(
+  heading: string | null | undefined,
+): boolean {
+  return heading?.trim().toLowerCase() === ALL_JOURNAL_HEADINGS.toLowerCase();
+}
+
 export function isExcludedJournalHeading(
   heading: string,
   excluded: string[] = DEFAULT_EXCLUDED_JOURNAL_HEADINGS,
@@ -38,6 +47,7 @@ export function normalizeActiveJournalHeading(
   defaultHeading: string = DEFAULT_JOURNAL_HEADING,
 ): string {
   const trimmed = heading?.trim() || defaultHeading;
+  if (isAllJournalHeadings(trimmed)) return ALL_JOURNAL_HEADINGS;
   if (isExcludedJournalHeading(trimmed, excluded)) return defaultHeading;
   return trimmed;
 }

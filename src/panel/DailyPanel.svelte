@@ -1,13 +1,23 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { get } from "svelte/store";
   import type UniversalDailyNotePlugin from "../main";
-  import type { OutlineSettings } from "../settings";
-  import { getUniversalCalendarContext } from "../integrations/universalCalendar";
+  import { DEFAULT_SETTINGS, type OutlineSettings } from "../settings";
+  import {
+    dateFromDailyNoteFile,
+    getUniversalCalendarContext,
+    isUniversalCalendarPanelSyncEnabled,
+    isUniversalCalendarSuppressingEcho,
+    syncUniversalCalendarFromContext,
+  } from "../integrations/universalCalendar";
   import type { CalendarSyncContext } from "../integrations/calendarRange";
   import { bumpRefresh, createPanelStore, type PanelStore } from "./panelStore";
-  import { normalizeLocalDay } from "./dateUtils";
+  import { normalizeLocalDay, sameLocalDay } from "./dateUtils";
+  import { getMainAreaActiveMarkdownFile } from "../tagebuchVerweise/mainPageFile";
   import TimelineSection from "./sections/TimelineSection.svelte";
   import { openDailyComposer } from "./composer/openDailyComposer";
+  import { openUniversalTaskComposer } from "../integrations/universalTasks";
+  import { Notice } from "obsidian";
 
   export let app: UniversalDailyNotePlugin["app"];
   export let plugin: UniversalDailyNotePlugin;
@@ -21,46 +31,110 @@
   const initialDate = calCtx?.selectedDate ?? new Date();
   const store = createPanelStore(initialDate, plugin.settings);
   const { selectedDate, calendarContext } = store;
+  let outlineSettings: OutlineSettings = plugin.settings.outline ?? DEFAULT_SETTINGS.outline;
+  let syncingFromCalendar = false;
 
   function patchOutline(patch: Partial<OutlineSettings>) {
+    outlineSettings = { ...outlineSettings, ...patch };
     plugin.settings = {
       ...plugin.settings,
-      outline: { ...plugin.settings.outline, ...patch },
+      outline: outlineSettings,
     };
     void plugin.saveSettings();
     bumpRefresh(store);
   }
 
-  function setSelectedDate(date: Date): void {
-    selectedDate.set(normalizeLocalDay(date));
-    bumpRefresh(store);
+  function pushToUniversalCalendar(date: Date, monthCursor?: Date): void {
+    if (!isUniversalCalendarPanelSyncEnabled(app)) return;
+    const month = monthCursor ?? new Date(date.getFullYear(), date.getMonth(), 1);
+    syncUniversalCalendarFromContext(app, {
+      selectedDate: normalizeLocalDay(date),
+      monthCursor: normalizeLocalDay(month),
+    });
   }
 
-  function setCalendarContext(ctx: CalendarSyncContext): void {
+  function applyPanelContext(ctx: CalendarSyncContext, fromCalendar: boolean): void {
     const normalized: CalendarSyncContext = {
       selectedDate: normalizeLocalDay(ctx.selectedDate),
       monthCursor: normalizeLocalDay(ctx.monthCursor),
     };
+    if (fromCalendar) syncingFromCalendar = true;
     calendarContext.set(normalized);
     selectedDate.set(normalized.selectedDate);
-    bumpRefresh(store);
+    if (fromCalendar) syncingFromCalendar = false;
+    else if (!syncingFromCalendar) {
+      pushToUniversalCalendar(normalized.selectedDate, normalized.monthCursor);
+    }
+  }
+
+  function setSelectedDate(date: Date): void {
+    const normalized = normalizeLocalDay(date);
+    const monthCursor = new Date(normalized.getFullYear(), normalized.getMonth(), 1);
+    calendarContext.set({ selectedDate: normalized, monthCursor });
+    selectedDate.set(normalized);
+    if (!syncingFromCalendar) pushToUniversalCalendar(normalized, monthCursor);
+  }
+
+  function setCalendarContext(ctx: CalendarSyncContext): void {
+    applyPanelContext(ctx, true);
   }
 
   function syncFromCalendar() {
     const ctx = getUniversalCalendarContext(app);
-    if (ctx) setCalendarContext(ctx);
+    if (ctx) applyPanelContext(ctx, true);
+  }
+
+  function syncFromActiveContext() {
+    if (syncingFromCalendar || isUniversalCalendarSuppressingEcho(app)) return;
+
+    const active = getMainAreaActiveMarkdownFile(app);
+    if (active) {
+      const noteDate = dateFromDailyNoteFile(
+        active,
+        plugin.settings.dailyNoteFallback,
+        plugin.settings.tagebuchVerweise,
+      );
+      if (noteDate) {
+        const current = normalizeLocalDay(get(selectedDate));
+        if (!sameLocalDay(current, noteDate)) {
+          setSelectedDate(noteDate);
+        } else if (!syncingFromCalendar) {
+          pushToUniversalCalendar(
+            noteDate,
+            new Date(noteDate.getFullYear(), noteDate.getMonth(), 1),
+          );
+        }
+        return;
+      }
+    }
+    syncFromCalendar();
+  }
+
+  function selectOutlineDay(dateKey: string): void {
+    const [y, m, d] = dateKey.split("-").map(Number);
+    if (!y || !m || !d) return;
+    setSelectedDate(new Date(y, m - 1, d));
   }
 
   onMount(() => {
     onStoreReady(store, setSelectedDate, setCalendarContext);
-    syncFromCalendar();
+    syncFromActiveContext();
 
-    const onLeafChange = () => syncFromCalendar();
+    let syncTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleSyncFromActiveContext = () => {
+      if (syncTimer) clearTimeout(syncTimer);
+      syncTimer = setTimeout(() => {
+        syncTimer = null;
+        syncFromActiveContext();
+      }, 50);
+    };
+
+    const onLeafChange = () => scheduleSyncFromActiveContext();
     const onDataChange = () => bumpRefresh(store);
     const onVaultReady = () => bumpRefresh(store);
 
     const workspaceRef = app.workspace.on("active-leaf-change", onLeafChange);
-    const layoutRef = app.workspace.on("layout-change", syncFromCalendar);
+    const layoutRef = app.workspace.on("layout-change", scheduleSyncFromActiveContext);
     const metaRef = app.metadataCache.on("changed", onDataChange);
     const resolvedRef = app.metadataCache.on("resolved", onVaultReady);
     const vaultRefs = [
@@ -72,6 +146,7 @@
     app.workspace.onLayoutReady(onVaultReady);
 
     return () => {
+      if (syncTimer) clearTimeout(syncTimer);
       app.workspace.offref(workspaceRef);
       app.workspace.offref(layoutRef);
       app.metadataCache.offref(metaRef);
@@ -90,13 +165,24 @@
     {selectedDate}
     fallback={plugin.settings.dailyNoteFallback}
     tagebuchSettings={plugin.settings.tagebuchVerweise}
-    outlineSettings={plugin.settings.outline}
+    {outlineSettings}
     onOutlinePatch={patchOutline}
+    onSelectDay={selectOutlineDay}
     onOpenComposer={(d) => {
       openDailyComposer(plugin, {
         date: d,
+        journalHeading: outlineSettings.journalHeading,
         onSaved: () => bumpRefresh(store),
+        onHeadingChange: (heading) => {
+          patchOutline({ journalHeading: heading });
+        },
       });
+    }}
+    onOpenTaskComposer={(d) => {
+      const ok = openUniversalTaskComposer(app, d, () => bumpRefresh(store));
+      if (!ok) {
+        new Notice("Neue Aufgabe benötigt das Plugin „Universal Tasks“.");
+      }
     }}
   />
 </div>

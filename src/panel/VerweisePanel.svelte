@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import type { TFile } from "obsidian";
   import type UniversalDailyNotePlugin from "../main";
-  import type { OutlineSettings, TagebuchVerweiseSettings } from "../settings";
+  import { DEFAULT_SETTINGS, type OutlineSettings, type TagebuchVerweiseSettings } from "../settings";
   import { getUniversalCalendarContext } from "../integrations/universalCalendar";
   import type { CalendarSyncContext } from "../integrations/calendarRange";
   import { getMainAreaActiveMarkdownFile } from "../tagebuchVerweise/mainPageFile";
@@ -17,6 +17,7 @@
   const initialDate = calCtx?.selectedDate ?? new Date();
   const store = createPanelStore(initialDate, plugin.settings);
   const { activeFile, selectedDate, calendarContext } = store;
+  let outlineSettings: OutlineSettings = plugin.settings.outline ?? DEFAULT_SETTINGS.outline;
 
   let followMainPage = true;
   let pinnedTarget: TFile | null = null;
@@ -24,9 +25,10 @@
   $: showTimeBubbles = plugin.settings.tagebuchVerweise.showTimeBubbles ?? false;
 
   function patchOutline(patch: Partial<OutlineSettings>) {
+    outlineSettings = { ...outlineSettings, ...patch };
     plugin.settings = {
       ...plugin.settings,
-      outline: { ...plugin.settings.outline, ...patch },
+      outline: outlineSettings,
     };
     void plugin.saveSettings();
     bumpRefresh(store);
@@ -114,7 +116,7 @@
     {selectedDate}
     fallback={plugin.settings.dailyNoteFallback}
     tagebuchSettings={plugin.settings.tagebuchVerweise}
-    outlineSettings={plugin.settings.outline}
+    {outlineSettings}
     onOutlinePatch={patchOutline}
     {followMainPage}
     {pinnedTarget}

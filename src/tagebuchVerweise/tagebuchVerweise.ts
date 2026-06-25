@@ -1,6 +1,7 @@
 import type { App, CachedMetadata, TFile } from "obsidian";
 import type { TagebuchVerweiseSettings } from "../settings";
 
+import { isAllJournalHeadings } from "../notes/journalHeadingFilter";
 import { journalHeadingForLine, isDailyNoteInDateRange } from "../notes/journalSection";
 
 export type TagebuchVerweisEntry = {
@@ -9,6 +10,7 @@ export type TagebuchVerweisEntry = {
   dailyNoteLabel: string;
   line: string;
   sourceLine: number;
+  section?: string;
 };
 
 export type FindTagebuchVerweiseOptions = {
@@ -144,8 +146,9 @@ async function appendRowsForDailyNote(
 
   const textLines = text.split("\n");
   const headingFilter = options.journalHeading?.trim() || null;
+  const filterAll = isAllJournalHeadings(headingFilter);
   const hits = collectLines(sourceFile, targetFile, textLines, cache ?? null).filter(({ lineNum }) => {
-    if (!headingFilter) return true;
+    if (filterAll || !headingFilter) return true;
     const section = journalHeadingForLine(textLines, lineNum);
     return section?.toLowerCase() === headingFilter.toLowerCase();
   });
@@ -159,6 +162,7 @@ async function appendRowsForDailyNote(
       dailyNoteLabel: label,
       line: journalLineCell(raw),
       sourceLine: lineNum,
+      section: filterAll ? journalHeadingForLine(textLines, lineNum) ?? undefined : undefined,
     });
   }
 }

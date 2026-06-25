@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { extractUsedJournalHeadings } from "./dailyNoteTimeline";
+import { extractAllH2Headings, extractUsedJournalHeadings } from "./dailyNoteTimeline";
 import { finalizeJournalHeadings } from "./journalHeadingFilter";
+
+describe("extractAllH2Headings", () => {
+  it("returns all ## headings including empty sections", () => {
+    const lines = ["## Tagebuch", "- entry", "## Reisen", "## Sonstiges", "nur Text"];
+    expect(extractAllH2Headings(lines)).toEqual(["Tagebuch", "Reisen", "Sonstiges"]);
+  });
+});
 
 describe("extractUsedJournalHeadings", () => {
   it("returns only ## sections with list entries", () => {

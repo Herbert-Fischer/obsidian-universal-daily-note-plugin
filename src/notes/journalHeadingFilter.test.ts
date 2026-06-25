@@ -23,4 +23,8 @@ describe("journalHeadingFilter", () => {
     expect(normalizeActiveJournalHeading("Aufgaben")).toBe("Tagebuch");
     expect(normalizeActiveJournalHeading("Sonstiges")).toBe("Sonstiges");
   });
+
+  it("preserves Alle as active heading", () => {
+    expect(normalizeActiveJournalHeading("Alle")).toBe("Alle");
+  });
 });

@@ -1,4 +1,5 @@
 import type { TimelineDay } from "./dailyNoteTimeline";
+import { filterTimelineSectionGroups } from "./dailyNoteTimeline";
 
 export function entryMatchesTextFilter(text: string, query: string): boolean {
   const q = query.trim();
@@ -10,10 +11,14 @@ export function filterTimelineDaysByText(days: TimelineDay[], query: string): Ti
   const q = query.trim();
   if (!q) return days;
   return days
-    .map((day) => ({
-      ...day,
-      entries: day.entries.filter((e) => entryMatchesTextFilter(e.text, q)),
-    }))
+    .map((day) => {
+      const entries = day.entries.filter((e) => entryMatchesTextFilter(e.text, q));
+      return {
+        ...day,
+        entries,
+        sectionGroups: filterTimelineSectionGroups(entries, day.sectionGroups),
+      };
+    })
     .filter((day) => day.entries.length > 0);
 }
 

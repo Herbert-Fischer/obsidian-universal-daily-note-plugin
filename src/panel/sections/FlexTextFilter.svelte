@@ -1,7 +1,7 @@
 <script lang="ts">
   import { afterUpdate, onMount } from "svelte";
   import { setIcon } from "obsidian";
-  import { dk } from "@denkarium/obsidian-lib-ui";
+  import { dk, sidebarPointerAction } from "@denkarium/obsidian-lib-ui";
   import type { OutlineSettings } from "../../settings";
 
   export let mode: "toggle" | "field";
@@ -61,7 +61,7 @@
     bind:this={toggleBtn}
     class="udn-headingFilter udn-headingFilter--menu"
     class:udn-headingFilter--active={enabled}
-    on:click={toggle}
+    use:sidebarPointerAction={toggle}
   >
     <span class="udn-headingFilterIcon" bind:this={toggleIconEl} aria-hidden="true"></span>
   </button>
@@ -77,7 +77,7 @@
         aria-label="Textfilter"
       />
       {#if query.trim()}
-        <button type="button" bind:this={clearBtn} class="udn-textFilterClear" on:click={clearQuery}>
+        <button type="button" bind:this={clearBtn} class="udn-textFilterClear" use:sidebarPointerAction={clearQuery}>
           <span bind:this={clearIconEl} aria-hidden="true"></span>
         </button>
       {/if}

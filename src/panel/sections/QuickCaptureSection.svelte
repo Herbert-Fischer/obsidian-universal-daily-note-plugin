@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { App } from "obsidian";
   import { Notice } from "obsidian";
-  import { dk } from "@denkarium/obsidian-lib-ui";
+  import { dk, sidebarPointerAction } from "@denkarium/obsidian-lib-ui";
   import type { Writable } from "svelte/store";
   import type { TFile } from "obsidian";
   import type { QuickCaptureSettings, DailyNoteFallbackSettings } from "../../settings";
@@ -136,7 +136,7 @@
           class="udn-chip"
           class:udn-chip--active={selectedPrefix === prefix}
           disabled={saving}
-          on:click={() => togglePrefix(prefix)}
+          use:sidebarPointerAction={() => togglePrefix(prefix)}
         >{prefix.replace(/:$/, "")}</button>
       {/each}
     </div>
@@ -156,7 +156,7 @@
       {#each pendingEmbeds as path (path)}
         <li>
           <span class="udn-captureEmbedName">{path.split("/").pop()}</span>
-          <button type="button" class={dk.btn} disabled={saving} on:click={() => removeEmbed(path)}>
+          <button type="button" class={dk.btn} disabled={saving} use:sidebarPointerAction={() => removeEmbed(path)}>
             Entfernen
           </button>
         </li>
@@ -165,14 +165,14 @@
   {/if}
 
   <div class="udn-captureActions">
-    <button type="button" class={dk.btn} disabled={saving} on:click={openFilePicker}>
+    <button type="button" class={dk.btn} disabled={saving} use:sidebarPointerAction={openFilePicker}>
       Anhang…
     </button>
     <button
       type="button"
       class={dk.btnPrimary}
       disabled={saving || (!text.trim() && pendingEmbeds.length === 0)}
-      on:click={submit}
+      use:sidebarPointerAction={submit}
     >
       Log
     </button>

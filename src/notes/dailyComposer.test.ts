@@ -6,9 +6,10 @@ import {
   updateSummaryInContent,
   DEFAULT_COMPOSER_CHIPS,
 } from "./dailyComposer";
+import { extractJournalLines, extractJournalLinesFromCallout } from "./dailyNoteTimeline";
 
 describe("rewriteJournalBullets", () => {
-  it("replaces bullets under Tagebuch and keeps other sections", () => {
+  it("writes Tagebuch entries into a dated callout", () => {
     const lines = [
       "---",
       "x: 1",
@@ -19,18 +20,77 @@ describe("rewriteJournalBullets", () => {
       "## Aufgaben",
       "- task",
     ];
-    const out = rewriteJournalBullets(lines, "Tagebuch", ["07:30 Aufstehen", "12:00 Mittagessen: Pizza"]);
-    expect(out).toContain("- 07:30 Aufstehen");
-    expect(out).toContain("- 12:00 Mittagessen: Pizza");
+    const date = new Date(2026, 5, 23);
+    const out = rewriteJournalBullets(lines, "Tagebuch", ["07:30 Aufstehen", "12:00 Mittagessen: Pizza"], date);
+    expect(out).toContain("> [!tagebuch-ref] 23.06.2026");
+    expect(out).toContain("> - 07:30 Aufstehen");
+    expect(out).toContain("> - 12:00 Mittagessen: Pizza");
     expect(out).not.toContain("- old entry");
     expect(out).toContain("## Aufgaben");
     expect(out).toContain("- task");
   });
 
-  it("appends section when missing", () => {
-    const out = rewriteJournalBullets(["# Day"], "Tagebuch", ["Freitext"]);
-    expect(out.some((l) => l === "## Tagebuch")).toBe(true);
-    expect(out).toContain("- Freitext");
+  it("creates callout for Sonstiges with heading title", () => {
+    const out = rewriteJournalBullets(["# Day"], "Sonstiges", ["Freitext"], new Date(2026, 5, 23));
+    expect(out.some((l) => l === "## Sonstiges")).toBe(true);
+    expect(out).toContain("> [!notes] Sonstiges");
+    expect(out).toContain("> - Freitext");
+  });
+
+  it("uses custom callout title when provided", () => {
+    const out = rewriteJournalBullets(
+      ["## Obsidian Plugin"],
+      "Obsidian Plugin",
+      ["Entwicklungsumgebung eingerichtet"],
+      new Date(2026, 4, 3),
+      "Plugin-Dev Session",
+    );
+    expect(out).toContain("> [!notes] Plugin-Dev Session");
+    expect(out).toContain("> - Entwicklungsumgebung eingerichtet");
+  });
+
+  it("uses section heading as default callout title", () => {
+    const out = rewriteJournalBullets(
+      ["## Obsidian Plugin"],
+      "Obsidian Plugin",
+      ["Entwicklungsumgebung eingerichtet"],
+      new Date(2026, 4, 3),
+    );
+    expect(out).toContain("> [!notes] Obsidian Plugin");
+    expect(out).toContain("> - Entwicklungsumgebung eingerichtet");
+  });
+
+  it("preserves non-journal lines in the same section", () => {
+    const lines = ["## Wichtig", "Hinweistext", "- [ ] Task", "- 12:00 Journal"];
+    const out = rewriteJournalBullets(lines, "Wichtig", ["15:00 Update"], new Date(2026, 5, 23));
+    expect(out).toContain("Hinweistext");
+    expect(out).toContain("- [ ] Task");
+    expect(out).toContain("> [!cone] Wichtig");
+    expect(out).toContain("> - 15:00 Update");
+    expect(out).not.toContain("- 12:00 Journal");
+  });
+});
+
+describe("extractJournalLines callouts", () => {
+  it("reads bullets from managed callout under heading", () => {
+    const lines = [
+      "## Tagebuch",
+      "> [!tagebuch] 23.06.2026",
+      "> - 07:10 Aufstehen",
+      "> - 11:15 Mittagessen: Spinat",
+    ];
+    expect(extractJournalLines(lines, "Tagebuch").map((e) => e.text)).toEqual([
+      "07:10 Aufstehen",
+      "11:15 Mittagessen: Spinat",
+    ]);
+  });
+
+  it("reads legacy callout without heading", () => {
+    const lines = [
+      "> [!tagebuch-ref] Tagebuch",
+      "> - 07:10 Aufstehen",
+    ];
+    expect(extractJournalLinesFromCallout(lines, "Tagebuch").map((e) => e.text)).toEqual(["07:10 Aufstehen"]);
   });
 });
 

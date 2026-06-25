@@ -2,7 +2,8 @@
   import { afterUpdate, onMount, tick } from "svelte";
   import type { App } from "obsidian";
   import { setIcon, Menu } from "obsidian";
-  import { dk } from "@denkarium/obsidian-lib-ui";
+  import { dk, sidebarMenuAction } from "@denkarium/obsidian-lib-ui";
+  import { panelTapAction } from "../panelTapAction";
   import type { Writable } from "svelte/store";
   import type { DailyNoteFallbackSettings, OutlineSettings, TagebuchVerweiseSettings } from "../../settings";
   import { DEFAULT_JOURNAL_HEADING, DEFAULT_SETTINGS } from "../../settings";
@@ -10,23 +11,30 @@
     loadOutlineBatch,
     loadUsedJournalHeadings,
     openTimelineEntry,
+    groupTimelineDaysByTrip,
     type TimelineDay,
     type TimelineEntry,
+    type TimelineSectionGroup,
+    type TimelineTripGroup,
   } from "../../notes/dailyNoteTimeline";
   import { updateJournalLine } from "../../notes/editJournalLine";
   import { openWikiLinkInMain } from "../../notes/openInMainPane";
-  import { parseWikiLinks } from "../../notes/parseWikiLinks";
-  import { parseJournalEntryDisplay } from "../../notes/parseJournalEntryDisplay";
+  import { parseJournalEntryDisplay, formatJournalEntryText } from "../../notes/parseJournalEntryDisplay";
   import { entryHueFromIndex, formatDayBubbleLabel } from "../formatDayBubble";
+  import TimelineOutlineEntry from "./TimelineOutlineEntry.svelte";
 
   import type { PanelStore } from "../panelStore";
   import type { CalendarSyncContext, OutlineRangeMode } from "../../integrations/calendarRange";
   import {
     outlineRangeModeLabel,
     resolveOutlineDateBounds,
+    resolveOutlineLoadAnchor,
   } from "../../integrations/calendarRange";
   import { filterTimelineDaysByText } from "../../notes/entryTextFilter";
+  import { ALL_JOURNAL_HEADINGS, isAllJournalHeadings } from "../../notes/journalHeadingFilter";
   import FlexTextFilter from "./FlexTextFilter.svelte";
+  import { COMPOSER_ICON, COMPOSER_LABEL } from "../composer/composerUi";
+  import { TASK_COMPOSER_ICON, TASK_COMPOSER_LABEL } from "../../integrations/universalTasks";
 
   function selectedDateKey(d: Date): string {
     const y = d.getFullYear();
@@ -39,6 +47,15 @@
     return `${day.dateKey}:${entry.line}`;
   }
 
+  function sectionGroupsForDay(day: TimelineDay): TimelineSectionGroup[] {
+    if (day.sectionGroups && day.sectionGroups.length > 0) return day.sectionGroups;
+    return [{ section: "", calloutTitle: "", entries: day.entries }];
+  }
+
+  function sectionCalloutDiffers(group: TimelineSectionGroup): boolean {
+    return group.calloutTitle.trim().toLowerCase() !== group.section.trim().toLowerCase();
+  }
+
   export let app: App;
   export let store: PanelStore;
   export let selectedDate: Writable<Date>;
@@ -47,6 +64,8 @@
   export let outlineSettings: OutlineSettings = DEFAULT_SETTINGS.outline;
   export let onOutlinePatch: (patch: Partial<OutlineSettings>) => void = () => {};
   export let onOpenComposer: (date: Date) => void = () => {};
+  export let onOpenTaskComposer: (date: Date) => void = () => {};
+  export let onSelectDay: (dateKey: string) => void = () => {};
 
   const { refreshTick, calendarContext } = store;
 
@@ -56,6 +75,7 @@
   let loadingMore = false;
   let hasMore = false;
   let listEl: HTMLDivElement;
+  let scrollBodyEl: HTMLDivElement;
   let scrollHost: HTMLElement | null = null;
   let timeToggleBtn: HTMLButtonElement;
   let headingBtn: HTMLButtonElement;
@@ -63,13 +83,15 @@
   let rangeBtn: HTMLButtonElement;
   let rangeIconEl: HTMLSpanElement;
   let dailyNoteBtn: HTMLButtonElement;
+  let taskComposerBtn: HTMLButtonElement;
   let loadGeneration = 0;
   let lastLoadSignature = "";
-  let lastScrollAnchor = "";
+  let lastScrolledDateKey = "";
   let lastRefreshKey = -1;
   let editingId: string | null = null;
-  let editValue = "";
-  let editInput: HTMLInputElement;
+  let editTime = "";
+  let editBody = "";
+  let editInput: HTMLInputElement | undefined;
 
   $: pageSize = Math.max(1, outlineSettings?.pageSize ?? 10);
   $: showTimeBubbles = outlineSettings?.showTimeBubbles ?? true;
@@ -87,12 +109,25 @@
   $: bounded = rangeMode !== "scroll";
   $: calCtx = buildCalendarCtx(noteDate, $calendarContext);
   $: dateBounds = resolveOutlineDateBounds(rangeMode, calCtx);
+  $: baselineHeadings =
+    usedHeadings.length > 0
+      ? usedHeadings
+      : isAllJournalHeadings(journalHeading)
+        ? [DEFAULT_JOURNAL_HEADING]
+        : [journalHeading];
   $: dropdownHeadings =
-    usedHeadings.length === 0
-      ? [journalHeading]
-      : usedHeadings.some((h) => h.toLowerCase() === journalHeading.toLowerCase())
-        ? usedHeadings
-        : [journalHeading, ...usedHeadings];
+    baselineHeadings.some((h) => h.toLowerCase() === journalHeading.toLowerCase())
+      ? baselineHeadings
+      : isAllJournalHeadings(journalHeading)
+        ? baselineHeadings
+        : [journalHeading, ...baselineHeadings];
+  $: showSectionLabels = isAllJournalHeadings(journalHeading);
+  $: showTripGroups = journalHeading.trim().toLowerCase() === "reisen";
+  $: tripGroups = showTripGroups ? groupTimelineDaysByTrip(displayDays) : [];
+  $: headingMenuItems = [
+    ALL_JOURNAL_HEADINGS,
+    ...dropdownHeadings.filter((h) => !isAllJournalHeadings(h)),
+  ];
   $: refreshKey = $refreshTick;
   $: noteDate = $selectedDate;
   $: textSearchSignature = `${textFilterEnabled}|${textFilterQuery.trim().toLowerCase()}`;
@@ -106,13 +141,50 @@
   );
 
   $: if (loadSignature !== lastLoadSignature) {
-    const isFirst = lastLoadSignature === "";
-    const shouldScroll =
-      !isFirst && selectedDateKey(noteDate) !== lastScrollAnchor;
     lastLoadSignature = loadSignature;
-    if (shouldScroll) lastScrollAnchor = selectedDateKey(noteDate);
-    if (isFirst) lastScrollAnchor = selectedDateKey(noteDate);
-    void resetAndLoad(noteDate, shouldScroll || isFirst);
+    void resetAndLoad();
+  }
+
+  $: if (!loading) {
+    const key = selectedDateKey(noteDate);
+    if (key !== lastScrolledDateKey) {
+      lastScrolledDateKey = key;
+      void tick().then(() => {
+        scrollToDate(key);
+        void ensureSelectedDayVisible(key);
+      });
+    } else if (rangeMode === "scroll" && !textSearchActive && !days.some((d) => d.dateKey === key)) {
+      void ensureSelectedDayVisible(key);
+    }
+  }
+
+  async function ensureSelectedDayVisible(dateKey: string) {
+    if (rangeMode !== "scroll" || textSearchActive || loading || days.some((d) => d.dateKey === dateKey)) {
+      return;
+    }
+
+    const [y, m, d] = dateKey.split("-").map(Number);
+    if (!y || !m || !d) return;
+
+    const generation = loadGeneration;
+    const date = new Date(y, m - 1, d);
+    const timeline = { durationDays, journalHeading, excludedHeadings };
+    try {
+      const batch = await loadOutlineBatch(app, date, fallback, tagebuchSettings, timeline, {
+        pageSize: Math.max(3, pageSize),
+      });
+      if (generation !== loadGeneration) return;
+
+      const existing = new Set(days.map((day) => day.dateKey));
+      const merged = batch.days.filter((day) => !existing.has(day.dateKey));
+      if (merged.length === 0) return;
+
+      days = [...days, ...merged].sort((a, b) => b.dateKey.localeCompare(a.dateKey));
+      await tick();
+      scrollToDate(dateKey);
+    } catch (e) {
+      console.error("Universal Daily Note: ensure selected day", e);
+    }
   }
 
   function buildCalendarCtx(date: Date, ctx: CalendarSyncContext | null): CalendarSyncContext {
@@ -133,7 +205,15 @@
     const cal = buildCalendarCtx(date, ctx);
     const bounds = resolveOutlineDateBounds(mode, cal);
     const boundsPart = bounds ? `${bounds.startDateKey}:${bounds.endDateKey}` : "scroll";
-    return `${mode}|${boundsPart}|${heading}|${selectedDateKey(cal.selectedDate)}|${selectedDateKey(cal.monthCursor)}|${refresh}|${textSearch}`;
+    return `${mode}|${boundsPart}|${heading}|${selectedDateKey(cal.monthCursor)}|${refresh}|${textSearch}`;
+  }
+
+  function outlineLoadContext(date: Date = noteDate): CalendarSyncContext {
+    return buildCalendarCtx(date, $calendarContext);
+  }
+
+  function outlineLoadAnchor(date: Date = noteDate): Date {
+    return resolveOutlineLoadAnchor(rangeMode, outlineLoadContext(date));
   }
 
   function outlineBatchOptions(bounds: ReturnType<typeof resolveOutlineDateBounds>) {
@@ -147,19 +227,21 @@
     };
   }
 
-  async function resetAndLoad(date: Date, scrollToAnchor: boolean) {
+  async function resetAndLoad() {
     editingId = null;
     const generation = ++loadGeneration;
     loading = true;
     loadingMore = false;
-    if (textSearchActive) days = [];
-    const ctx = buildCalendarCtx(date, $calendarContext);
+    days = [];
+    const ctx = outlineLoadContext();
+    const loadAnchor = outlineLoadAnchor();
     const bounds = resolveOutlineDateBounds(rangeMode, ctx);
     const batchOpts = outlineBatchOptions(bounds);
+    const timeline = { durationDays, journalHeading, excludedHeadings };
     try {
       const [batch, headings] = await Promise.all([
-        loadOutlineBatch(app, date, fallback, tagebuchSettings, outlineSettings, batchOpts),
-        loadUsedJournalHeadings(app, date, fallback, tagebuchSettings, durationDays, {
+        loadOutlineBatch(app, loadAnchor, fallback, tagebuchSettings, timeline, batchOpts),
+        loadUsedJournalHeadings(app, loadAnchor, fallback, tagebuchSettings, durationDays, {
           excludedHeadings,
           bounds,
         }),
@@ -176,11 +258,6 @@
     } finally {
       if (generation === loadGeneration) loading = false;
     }
-
-    if (scrollToAnchor && generation === loadGeneration) {
-      await tick();
-      scrollToDate(selectedDateKey(date));
-    }
   }
 
   async function loadMore() {
@@ -190,8 +267,9 @@
 
     loadingMore = true;
     const generation = loadGeneration;
+    const timeline = { durationDays, journalHeading, excludedHeadings };
     try {
-      const batch = await loadOutlineBatch(app, $selectedDate, fallback, tagebuchSettings, outlineSettings, {
+      const batch = await loadOutlineBatch(app, outlineLoadAnchor(), fallback, tagebuchSettings, timeline, {
         pageSize,
         beforeDateKey: oldest,
       });
@@ -200,7 +278,7 @@
         hasMore = false;
         return;
       }
-      days = [...days, ...batch.days];
+      days = [...days, ...batch.days].sort((a, b) => b.dateKey.localeCompare(a.dateKey));
       hasMore = batch.hasMore;
     } catch (e) {
       console.error("Universal Daily Note: Timeline load more", e);
@@ -214,8 +292,8 @@
   }
 
   function resolveScrollHost(): HTMLElement | null {
-    if (!listEl) return null;
-    return listEl.closest(".dk-scrollHost") ?? listEl;
+    if (scrollBodyEl) return scrollBodyEl;
+    return listEl?.closest(".dk-scrollHost") ?? listEl;
   }
 
   function bindScrollHost() {
@@ -250,19 +328,24 @@
     onOpenComposer($selectedDate);
   }
 
-  function openDayNote(filePath: string) {
-    void openTimelineEntry(app, filePath, 0);
+  function openTaskComposer() {
+    onOpenTaskComposer($selectedDate);
   }
 
-  function openWikiLink(dest: string, sourcePath: string, ev: MouseEvent) {
-    ev.preventDefault();
-    ev.stopPropagation();
+  function openDayNote(day: TimelineDay) {
+    onSelectDay(day.dateKey);
+    void openTimelineEntry(app, day.filePath, 0);
+  }
+
+  function openWikiLink(dest: string, sourcePath: string) {
     void openWikiLinkInMain(app, dest, sourcePath);
   }
 
   async function startEdit(day: TimelineDay, entry: TimelineEntry) {
+    const display = parseJournalEntryDisplay(entry.text);
     editingId = entryId(day, entry);
-    editValue = entry.text;
+    editTime = display.time ?? "";
+    editBody = display.body;
     await tick();
     editInput?.focus();
     editInput?.select();
@@ -274,7 +357,7 @@
 
   async function commitEdit(day: TimelineDay, entry: TimelineEntry) {
     if (editingId !== entryId(day, entry)) return;
-    const trimmed = editValue.trim();
+    const trimmed = formatJournalEntryText(editTime, editBody).trim();
     editingId = null;
     if (!trimmed || trimmed === entry.text) return;
 
@@ -282,9 +365,18 @@
     if (ok) store.refreshTick.update((n) => n + 1);
   }
 
-  function onEntryDblClick(day: TimelineDay, entry: TimelineEntry, ev: MouseEvent) {
-    ev.preventDefault();
-    void startEdit(day, entry);
+  async function commitTimeEdit(day: TimelineDay, entry: TimelineEntry, time: string) {
+    if (editingId === entryId(day, entry)) return;
+    const display = parseJournalEntryDisplay(entry.text);
+    const next = formatJournalEntryText(time, display.body);
+    if (next === entry.text) return;
+
+    const ok = await updateJournalLine(app, day.filePath, entry.line, entry.rawLine, next);
+    if (ok) store.refreshTick.update((n) => n + 1);
+  }
+
+  function isEditing(day: TimelineDay, entry: TimelineEntry): boolean {
+    return editingId === entryId(day, entry);
   }
 
   function onEditKeydown(day: TimelineDay, entry: TimelineEntry, ev: KeyboardEvent) {
@@ -306,7 +398,8 @@
     onOutlinePatch({ rangeMode: mode });
   }
 
-  function openRangeMenu(ev: MouseEvent) {
+  function openRangeMenu() {
+    if (!rangeBtn) return;
     const modes: OutlineRangeMode[] = ["scroll", "month", "week"];
     const menu = new Menu();
     for (const mode of modes) {
@@ -316,13 +409,12 @@
         item.onClick(() => selectRangeMode(mode));
       });
     }
-    const target = ev.currentTarget as HTMLElement;
-    const rect = target.getBoundingClientRect();
+    const rect = rangeBtn.getBoundingClientRect();
     menu.showAtPosition({ x: rect.left, y: rect.bottom + 4 });
   }
 
-  function onRangeFilterClick(ev: MouseEvent) {
-    openRangeMenu(ev);
+  function onRangeFilterClick() {
+    openRangeMenu();
   }
 
   function selectHeading(heading: string) {
@@ -330,23 +422,22 @@
     onOutlinePatch({ journalHeading: heading });
   }
 
-  function openHeadingMenu(ev: MouseEvent) {
-    if (dropdownHeadings.length <= 1) return;
+  function openHeadingMenu() {
+    if (headingMenuItems.length <= 1 || !headingBtn) return;
     const menu = new Menu();
-    for (const heading of dropdownHeadings) {
+    for (const heading of headingMenuItems) {
       menu.addItem((item) => {
         item.setTitle(heading);
         item.setChecked(heading === journalHeading);
         item.onClick(() => selectHeading(heading));
       });
     }
-    const target = ev.currentTarget as HTMLElement;
-    const rect = target.getBoundingClientRect();
+    const rect = headingBtn.getBoundingClientRect();
     menu.showAtPosition({ x: rect.left, y: rect.bottom + 4 });
   }
 
-  function onHeadingFilterClick(ev: MouseEvent) {
-    openHeadingMenu(ev);
+  function onHeadingFilterClick() {
+    openHeadingMenu();
   }
 
   function updateRangeButton() {
@@ -369,9 +460,16 @@
 
   function updateDailyNoteButton() {
     if (!dailyNoteBtn) return;
-    setIcon(dailyNoteBtn, "calendar-days");
-    dailyNoteBtn.setAttribute("aria-label", "Tages-Composer");
-    dailyNoteBtn.title = "Tages-Composer";
+    setIcon(dailyNoteBtn, COMPOSER_ICON);
+    dailyNoteBtn.setAttribute("aria-label", COMPOSER_LABEL);
+    dailyNoteBtn.title = COMPOSER_LABEL;
+  }
+
+  function updateTaskComposerButton() {
+    if (!taskComposerBtn) return;
+    setIcon(taskComposerBtn, TASK_COMPOSER_ICON);
+    taskComposerBtn.setAttribute("aria-label", TASK_COMPOSER_LABEL);
+    taskComposerBtn.title = TASK_COMPOSER_LABEL;
   }
 
   function updateTimeToggleButton() {
@@ -393,6 +491,7 @@
     updateHeadingButton();
     updateTimeToggleButton();
     updateDailyNoteButton();
+    updateTaskComposerButton();
   });
 
   onMount(() => {
@@ -401,6 +500,7 @@
     updateHeadingButton();
     updateTimeToggleButton();
     updateDailyNoteButton();
+    updateTaskComposerButton();
     return () => {
       scrollHost?.removeEventListener("scroll", onListScroll);
       scrollHost = null;
@@ -409,55 +509,67 @@
 </script>
 
 <div class="udn-timeline">
-  <div class="udn-timelineHead">
-    <button
-      type="button"
-      bind:this={rangeBtn}
-      class="udn-headingFilter udn-headingFilter--menu"
-      on:click={onRangeFilterClick}
-    >
-      <span class="udn-headingFilterIcon" bind:this={rangeIconEl} aria-hidden="true"></span>
-      <span class="udn-headingFilterLabel">{outlineRangeModeLabel(rangeMode)}</span>
-    </button>
-    <button
-      type="button"
-      bind:this={headingBtn}
-      class="udn-headingFilter"
-      class:udn-headingFilter--menu={dropdownHeadings.length > 1}
-      disabled={dropdownHeadings.length <= 1}
-      on:click={onHeadingFilterClick}
-    >
-      <span class="udn-headingFilterIcon" bind:this={headingIconEl} aria-hidden="true"></span>
-      <span class="udn-headingFilterLabel">{journalHeading}</span>
-    </button>
+  <div class="udn-timelineToolbar">
+    <div class="udn-timelineHead">
+      <div class="udn-timelineHeadFilters">
+        <button
+          type="button"
+          bind:this={rangeBtn}
+          class="udn-headingFilter udn-headingFilter--menu"
+          use:sidebarMenuAction={onRangeFilterClick}
+        >
+          <span class="udn-headingFilterIcon" bind:this={rangeIconEl} aria-hidden="true"></span>
+          <span class="udn-headingFilterLabel">{outlineRangeModeLabel(rangeMode)}</span>
+        </button>
+        <button
+          type="button"
+          bind:this={headingBtn}
+          class="udn-headingFilter udn-headingFilter--journal"
+          class:udn-headingFilter--menu={headingMenuItems.length > 1}
+          disabled={headingMenuItems.length <= 1}
+          use:sidebarMenuAction={onHeadingFilterClick}
+        >
+          <span class="udn-headingFilterIcon" bind:this={headingIconEl} aria-hidden="true"></span>
+          <span class="udn-headingFilterLabel">{journalHeading}</span>
+        </button>
+        <FlexTextFilter
+          mode="toggle"
+          enabled={textFilterEnabled}
+          query={textFilterQuery}
+          onPatch={onOutlinePatch}
+        />
+      </div>
+      <div class="udn-timelineHeadActions">
+        <button
+          type="button"
+          bind:this={timeToggleBtn}
+          class={dk.iconRoundBtnToolbar}
+          use:panelTapAction={toggleShowTimeBubbles}
+        ></button>
+        <button
+          type="button"
+          bind:this={dailyNoteBtn}
+          class="{dk.iconRoundBtnToolbar} udn-timelineHeadComposer"
+          use:panelTapAction={openDailyNote}
+        ></button>
+        <button
+          type="button"
+          bind:this={taskComposerBtn}
+          class="{dk.iconRoundBtnToolbar} udn-timelineHeadTaskComposer"
+          use:panelTapAction={openTaskComposer}
+        ></button>
+      </div>
+    </div>
+
     <FlexTextFilter
-      mode="toggle"
+      mode="field"
       enabled={textFilterEnabled}
       query={textFilterQuery}
       onPatch={onOutlinePatch}
     />
-    <span class="udn-timelineHeadSpacer" aria-hidden="true"></span>
-    <button
-      type="button"
-      bind:this={timeToggleBtn}
-      class={dk.iconRoundBtnToolbar}
-      on:click={toggleShowTimeBubbles}
-    ></button>
-    <button
-      type="button"
-      bind:this={dailyNoteBtn}
-      class="{dk.iconRoundBtnToolbar} udn-timelineHeadComposer"
-      on:click={openDailyNote}
-    ></button>
   </div>
 
-  <FlexTextFilter
-    mode="field"
-    enabled={textFilterEnabled}
-    query={textFilterQuery}
-    onPatch={onOutlinePatch}
-  />
-
+  <div class="udn-timelineBody" bind:this={scrollBodyEl}>
   {#if loading && days.length === 0}
     <p class={dk.empty}>{textSearchActive ? "Suche Tagebuch…" : "Lade Tagebuch…"}</p>
   {:else if days.length === 0}
@@ -474,7 +586,57 @@
       class:udn-timelineList--noTime={!showTimeBubbles}
       bind:this={listEl}
     >
-      {#each displayDays as day, dayIndex (day.dateKey)}
+      {#if showTripGroups}
+        {#each tripGroups as group, groupIndex (group.tripLabel ?? `g-${groupIndex}`)}
+          <div class="udn-tripGroup">
+            {#if group.tripLabel}
+              <div class="udn-tripGroupHead">[{group.tripLabel}]</div>
+            {/if}
+            {#each group.days as day, dayIndex (day.dateKey)}
+              {@const isSelected = selectedDateKey($selectedDate) === day.dateKey}
+              <div
+                class="udn-timelineDay"
+                class:udn-timelineDay--selected={isSelected}
+                class:udn-timelineDay--inTrip={Boolean(group.tripLabel)}
+                style="--ref-hue: {entryHueFromIndex(dayIndex)}"
+                data-date-key={day.dateKey}
+              >
+                <div class="udn-timelineDayHead">
+                  <button type="button" class="udn-dateBubble" use:panelTapAction={() => openDayNote(day)}>
+                    {formatDayBubbleLabel(day.label)}
+                  </button>
+                  {#if day.summary}
+                    <span class="udn-timelineDaySummary" title={day.summary}>{day.summary}</span>
+                  {/if}
+                  <span class="udn-timelineDayCount">
+                    {day.entries.length === 1 ? "1 Eintrag" : `${day.entries.length} Einträge`}
+                  </span>
+                </div>
+                <div class="udn-timelineDayEntries">
+                  {#each day.entries as entry (day.dateKey + entry.line)}
+                    <TimelineOutlineEntry
+                      {app}
+                      {day}
+                      {entry}
+                      {showTimeBubbles}
+                      editing={isEditing(day, entry)}
+                      bind:editTime
+                      bind:editBody
+                      bind:editInput
+                      onStartEdit={startEdit}
+                      onCommitEdit={commitEdit}
+                      onCommitTimeEdit={commitTimeEdit}
+                      onEditKeydown={onEditKeydown}
+                      onOpenWikiLink={openWikiLink}
+                    />
+                  {/each}
+                </div>
+              </div>
+            {/each}
+          </div>
+        {/each}
+      {:else}
+        {#each displayDays as day, dayIndex (day.dateKey)}
         {@const isSelected = selectedDateKey($selectedDate) === day.dateKey}
         <div
           class="udn-timelineDay"
@@ -483,7 +645,7 @@
           data-date-key={day.dateKey}
         >
           <div class="udn-timelineDayHead">
-            <button type="button" class="udn-dateBubble" on:click={() => openDayNote(day.filePath)}>
+            <button type="button" class="udn-dateBubble" use:panelTapAction={() => openDayNote(day)}>
               {formatDayBubbleLabel(day.label)}
             </button>
             {#if day.summary}
@@ -494,47 +656,62 @@
             </span>
           </div>
           <div class="udn-timelineDayEntries">
-            {#each day.entries as entry (day.dateKey + entry.line)}
-              {@const display = parseJournalEntryDisplay(entry.text)}
-              <div class="udn-outlineEntry">
-                {#if editingId === entryId(day, entry)}
-                  <input
-                    type="text"
-                    class="{dk.input} udn-timelineEntryEdit"
-                    bind:value={editValue}
-                    bind:this={editInput}
-                    on:blur={() => commitEdit(day, entry)}
-                    on:keydown={(ev) => onEditKeydown(day, entry, ev)}
-                  />
-                {:else}
-                  {#if showTimeBubbles && display.time}
-                    <span class="udn-timeBubble">{display.time}</span>
-                  {/if}
-                  <!-- svelte-ignore a11y-no-static-element-interactions -->
-                  <span
-                    class="udn-timelineEntryBody"
-                    title="Doppelklick zum Bearbeiten"
-                    on:dblclick={(ev) => onEntryDblClick(day, entry, ev)}
-                  >
-                    {#each parseWikiLinks(display.body) as seg, i (i + seg.kind + (seg.kind === "link" ? seg.dest : seg.value))}
-                      {#if seg.kind === "link"}
-                        <a
-                          href="#"
-                          class="internal-link"
-                          on:click={(ev) => openWikiLink(seg.dest, day.filePath, ev)}
-                        >{seg.label}</a>
-                      {:else}{seg.value}{/if}
+            {#if showSectionLabels}
+              {#each sectionGroupsForDay(day) as sectionGroup (day.dateKey + sectionGroup.section)}
+                <div class="udn-sectionGroup">
+                  <div class="udn-sectionGroupHead">
+                    <span class="udn-sectionGroupHeading">{sectionGroup.section}</span>
+                    {#if sectionCalloutDiffers(sectionGroup)}
+                      <span class="udn-sectionGroupCallout">{sectionGroup.calloutTitle}</span>
+                    {/if}
+                  </div>
+                  <div class="udn-sectionGroupEntries">
+                    {#each sectionGroup.entries as entry (day.dateKey + entry.line)}
+                      <TimelineOutlineEntry
+                        {day}
+                        {entry}
+                        {showTimeBubbles}
+                        editing={isEditing(day, entry)}
+                        bind:editTime
+                        bind:editBody
+                        bind:editInput
+                        onStartEdit={startEdit}
+                        onCommitEdit={commitEdit}
+                        onCommitTimeEdit={commitTimeEdit}
+                        onEditKeydown={onEditKeydown}
+                        onOpenWikiLink={openWikiLink}
+                      />
                     {/each}
-                  </span>
-                {/if}
-              </div>
-            {/each}
+                  </div>
+                </div>
+              {/each}
+            {:else}
+              {#each day.entries as entry (day.dateKey + entry.line)}
+                <TimelineOutlineEntry
+                  {app}
+                  {day}
+                  {entry}
+                  {showTimeBubbles}
+                  editing={isEditing(day, entry)}
+                  bind:editTime
+                  bind:editBody
+                  bind:editInput
+                  onStartEdit={startEdit}
+                  onCommitEdit={commitEdit}
+                  onCommitTimeEdit={commitTimeEdit}
+                  onEditKeydown={onEditKeydown}
+                  onOpenWikiLink={openWikiLink}
+                />
+              {/each}
+            {/if}
           </div>
         </div>
-      {/each}
+        {/each}
+      {/if}
       {#if loadingMore}
         <p class="{dk.empty} udn-timelineMore">Lade weitere Tage…</p>
       {/if}
     </div>
   {/if}
+  </div>
 </div>

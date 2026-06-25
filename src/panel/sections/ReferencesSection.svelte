@@ -2,7 +2,8 @@
   import { afterUpdate, onMount } from "svelte";
   import type { App } from "obsidian";
   import { Menu, setIcon, TFile } from "obsidian";
-  import { dk } from "@denkarium/obsidian-lib-ui";
+  import { dk, sidebarMenuAction, sidebarPointerAction } from "@denkarium/obsidian-lib-ui";
+  import { panelTapAction } from "../panelTapAction";
   import type { Writable } from "svelte/store";
   import type {
     DailyNoteFallbackSettings,
@@ -21,6 +22,7 @@
   import type { CalendarSyncContext, OutlineRangeMode } from "../../integrations/calendarRange";
   import { outlineRangeModeLabel, resolveOutlineDateBounds } from "../../integrations/calendarRange";
   import { filterLinesByText } from "../../notes/entryTextFilter";
+  import { ALL_JOURNAL_HEADINGS, isAllJournalHeadings } from "../../notes/journalHeadingFilter";
   import { readDailyNoteSummary } from "../../notes/dailyNoteSummary";
   import FlexTextFilter from "./FlexTextFilter.svelte";
 
@@ -73,12 +75,23 @@
   $: durationDays = Math.max(1, outlineSettings?.durationDays ?? 365);
   $: calCtx = buildCalendarCtx(noteDate, $calendarContext);
   $: dateBounds = resolveOutlineDateBounds(rangeMode, calCtx);
+  $: baselineHeadings =
+    usedHeadings.length > 0
+      ? usedHeadings
+      : isAllJournalHeadings(journalHeading)
+        ? [DEFAULT_JOURNAL_HEADING]
+        : [journalHeading];
   $: dropdownHeadings =
-    usedHeadings.length === 0
-      ? [journalHeading]
-      : usedHeadings.some((h) => h.toLowerCase() === journalHeading.toLowerCase())
-        ? usedHeadings
-        : [journalHeading, ...usedHeadings];
+    baselineHeadings.some((h) => h.toLowerCase() === journalHeading.toLowerCase())
+      ? baselineHeadings
+      : isAllJournalHeadings(journalHeading)
+        ? baselineHeadings
+        : [journalHeading, ...baselineHeadings];
+  $: showSectionLabels = isAllJournalHeadings(journalHeading);
+  $: headingMenuItems = [
+    ALL_JOURNAL_HEADINGS,
+    ...dropdownHeadings.filter((h) => !isAllJournalHeadings(h)),
+  ];
   $: filteredEntries = filterLinesByText(
     entries,
     textFilterEnabled ? textFilterQuery : "",
@@ -202,9 +215,7 @@
     void openPathInMainPane(app, filePath, 0);
   }
 
-  function openWikiLink(dest: string, sourcePath: string, ev: MouseEvent) {
-    ev.preventDefault();
-    ev.stopPropagation();
+  function openWikiLink(dest: string, sourcePath: string) {
     void openWikiLinkInMain(app, dest, sourcePath);
   }
 
@@ -213,7 +224,8 @@
     onOutlinePatch({ rangeMode: mode });
   }
 
-  function openRangeMenu(ev: MouseEvent) {
+  function openRangeMenu() {
+    if (!rangeBtn) return;
     const modes: OutlineRangeMode[] = ["scroll", "month", "week"];
     const menu = new Menu();
     for (const mode of modes) {
@@ -223,8 +235,7 @@
         item.onClick(() => selectRangeMode(mode));
       });
     }
-    const target = ev.currentTarget as HTMLElement;
-    const rect = target.getBoundingClientRect();
+    const rect = rangeBtn.getBoundingClientRect();
     menu.showAtPosition({ x: rect.left, y: rect.bottom + 4 });
   }
 
@@ -233,18 +244,17 @@
     onOutlinePatch({ journalHeading: heading });
   }
 
-  function openHeadingMenu(ev: MouseEvent) {
-    if (dropdownHeadings.length <= 1) return;
+  function openHeadingMenu() {
+    if (headingMenuItems.length <= 1 || !headingBtn) return;
     const menu = new Menu();
-    for (const heading of dropdownHeadings) {
+    for (const heading of headingMenuItems) {
       menu.addItem((item) => {
         item.setTitle(heading);
         item.setChecked(heading === journalHeading);
         item.onClick(() => selectHeading(heading));
       });
     }
-    const target = ev.currentTarget as HTMLElement;
-    const rect = target.getBoundingClientRect();
+    const rect = headingBtn.getBoundingClientRect();
     menu.showAtPosition({ x: rect.left, y: rect.bottom + 4 });
   }
 
@@ -308,55 +318,61 @@
 </script>
 
 <div class="udn-refPanel">
-  <div class="udn-timelineHead">
-    <button
-      type="button"
-      bind:this={rangeBtn}
-      class="udn-headingFilter udn-headingFilter--menu"
-      on:click={openRangeMenu}
-    >
-      <span class="udn-headingFilterIcon" bind:this={rangeIconEl} aria-hidden="true"></span>
-      <span class="udn-headingFilterLabel">{outlineRangeModeLabel(rangeMode)}</span>
-    </button>
-    <button
-      type="button"
-      bind:this={headingBtn}
-      class="udn-headingFilter"
-      class:udn-headingFilter--menu={dropdownHeadings.length > 1}
-      disabled={dropdownHeadings.length <= 1}
-      on:click={openHeadingMenu}
-    >
-      <span class="udn-headingFilterIcon" bind:this={headingIconEl} aria-hidden="true"></span>
-      <span class="udn-headingFilterLabel">{journalHeading}</span>
-    </button>
+  <div class="udn-timelineToolbar">
+    <div class="udn-timelineHead">
+      <div class="udn-timelineHeadFilters">
+        <button
+          type="button"
+          bind:this={rangeBtn}
+          class="udn-headingFilter udn-headingFilter--menu"
+          use:sidebarMenuAction={openRangeMenu}
+        >
+          <span class="udn-headingFilterIcon" bind:this={rangeIconEl} aria-hidden="true"></span>
+          <span class="udn-headingFilterLabel">{outlineRangeModeLabel(rangeMode)}</span>
+        </button>
+        <button
+          type="button"
+          bind:this={headingBtn}
+          class="udn-headingFilter udn-headingFilter--journal"
+          class:udn-headingFilter--menu={headingMenuItems.length > 1}
+          disabled={headingMenuItems.length <= 1}
+          use:sidebarMenuAction={openHeadingMenu}
+        >
+          <span class="udn-headingFilterIcon" bind:this={headingIconEl} aria-hidden="true"></span>
+          <span class="udn-headingFilterLabel">{journalHeading}</span>
+        </button>
+        <FlexTextFilter
+          mode="toggle"
+          enabled={textFilterEnabled}
+          query={textFilterQuery}
+          onPatch={onOutlinePatch}
+        />
+      </div>
+      <div class="udn-timelineHeadActions">
+        <button
+          type="button"
+          bind:this={timeToggleBtn}
+          class={dk.iconRoundBtnToolbar}
+          use:panelTapAction={onToggleShowTimeBubbles}
+        ></button>
+        <button
+          type="button"
+          bind:this={refSelectBtn}
+          class={dk.iconRoundBtnToolbar}
+          use:panelTapAction={onToggleFollowMainPage}
+        ></button>
+      </div>
+    </div>
+
     <FlexTextFilter
-      mode="toggle"
+      mode="field"
       enabled={textFilterEnabled}
       query={textFilterQuery}
       onPatch={onOutlinePatch}
     />
-    <span class="udn-timelineHeadSpacer" aria-hidden="true"></span>
-    <button
-      type="button"
-      bind:this={timeToggleBtn}
-      class={dk.iconRoundBtnToolbar}
-      on:click={onToggleShowTimeBubbles}
-    ></button>
-    <button
-      type="button"
-      bind:this={refSelectBtn}
-      class={dk.iconRoundBtnToolbar}
-      on:click={onToggleFollowMainPage}
-    ></button>
   </div>
 
-  <FlexTextFilter
-    mode="field"
-    enabled={textFilterEnabled}
-    query={textFilterQuery}
-    onPatch={onOutlinePatch}
-  />
-
+  <div class="udn-timelineBody">
   {#if loading}
     <p class="{dk.empty} udn-refEmpty">Lade Verweise…</p>
   {:else if emptyMessage}
@@ -375,7 +391,7 @@
           data-date-key={day.dateKey}
         >
           <div class="udn-timelineDayHead">
-            <button type="button" class="udn-dateBubble" on:click={() => openDayNote(day.filePath)}>
+            <button type="button" class="udn-dateBubble" use:panelTapAction={() => openDayNote(day.filePath)}>
               {formatDayBubbleLabel(day.label)}
             </button>
             {#if day.summary}
@@ -391,12 +407,15 @@
                   <span class="udn-timeBubble">{display.time}</span>
                 {/if}
                 <span class="udn-timelineEntryBody">
+                  {#if showSectionLabels && entry.section}
+                    <span class="udn-entrySectionInline">{entry.section} · </span>
+                  {/if}
                   {#each parseJournalLinks(display.body) as seg, si (si + seg.kind + (seg.kind === "text" ? seg.value : seg.kind === "wiki" ? seg.dest : seg.href))}
                     {#if seg.kind === "wiki"}
                       <a
                         href="#"
                         class="internal-link"
-                        on:click={(ev) => openWikiLink(seg.dest, entry.dailyNotePath, ev)}
+                        use:sidebarPointerAction={() => openWikiLink(seg.dest, entry.dailyNotePath)}
                       >{seg.label}</a>
                     {:else if seg.kind === "url"}
                       <a
@@ -415,4 +434,5 @@
       {/each}
     </div>
   {/if}
+  </div>
 </div>
