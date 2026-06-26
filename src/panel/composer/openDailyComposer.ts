@@ -1,11 +1,13 @@
 import { Modal, Platform, type App, type TFile } from "obsidian";
 import type UniversalDailyNotePlugin from "../../main";
 import DailyComposer from "./DailyComposer.svelte";
+import { DEFAULT_SETTINGS } from "../../settings";
 import { normalizeLocalDay } from "../dateUtils";
 import { attachMobileViewport } from "./mobileViewport";
 import { normalizeActiveJournalHeading } from "../../notes/journalHeadingFilter";
 import { dateFromDailyNoteFile } from "../../integrations/universalCalendar";
 import { getMainAreaActiveMarkdownFile } from "../../tagebuchVerweise/mainPageFile";
+import { runInsertWeather } from "../../weather/runInsertWeather";
 
 export type OpenDailyComposerOptions = {
   date?: Date;
@@ -65,6 +67,7 @@ export class DailyComposerModal extends Modal {
         durationDays: outline.durationDays,
         tagebuchSettings: tagebuchVerweise,
         entryPrefixes: quickCapture.entryPrefixes,
+        calendarSync: this.plugin.settings.calendarSync ?? DEFAULT_SETTINGS.calendarSync,
         timeFormat: quickCapture.timeFormat,
         isMobile: this.isMobile,
         onClose: () => this.close(),
@@ -77,6 +80,11 @@ export class DailyComposerModal extends Modal {
         },
         onDateChange: (d: Date) => {
           this.currentDate = normalizeLocalDay(d);
+        },
+        onInsertWeather: async () => {
+          const ok = await runInsertWeather(this.plugin, this.currentDate, this.initialHeading);
+          if (ok) this.onSaved?.();
+          return ok;
         },
       },
     });

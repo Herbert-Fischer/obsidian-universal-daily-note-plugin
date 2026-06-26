@@ -39,6 +39,7 @@ describe("journalCallout", () => {
   it("detects managed callout starts including legacy types", () => {
     expect(isManagedCalloutStart("> [!tagebuch-ref] 23.06.2026", "Tagebuch")).toBe(true);
     expect(isManagedCalloutStart("> [!tagebuch] Tagebuch", "Tagebuch")).toBe(true);
+    expect(isManagedCalloutStart("> [!weather]+ Wetter", "Tagebuch")).toBe(false);
     expect(isManagedCalloutStart("> [!compass] Reisen", "Reisen")).toBe(true);
     expect(isManagedCalloutStart("> [!reisen] Reisen", "Reisen")).toBe(true);
     expect(isManagedCalloutStart("> [!reisen] Reisen", "Tagebuch")).toBe(false);

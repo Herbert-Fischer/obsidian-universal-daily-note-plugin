@@ -14,13 +14,20 @@ import {
   buildComposerCalloutBlock,
   dateFromDateKey,
   extractSectionRange,
+  formatComposerCalloutType,
+  isDecorativeCalloutLine,
   isManagedCalloutStart,
   isPlainJournalBulletLine,
   readCalloutTitleFromLines,
   resolveComposerCalloutTitle,
 } from "./journalCallout";
 import { ensureSectionHeading, findInsertIndex } from "./appendLogLine";
-import { formatJournalEntryText, parseJournalEntryDisplay } from "./parseJournalEntryDisplay";
+import { formatJournalEntryText, journalEntrySortMinutes, parseJournalEntryDisplay, sortJournalEntryTexts } from "./parseJournalEntryDisplay";
+import {
+  parseCalendarSyncId,
+  stripCalendarSyncMarker,
+  withCalendarSyncMarker,
+} from "../integrations/calendarSyncMarker";
 import { readDailyNoteSummary } from "./dailyNoteSummary";
 
 export type ComposerEntry = {
@@ -29,6 +36,7 @@ export type ComposerEntry = {
   time: string;
   body: string;
   rawLine: string;
+  calendarId?: string;
 };
 
 export type ComposerState = {
@@ -49,8 +57,13 @@ export type ComposerChip = {
 export const DEFAULT_COMPOSER_CHIPS: ComposerChip[] = [
   { label: "Aufstehen", template: "Aufstehen", defaultTime: "07:30" },
   { label: "Mittagessen", template: "Mittagessen:", defaultTime: "12:00" },
+  { label: "Abendessen", template: "Abendessen:", defaultTime: "18:30" },
   { label: "Spaziergang", template: "Spaziergang:", defaultTime: "11:00" },
+  { label: "Termin", template: "Termin:", defaultTime: "10:00" },
   { label: "Besuch", template: "Besuch:", defaultTime: "14:00" },
+  { label: "Garten", template: "Garten:", defaultTime: "16:00" },
+  { label: "Ankunft", template: "Ankunft:", defaultTime: "12:00" },
+  { label: "Abfahrt", template: "Abfahrt:", defaultTime: "10:00" },
 ];
 
 function localDayKey(d: Date): string {
@@ -62,18 +75,73 @@ function localDayKey(d: Date): string {
 
 function entryToComposer(entry: TimelineEntry): ComposerEntry {
   const { time, body } = parseJournalEntryDisplay(entry.text);
+  const calendarId = parseCalendarSyncId(entry.text) ?? undefined;
+  const displayBody = stripCalendarSyncMarker(body);
   return {
-    id: `line-${entry.line}`,
+    id: calendarId ? `cal-${calendarId}` : `line-${entry.line}`,
     line: entry.line,
     time: time ?? "",
-    body,
+    body: displayBody,
     rawLine: entry.rawLine,
+    calendarId,
   };
 }
 
+function sortComposerEntries(entries: ComposerEntry[]): ComposerEntry[] {
+  const indexed = entries.map((entry, index) => ({
+    entry,
+    index,
+    minutes: journalEntrySortMinutes(composerEntryText(entry)),
+  }));
+  indexed.sort((a, b) => {
+    if (a.minutes != null && b.minutes != null) {
+      return a.minutes - b.minutes || a.index - b.index;
+    }
+    if (a.minutes != null) return -1;
+    if (b.minutes != null) return 1;
+    return a.index - b.index;
+  });
+  return indexed.map((item) => item.entry);
+}
+
+/** Re-sort callout bullets under a journal heading after inline edits. */
+export async function resortJournalCalloutEntries(
+  app: App,
+  filePath: string,
+  journalHeading: string,
+  date?: Date,
+): Promise<boolean> {
+  const file = app.vault.getAbstractFileByPath(filePath);
+  if (!(file instanceof TFile)) return false;
+
+  await app.vault.process(file, (data) => {
+    const heading = journalHeading.trim() || "Tagebuch";
+    const lines = data.split("\n");
+    let texts = extractJournalLines(lines, heading).map((entry) => entry.text);
+    if (texts.length === 0) {
+      texts = extractJournalLinesFromCallout(lines, heading).map((entry) => entry.text);
+    }
+    if (texts.length <= 1) return data;
+
+    const sorted = sortJournalEntryTexts(texts);
+    if (sorted.every((text, index) => text === texts[index])) return data;
+
+    const calloutTitle = readCalloutTitleFromLines(lines, heading, date);
+    const next = rewriteJournalBullets(lines, heading, sorted, date, calloutTitle);
+    const content = next.join("\n");
+    return content.endsWith("\n") || content.length === 0 ? content : `${content}\n`;
+  });
+
+  return true;
+}
+
 /** Stored journal line text for one composer row. */
-export function composerEntryText(entry: Pick<ComposerEntry, "time" | "body">): string {
-  return formatJournalEntryText(entry.time, entry.body);
+export function composerEntryText(entry: Pick<ComposerEntry, "time" | "body" | "calendarId">): string {
+  let body = entry.body.trim();
+  if (entry.calendarId) {
+    body = withCalendarSyncMarker(body, entry.calendarId);
+  }
+  return formatJournalEntryText(entry.time, body);
 }
 
 
@@ -131,7 +199,7 @@ export function suggestSummaryFromEntries(entryTexts: string[]): string {
 function formatSummaryYamlLine(summary: string): string {
   const trimmed = summary.trim();
   if (!trimmed) return "Zusammenfassung:";
-  if (/[:#\[\]{}|>&*!@`]/.test(trimmed) || trimmed.includes('"')) {
+  if (/[:#\[\]{}|>&*!@`"]/.test(trimmed) || trimmed.includes('"') || /[^\x00-\x7F]/.test(trimmed)) {
     const escaped = trimmed.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
     return `Zusammenfassung: "${escaped}"`;
   }
@@ -161,7 +229,7 @@ export function rewriteJournalBullets(
   calloutTitle?: string | null,
 ): string[] {
   const heading = journalHeading.trim();
-  const bodies = entryTexts.map(formatComposerEntryLine).filter(Boolean);
+  const bodies = sortJournalEntryTexts(entryTexts.map(formatComposerEntryLine).filter(Boolean));
   const range = extractSectionRange(lines, heading);
 
   let resolvedTitle = calloutTitle?.trim() || resolveComposerCalloutTitle(lines, heading, date);
@@ -185,6 +253,11 @@ export function rewriteJournalBullets(
   while (i < sectionBody.length) {
     const line = sectionBody[i] ?? "";
     const trimmed = line.trim();
+    if (isDecorativeCalloutLine(line)) {
+      i++;
+      while (i < sectionBody.length && (sectionBody[i]?.trim() ?? "").startsWith(">")) i++;
+      continue;
+    }
     if (isManagedCalloutStart(line, heading) || (heading.toLowerCase() === "reisen" && /^>\s*\[!/.test(trimmed))) {
       i++;
       while (i < sectionBody.length && (sectionBody[i]?.trim() ?? "").startsWith(">")) i++;
@@ -265,6 +338,7 @@ export async function loadComposerState(
   if (entries.length === 0) {
     entries = extractJournalLinesFromCallout(lines, heading).map(entryToComposer);
   }
+  entries = sortComposerEntries(entries);
   const summary = readDailyNoteSummary(app, file) || suggestSummaryFromEntries(entries.map(composerEntryText));
   const calloutTitle = readCalloutTitleFromLines(lines, heading, noteDate);
 

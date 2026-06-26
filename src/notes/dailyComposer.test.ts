@@ -69,6 +69,22 @@ describe("rewriteJournalBullets", () => {
     expect(out).toContain("> - 15:00 Update");
     expect(out).not.toContain("- 12:00 Journal");
   });
+
+  it("sorts callout bullets by time", () => {
+    const out = rewriteJournalBullets(
+      ["## Tagebuch"],
+      "Tagebuch",
+      ["18:00 Abend", "07:30 Aufstehen", "12:00 Mittagessen: Pizza", "Notiz ohne Zeit"],
+      new Date(2026, 5, 23),
+    );
+    const bullets = out.filter((line) => line.startsWith("> - "));
+    expect(bullets).toEqual([
+      "> - 07:30 Aufstehen",
+      "> - 12:00 Mittagessen: Pizza",
+      "> - 18:00 Abend",
+      "> - Notiz ohne Zeit",
+    ]);
+  });
 });
 
 describe("extractJournalLines callouts", () => {

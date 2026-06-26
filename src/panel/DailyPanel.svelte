@@ -17,6 +17,7 @@
   import TimelineSection from "./sections/TimelineSection.svelte";
   import { openDailyComposer } from "./composer/openDailyComposer";
   import { openUniversalTaskComposer } from "../integrations/universalTasks";
+  import { runInsertWeather } from "../weather/runInsertWeather";
   import { Notice } from "obsidian";
 
   export let app: UniversalDailyNotePlugin["app"];
@@ -33,6 +34,8 @@
   const { selectedDate, calendarContext } = store;
   let outlineSettings: OutlineSettings = plugin.settings.outline ?? DEFAULT_SETTINGS.outline;
   let syncingFromCalendar = false;
+  /** Outline day picked by user; not overwritten by unrelated active daily note. */
+  let outlinePinnedDate: Date | null = null;
 
   function patchOutline(patch: Partial<OutlineSettings>) {
     outlineSettings = { ...outlineSettings, ...patch };
@@ -58,7 +61,10 @@
       selectedDate: normalizeLocalDay(ctx.selectedDate),
       monthCursor: normalizeLocalDay(ctx.monthCursor),
     };
-    if (fromCalendar) syncingFromCalendar = true;
+    if (fromCalendar) {
+      syncingFromCalendar = true;
+      outlinePinnedDate = null;
+    }
     calendarContext.set(normalized);
     selectedDate.set(normalized.selectedDate);
     if (fromCalendar) syncingFromCalendar = false;
@@ -95,6 +101,11 @@
         plugin.settings.tagebuchVerweise,
       );
       if (noteDate) {
+        const normalized = normalizeLocalDay(noteDate);
+        if (outlinePinnedDate) {
+          if (sameLocalDay(outlinePinnedDate, normalized)) return;
+          outlinePinnedDate = null;
+        }
         const current = normalizeLocalDay(get(selectedDate));
         if (!sameLocalDay(current, noteDate)) {
           setSelectedDate(noteDate);
@@ -113,7 +124,8 @@
   function selectOutlineDay(dateKey: string): void {
     const [y, m, d] = dateKey.split("-").map(Number);
     if (!y || !m || !d) return;
-    setSelectedDate(new Date(y, m - 1, d));
+    outlinePinnedDate = normalizeLocalDay(new Date(y, m - 1, d));
+    setSelectedDate(outlinePinnedDate);
   }
 
   onMount(() => {
@@ -183,6 +195,10 @@
       if (!ok) {
         new Notice("Neue Aufgabe benötigt das Plugin „Universal Tasks“.");
       }
+    }}
+    onInsertWeather={async (d) => {
+      const ok = await runInsertWeather(plugin, d, outlineSettings.journalHeading);
+      if (ok) bumpRefresh(store);
     }}
   />
 </div>

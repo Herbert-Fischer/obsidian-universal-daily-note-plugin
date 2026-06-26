@@ -1,5 +1,5 @@
 import type { App, TFile } from "obsidian";
-import type { DailyNoteFallbackSettings, TagebuchVerweiseSettings } from "../settings";
+import type { CalendarSyncSettings, DailyNoteFallbackSettings, TagebuchVerweiseSettings } from "../settings";
 import { dateKeyFromDailyNoteBasename, listDailyNoteFilesInFolder } from "./dailyNoteFallbackPaths";
 import { getDailyNoteInterface, getExistingDailyNoteFile } from "./dailyNotesCore";
 import { addLocalDays, normalizeLocalDay } from "../panel/dateUtils";
@@ -19,6 +19,7 @@ import {
   extractReisenTripFromSection,
   parseReisenTripLabel,
   readCalloutTitleFromLines,
+  stripLeadingGermanDateFromCalloutTitle,
   dateFromDateKey,
 } from "./journalCallout";
 
@@ -429,8 +430,14 @@ export function resolveDayHeadline(
   yamlSummary: string,
   dateKey: string,
 ): string {
-  if (isAllJournalHeadings(journalHeading)) return yamlSummary;
-  return readCalloutTitleFromLines(lines, journalHeading, dateFromDateKey(dateKey));
+  if (isAllJournalHeadings(journalHeading)) {
+    return yamlSummary.trim();
+  }
+  const title = readCalloutTitleFromLines(lines, journalHeading, dateFromDateKey(dateKey));
+  if (journalHeading.trim().toLowerCase() === DEFAULT_JOURNAL_HEADING.toLowerCase()) {
+    return stripLeadingGermanDateFromCalloutTitle(title);
+  }
+  return title;
 }
 
 async function loadDayFromFile(
@@ -441,6 +448,31 @@ async function loadDayFromFile(
   textQuery?: string,
   excludedHeadings: string[] = DEFAULT_EXCLUDED_JOURNAL_HEADINGS,
 ): Promise<TimelineDay | null> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const plugin = (app as any).plugins?.plugins?.["universal-daily-note"] as
+    | {
+        settings?: {
+          calendarSync: CalendarSyncSettings;
+          dailyNoteFallback: DailyNoteFallbackSettings;
+          outline: { journalHeading: string };
+        };
+      }
+    | undefined;
+  const sync = plugin?.settings?.calendarSync;
+  if (sync?.enabled && sync.syncOnOutlineLoad && plugin?.settings) {
+    const [y, m, d] = dateKey.split("-").map(Number);
+    if (y && m && d) {
+      const { syncCalendarAppointmentsIntoDailyNote } = await import("../integrations/calendarAppointments");
+      await syncCalendarAppointmentsIntoDailyNote(app, {
+        date: new Date(y, m - 1, d, 0, 0, 0, 0),
+        fallback: plugin.settings.dailyNoteFallback,
+        journalHeading: plugin.settings.outline.journalHeading,
+        settings: sync,
+        oncePerSession: true,
+      });
+    }
+  }
+
   let text = "";
   try {
     text = await app.vault.read(file);

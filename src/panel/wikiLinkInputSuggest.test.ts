@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { replaceWikiPartial, wikiQueryBeforeCursor } from "./wikiLinkInputParse";
+import { replaceWikiPartial, resolveWikiLinkCursor, wikiQueryBeforeCursor } from "./wikiLinkInputParse";
 
 describe("wikiQueryBeforeCursor", () => {
   it("detects partial link after [[", () => {
@@ -8,6 +8,13 @@ describe("wikiQueryBeforeCursor", () => {
 
   it("returns null outside wikilink", () => {
     expect(wikiQueryBeforeCursor("normal text", 11)).toBeNull();
+  });
+});
+
+describe("resolveWikiLinkCursor", () => {
+  it("falls back to end when selection moved after blur", () => {
+    const value = "Treffen [[Uns";
+    expect(resolveWikiLinkCursor(value, 0)).toBe(value.length);
   });
 });
 

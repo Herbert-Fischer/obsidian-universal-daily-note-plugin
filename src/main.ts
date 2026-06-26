@@ -1,4 +1,4 @@
-import { Plugin, Platform, TFile, type Menu } from "obsidian";
+import { Plugin, Platform, TFile, Notice, type Menu } from "obsidian";
 import { DEFAULT_SETTINGS, DEFAULT_SECTIONS_COLLAPSED, type SectionId, type UniversalDailyNoteSettings } from "./settings";
 import { normalizeActiveJournalHeading } from "./notes/journalHeadingFilter";
 import { UniversalDailyNoteSettingTab } from "./settingsTab";
@@ -15,6 +15,9 @@ import {
   resolveComposerDateFromFile as resolveComposerDateFromActiveFile,
 } from "./panel/composer/openDailyComposer";
 import { dateFromDailyNoteFile } from "./integrations/universalCalendar";
+import { runInsertWeather } from "./weather/runInsertWeather";
+import { syncCalendarAppointmentsIntoDailyNote } from "./integrations/calendarAppointments";
+import { WEATHER_ICON, WEATHER_LABEL } from "./weather/weatherUi";
 
 function migrateCollapsed(raw: Partial<Record<string, boolean>> | undefined): Record<SectionId, boolean> {
   const merged = { ...DEFAULT_SECTIONS_COLLAPSED, ...raw };
@@ -50,6 +53,8 @@ function mergeSettings(raw: Partial<UniversalDailyNoteSettings> | null): Univers
     dailyNoteFallback: { ...DEFAULT_SETTINGS.dailyNoteFallback, ...loaded.dailyNoteFallback },
     tagebuchVerweise: { ...DEFAULT_SETTINGS.tagebuchVerweise, ...loaded.tagebuchVerweise },
     quickCapture: { ...DEFAULT_SETTINGS.quickCapture, ...loaded.quickCapture },
+    calendarSync: { ...DEFAULT_SETTINGS.calendarSync, ...loaded.calendarSync },
+    weatherCapture: { ...DEFAULT_SETTINGS.weatherCapture, ...loaded.weatherCapture },
     analytics: { ...DEFAULT_SETTINGS.analytics, ...loaded.analytics },
     outline: migrateOutline(loaded.outline),
     sections: {
@@ -174,6 +179,36 @@ export default class UniversalDailyNotePlugin extends Plugin {
           void this.saveSettings();
         },
       });
+    });
+
+    this.addCommand({
+      id: "insert-weather-location",
+      name: WEATHER_LABEL,
+      icon: WEATHER_ICON,
+      callback: async () => {
+        const date = resolveComposerDateFromActiveFile(this) ?? new Date();
+        await runInsertWeather(this, date, this.settings.outline.journalHeading);
+      },
+    });
+
+    this.addCommand({
+      id: "sync-calendar-appointments",
+      name: "Kalender-Termine ins Tagebuch übernehmen",
+      icon: "calendar",
+      callback: async () => {
+        const date = resolveComposerDateFromActiveFile(this) ?? new Date();
+        const added = await syncCalendarAppointmentsIntoDailyNote(this.app, {
+          date,
+          fallback: this.settings.dailyNoteFallback,
+          journalHeading: this.settings.outline.journalHeading,
+          settings: this.settings.calendarSync,
+        });
+        if (added > 0) {
+          new Notice(`${added} Termin${added === 1 ? "" : "e"} übernommen.`);
+        } else {
+          new Notice("Keine neuen Termine.");
+        }
+      },
     });
 
     this.addCommand({

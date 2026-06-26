@@ -10,6 +10,15 @@ export type TagebuchVerweiseSettings = {
   showTimeBubbles: boolean;
 };
 
+export type CalendarSyncSettings = {
+  enabled: boolean;
+  /** HH:mm for all-day calendar items */
+  allDayTime: string;
+  includeTodos: boolean;
+  /** Sync once per session when outline loads a day */
+  syncOnOutlineLoad: boolean;
+};
+
 export type QuickCaptureSettings = {
   enabled: boolean;
   timeFormat: string;
@@ -24,6 +33,17 @@ export type QuickCaptureSettings = {
 
 export type AnalyticsSettings = {
   enabled: boolean;
+};
+
+export type WeatherCaptureFormat = "line" | "callout" | "lineAndCallout";
+
+export type WeatherCaptureSettings = {
+  /** Frontmatter Location: setzen */
+  updateFrontmatter: boolean;
+  format: WeatherCaptureFormat;
+  /** Zeit für Archiv-Einträge (HH:mm) */
+  historicalTime: string;
+  lastLocation: string;
 };
 
 export type SectionId = "timeline" | "capture" | "references" | "analytics";
@@ -58,6 +78,8 @@ export type UniversalDailyNoteSettings = {
   dailyNoteFallback: DailyNoteFallbackSettings;
   tagebuchVerweise: TagebuchVerweiseSettings;
   quickCapture: QuickCaptureSettings;
+  calendarSync: CalendarSyncSettings;
+  weatherCapture: WeatherCaptureSettings;
   analytics: AnalyticsSettings;
   outline: OutlineSettings;
   sections: SectionsSettings;
@@ -87,9 +109,30 @@ export const DEFAULT_SETTINGS: UniversalDailyNoteSettings = {
     timeFormat: "HH:mm",
     headingPath: null,
     autoLinkActive: true,
-    entryPrefixes: ["Mittagessen:", "Spaziergang:", "Ankunft:", "Abfahrt:"],
+    entryPrefixes: [
+      "Mittagessen:",
+      "Abendessen:",
+      "Spaziergang:",
+      "Termin:",
+      "Besuch:",
+      "Garten:",
+      "Ankunft:",
+      "Abfahrt:",
+    ],
     attachmentsFolder: "Calendar/Attachments",
     syncHeadingWithOutline: true,
+  },
+  calendarSync: {
+    enabled: true,
+    allDayTime: "09:00",
+    includeTodos: false,
+    syncOnOutlineLoad: true,
+  },
+  weatherCapture: {
+    updateFrontmatter: true,
+    format: "callout",
+    historicalTime: "12:00",
+    lastLocation: "",
   },
   analytics: {
     enabled: false,

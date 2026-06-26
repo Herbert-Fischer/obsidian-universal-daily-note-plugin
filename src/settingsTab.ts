@@ -91,6 +91,69 @@ export class UniversalDailyNoteSettingTab extends PluginSettingTab {
         }),
       );
 
+    const wx = this.plugin.settings.weatherCapture;
+
+    containerEl.createEl("h3", { text: "Wetter & Ort" });
+
+    new Setting(containerEl)
+      .setName("Frontmatter Location")
+      .setDesc("Ort in Frontmatter Location: schreiben.")
+      .addToggle((t) =>
+        t.setValue(wx.updateFrontmatter).onChange(async (value) => {
+          wx.updateFrontmatter = value;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    containerEl.createEl("p", {
+      cls: "setting-item-description",
+      text: "Wetter erscheint nur in der Callout-Überschrift (tagebuch-ref) und in der Outline — kein Tagebuch-Eintrag, kein Frontmatter.",
+    });
+
+    const cal = this.plugin.settings.calendarSync;
+
+    containerEl.createEl("h3", { text: "Kalender-Termine" });
+
+    new Setting(containerEl)
+      .setName("Termine automatisch übernehmen")
+      .setDesc("Universal Calendar: Termine als „Termin:“-Zeilen ins Tagebuch (Composer, Speichern, Outline).")
+      .addToggle((t) =>
+        t.setValue(cal.enabled).onChange(async (value) => {
+          cal.enabled = value;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Beim Outline-Laden")
+      .setDesc("Termine beim Anzeigen eines Tages in der Outline synchronisieren (einmal pro Sitzung und Tag).")
+      .addToggle((t) =>
+        t.setValue(cal.syncOnOutlineLoad).onChange(async (value) => {
+          cal.syncOnOutlineLoad = value;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Ganztägige Termine")
+      .setDesc("Uhrzeit für ganztägige Kalender-Einträge (HH:mm).")
+      .addText((t) =>
+        t.setValue(cal.allDayTime).onChange(async (value) => {
+          cal.allDayTime = value.trim() || "09:00";
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("CalDAV-Aufgaben (VTODO)")
+      .setDesc("Auch CalDAV-Todos als Termin-Zeile übernehmen.")
+      .addToggle((t) =>
+        t.setValue(cal.includeTodos).onChange(async (value) => {
+          cal.includeTodos = value;
+          await this.plugin.saveSettings();
+        }),
+      );
+
     const an = this.plugin.settings.analytics;
 
     containerEl.createEl("h3", { text: "Auswertung" });

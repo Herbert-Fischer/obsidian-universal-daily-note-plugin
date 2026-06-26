@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseJournalEntryDisplay } from "./parseJournalEntryDisplay";
+import { parseJournalEntryDisplay, sortJournalEntryTexts } from "./parseJournalEntryDisplay";
 
 describe("parseJournalEntryDisplay", () => {
   it("extracts leading time", () => {
@@ -21,5 +21,18 @@ describe("parseJournalEntryDisplay", () => {
       time: "14:00",
       body: "Eis mit [[Mona]]",
     });
+  });
+});
+
+describe("sortJournalEntryTexts", () => {
+  it("orders timed lines ascending and keeps untimed lines at the end", () => {
+    expect(
+      sortJournalEntryTexts([
+        "18:00 Abend",
+        "07:30 Aufstehen",
+        "Notiz",
+        "12:00 Mittagessen: Pizza",
+      ]),
+    ).toEqual(["07:30 Aufstehen", "12:00 Mittagessen: Pizza", "18:00 Abend", "Notiz"]);
   });
 });

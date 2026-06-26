@@ -72,7 +72,6 @@ export function matchWikiLinkSuggestions(
 ): WikiLinkSuggestion[] {
   const parsed = parseWikiPartialQuery(linkQuery);
   const searchQ = parsed.search.trim().toLowerCase();
-  if (!searchQ && !(parsed.aliasMode && parsed.page)) return [];
 
   const results: WikiLinkSuggestion[] = [];
   const seen = new Set<string>();
@@ -83,6 +82,21 @@ export function matchWikiLinkSuggestions(
     seen.add(key);
     results.push(item);
   };
+
+  if (!searchQ && !(parsed.aliasMode && parsed.page)) {
+    for (const file of files) {
+      push({
+        filePath: file.path,
+        basename: file.basename,
+        label: file.basename,
+        detail: file.path === `${file.basename}.md` ? undefined : file.path,
+        heading: parsed.heading,
+      });
+      if (results.length >= limit) break;
+    }
+    results.sort((a, b) => a.label.localeCompare(b.label, "de"));
+    return results.slice(0, Math.max(1, limit));
+  }
 
   for (const file of files) {
     if (parsed.aliasMode && parsed.page && !fileMatchesPage(file, parsed.page)) continue;

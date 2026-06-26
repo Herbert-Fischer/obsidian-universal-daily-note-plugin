@@ -3,7 +3,8 @@
   import type { App } from "obsidian";
   import { Menu, setIcon } from "obsidian";
   import { dk } from "@denkarium/obsidian-lib-ui";
-  import type { DailyNoteFallbackSettings, TagebuchVerweiseSettings } from "../../settings";
+  import type { DailyNoteFallbackSettings, TagebuchVerweiseSettings, CalendarSyncSettings } from "../../settings";
+  import { DEFAULT_SETTINGS } from "../../settings";
   import { addLocalDays, formatTimeLocal, normalizeLocalDay } from "../dateUtils";
   import { formatDayBubbleLabel } from "../formatDayBubble";
   import {
@@ -22,6 +23,9 @@
   import { openWikiLinkInMain } from "../../notes/openInMainPane";
   import JournalBodyInput from "./JournalBodyInput.svelte";
   import { wikiLinkSuggest } from "../wikiLinkInputSuggest";
+  import { WEATHER_VORLAGE_LABEL } from "../../weather/insertWeather";
+  import { WEATHER_ICON } from "../../weather/weatherUi";
+  import { isWikiLinkSuggestOpen } from "../wikiLinkInputSuggest";
   import {
     observeDockHeight,
     scrollInputIntoView,
@@ -35,12 +39,14 @@
   export let durationDays = 365;
   export let tagebuchSettings: TagebuchVerweiseSettings;
   export let entryPrefixes: string[] = [];
+  export let calendarSync: CalendarSyncSettings = DEFAULT_SETTINGS.calendarSync;
   export let timeFormat = "HH:mm";
   export let onClose: () => void = () => {};
   export let onSaved: () => void = () => {};
   export let onDateChange: (d: Date) => void = () => {};
   export let onHeadingChange: (heading: string) => void = () => {};
   export let isMobile = false;
+  export let onInsertWeather: () => Promise<boolean> = async () => false;
 
   let currentDate = normalizeLocalDay(date);
   let activeHeading = initialJournalHeading.trim() || "Tagebuch";
@@ -71,8 +77,10 @@
   let detachDockObserver: (() => void) | null = null;
   let dockObserverAttached = false;
   let loadGeneration = 0;
+  let weatherBusy = false;
 
   $: chips = chipsFromPrefixes(entryPrefixes);
+  $: prefixMenuEnabled = chips.length > 0 || !!onInsertWeather;
   $: dateLabel = formatDayBubbleLabel(
     `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, "0")}-${String(currentDate.getDate()).padStart(2, "0")}`,
   );
@@ -94,6 +102,19 @@
     modified = false;
     onDateChange(currentDate);
     try {
+      if (calendarSync?.enabled && activeHeading.trim().toLowerCase() === "tagebuch") {
+        try {
+          const { syncCalendarAppointmentsIntoDailyNote } = await import("../../integrations/calendarAppointments");
+          await syncCalendarAppointmentsIntoDailyNote(app, {
+            date: currentDate,
+            fallback,
+            journalHeading: activeHeading,
+            settings: calendarSync,
+          });
+        } catch (syncErr) {
+          console.warn("Universal Daily Note: Kalender-Sync beim Composer-Laden", syncErr);
+        }
+      }
       const [state, headings] = await Promise.all([
         loadComposerState(app, currentDate, fallback, activeHeading),
         loadComposerSectionHeadings(app, currentDate, fallback, tagebuchSettings, {
@@ -233,8 +254,13 @@
   }
 
   function openPrefixMenu(ev: MouseEvent) {
-    if (chips.length === 0) return;
+    if (!prefixMenuEnabled) return;
     const menu = new Menu();
+    menu.addItem((item) => {
+      item.setTitle(WEATHER_VORLAGE_LABEL);
+      item.setIcon(WEATHER_ICON);
+      item.onClick(() => void runWeatherVorlage());
+    });
     for (const chip of chips) {
       menu.addItem((item) => {
         item.setTitle(chip.label);
@@ -248,6 +274,21 @@
 
   function onPrefixFilterClick(ev: MouseEvent) {
     openPrefixMenu(ev);
+  }
+
+  async function runWeatherVorlage() {
+    if (weatherBusy) return;
+    weatherBusy = true;
+    try {
+      const ok = await onInsertWeather();
+      if (ok) {
+        const state = await loadComposerState(app, currentDate, fallback, activeHeading);
+        calloutTitle = state.calloutTitle;
+        summary = state.summary;
+      }
+    } finally {
+      weatherBusy = false;
+    }
   }
 
   function collectEntryTextsForSave(): string[] {
@@ -264,6 +305,13 @@
     saving = true;
     try {
       const state = await loadComposerState(app, currentDate, fallback, activeHeading);
+      let entryTexts = collectEntryTextsForSave();
+      if (calendarSync?.enabled && activeHeading.trim().toLowerCase() === "tagebuch") {
+        const { mergeCalendarAppointmentTexts } = await import("../../integrations/calendarAppointments");
+        entryTexts = mergeCalendarAppointmentTexts(app, currentDate, entryTexts, {
+          settings: calendarSync,
+        });
+      }
       await saveComposerState(
         app,
         {
@@ -273,11 +321,10 @@
           summary,
           dateKey: state.dateKey,
         },
-        collectEntryTextsForSave(),
+        entryTexts,
       );
       onSaved();
-      summaryTouched = Boolean(summary.trim());
-      await reload();
+      onClose();
     } catch (e) {
       console.error("Universal Daily Note: Composer save", e);
       loadError = "Speichern fehlgeschlagen.";
@@ -302,8 +349,17 @@
     updateEntry(id, { body });
   }
 
+  function applyNewEntryWikiLink(next: string, cursor: number) {
+    newEntryText = next;
+    void tick().then(() => {
+      addInput?.focus();
+      addInput?.setSelectionRange(cursor, cursor);
+    });
+  }
+
   function onNewEntryKeydown(ev: KeyboardEvent) {
     if (ev.key !== "Enter" || ev.isComposing || ev.shiftKey) return;
+    if (isWikiLinkSuggestOpen()) return;
     ev.preventDefault();
     ev.stopPropagation();
     addFreeEntry();
@@ -319,32 +375,39 @@
     scrollInputIntoView(ev.currentTarget as HTMLElement);
   }
 
+  function ensureIcon(el: HTMLElement | undefined, icon: string) {
+    if (!el) return;
+    if (el.dataset.udnIcon === icon) return;
+    setIcon(el, icon);
+    el.dataset.udnIcon = icon;
+  }
+
   function updateNavButtons() {
     if (prevBtn) {
-      setIcon(prevBtn, "chevron-left");
+      ensureIcon(prevBtn, "chevron-left");
       prevBtn.title = "Vorheriger Tag";
     }
     if (nextBtn) {
-      setIcon(nextBtn, "chevron-right");
+      ensureIcon(nextBtn, "chevron-right");
       nextBtn.title = "Nächster Tag";
     }
     if (nowBtn) {
-      setIcon(nowBtn, "calendar-check");
+      ensureIcon(nowBtn, "calendar-check");
       nowBtn.title = "Heute";
     }
     if (closeBtn) {
-      setIcon(closeBtn, "x");
+      ensureIcon(closeBtn, "x");
       closeBtn.title = "Schließen";
     }
     if (headingIconEl) {
-      setIcon(headingIconEl, "heading");
+      ensureIcon(headingIconEl, "heading");
     }
     if (headingBtn) {
       headingBtn.setAttribute("aria-label", `Abschnitt: ${activeHeading}`);
       headingBtn.title = activeHeading;
     }
     if (prefixIconEl) {
-      setIcon(prefixIconEl, "list-plus");
+      ensureIcon(prefixIconEl, "list-plus");
     }
     if (prefixBtn) {
       prefixBtn.setAttribute("aria-label", "Vorlage wählen");
@@ -390,7 +453,7 @@
             type="button"
             bind:this={prefixBtn}
             class="udn-headingFilter udn-composerPrefixFilter udn-headingFilter--menu"
-            disabled={chips.length === 0}
+            disabled={!prefixMenuEnabled}
             on:click={onPrefixFilterClick}
           >
             <span class="udn-headingFilterIcon" bind:this={prefixIconEl} aria-hidden="true"></span>
@@ -423,7 +486,7 @@
           type="button"
           bind:this={prefixBtn}
           class="udn-headingFilter udn-composerPrefixFilter udn-headingFilter--menu"
-          disabled={chips.length === 0}
+          disabled={!prefixMenuEnabled}
           on:click={onPrefixFilterClick}
         >
           <span class="udn-headingFilterIcon" bind:this={prefixIconEl} aria-hidden="true"></span>
@@ -488,12 +551,6 @@
           />
         </label>
       {/if}
-      {#if !isMobile}
-        <div class="udn-composerSectionHead">
-          <h3 class="udn-composerSectionTitle">Chronik</h3>
-          <span class="udn-composerSectionMeta">{entries.length} Einträge</span>
-        </div>
-      {/if}
 
       <ul class="udn-composerEntries">
         {#each entries as entry (entry.id)}
@@ -548,7 +605,7 @@
             class="{dk.input} udn-composerAddInput"
             placeholder="Neuer Eintrag (Enter)"
             bind:value={newEntryText}
-            use:wikiLinkSuggest={{ app, sourcePath: filePath }}
+            use:wikiLinkSuggest={{ app, sourcePath: filePath, onValueChange: applyNewEntryWikiLink }}
             on:keydown={onNewEntryKeydown}
             on:focus={onInputFocus}
           />
@@ -577,7 +634,7 @@
           placeholder="Neuer Eintrag"
           enterkeyhint="done"
           bind:value={newEntryText}
-          use:wikiLinkSuggest={{ app, sourcePath: filePath }}
+          use:wikiLinkSuggest={{ app, sourcePath: filePath, onValueChange: applyNewEntryWikiLink }}
           on:keydown={onNewEntryKeydown}
           on:focus={onAddInputFocus}
         />

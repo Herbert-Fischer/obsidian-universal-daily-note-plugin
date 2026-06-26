@@ -1217,3 +1217,21 @@ body.is-mobile .udn-composerFoot--mobile .dk-btnPrimary {
   padding: 4px 8px;
   font-size: var(--font-ui-smaller);
 }
+
+.callout[data-callout="weather"] {
+  --callout-color: var(--color-blue);
+  --callout-icon: lucide-cloud-sun;
+}
+
+.udn-weatherModalHint {
+  margin: 0 0 0.75em;
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  line-height: var(--line-height-normal);
+}
+
+.udn-composerModal .suggestion-container,
+.udn-outline .suggestion-container,
+.udn-composerModalContent .suggestion-container {
+  z-index: 1000;
+}

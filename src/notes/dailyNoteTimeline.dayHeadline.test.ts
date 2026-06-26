@@ -18,10 +18,21 @@ describe("resolveDayHeadline", () => {
     );
   });
 
-  it("uses callout title for section filter", () => {
-    expect(resolveDayHeadline(lines, "Obsidian Plugin", "CURSOR Pro Abo", "2026-05-03")).toBe(
+  it("uses callout title for section filter when YAML summary is empty", () => {
+    expect(resolveDayHeadline(lines, "Obsidian Plugin", "", "2026-05-03")).toBe(
       "Obsidian Plugin",
     );
-    expect(resolveDayHeadline(lines, "Tagebuch", "CURSOR Pro Abo", "2026-05-03")).toBe("03.05.2026");
+    expect(resolveDayHeadline(lines, "Tagebuch", "", "2026-05-03")).toBe("");
+  });
+
+  it("uses callout title for section filter even when YAML summary is set", () => {
+    const linesWithWeather = [
+      "## Tagebuch",
+      "> [!tagebuch-ref] 03.05.2026 · ⛅ 18 °C bewölkt, Gersfeld",
+      "> - 08:10 Aufstehen",
+    ];
+    expect(resolveDayHeadline(linesWithWeather, "Tagebuch", "⛅ 18 °C, Gersfeld", "2026-05-03")).toBe(
+      "⛅ 18 °C bewölkt, Gersfeld",
+    );
   });
 });

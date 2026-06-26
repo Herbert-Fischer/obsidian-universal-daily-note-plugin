@@ -1,36 +1,52 @@
 import {
   AbstractInputSuggest,
   parseFrontMatterAliases,
+  TFile,
   type App,
-  type TFile,
 } from "obsidian";
-import { replaceWikiPartial, wikiQueryBeforeCursor } from "./wikiLinkInputParse";
+import { replaceWikiPartial, resolveWikiLinkCursor, wikiQueryBeforeCursor } from "./wikiLinkInputParse";
 import {
   matchWikiLinkSuggestions,
   type WikiLinkFileInfo,
   type WikiLinkSuggestion,
 } from "./wikiLinkSuggestions";
 
-export { replaceWikiPartial, wikiQueryBeforeCursor } from "./wikiLinkInputParse";
+export { replaceWikiPartial, resolveWikiLinkCursor, wikiQueryBeforeCursor } from "./wikiLinkInputParse";
 export { matchWikiLinkSuggestions, parseWikiPartialQuery } from "./wikiLinkSuggestions";
 export type { WikiLinkSuggestion } from "./wikiLinkSuggestions";
 
 type WikiLinkSuggestParams = {
   app: App;
   sourcePath?: string;
+  onValueChange?: (value: string, cursor: number) => void;
 };
+
+export function isWikiLinkSuggestOpen(): boolean {
+  return Boolean(document.querySelector(".suggestion-container"));
+}
 
 export class WikiLinkInputSuggest extends AbstractInputSuggest<WikiLinkSuggestion> {
   private sourcePath: string;
+  private onValueChange?: (value: string, cursor: number) => void;
 
-  constructor(app: App, private inputEl: HTMLInputElement, sourcePath = "") {
+  constructor(
+    app: App,
+    private inputEl: HTMLInputElement,
+    sourcePath = "",
+    onValueChange?: (value: string, cursor: number) => void,
+  ) {
     super(app, inputEl);
     this.limit = 50;
     this.sourcePath = sourcePath;
+    this.onValueChange = onValueChange;
   }
 
   setSourcePath(sourcePath: string): void {
     this.sourcePath = sourcePath;
+  }
+
+  setOnValueChange(onValueChange?: (value: string, cursor: number) => void): void {
+    this.onValueChange = onValueChange;
   }
 
   private listFileInfos(): WikiLinkFileInfo[] {
@@ -45,7 +61,7 @@ export class WikiLinkInputSuggest extends AbstractInputSuggest<WikiLinkSuggestio
   }
 
   getSuggestions(query: string): WikiLinkSuggestion[] {
-    const cursor = this.inputEl.selectionStart ?? query.length;
+    const cursor = resolveWikiLinkCursor(query, this.inputEl.selectionStart ?? query.length);
     const linkQuery = wikiQueryBeforeCursor(query, cursor);
     if (linkQuery === null) return [];
     return matchWikiLinkSuggestions(this.listFileInfos(), linkQuery, this.limit || 50);
@@ -60,21 +76,25 @@ export class WikiLinkInputSuggest extends AbstractInputSuggest<WikiLinkSuggestio
 
   selectSuggestion(item: WikiLinkSuggestion, _evt: MouseEvent | KeyboardEvent): void {
     const file = this.app.vault.getAbstractFileByPath(item.filePath);
-    if (!(file instanceof TFile)) return;
+    const subpath = item.heading?.trim() ? `#${item.heading.trim()}` : undefined;
+    const insertion =
+      file instanceof TFile
+        ? this.app.fileManager.generateMarkdownLink(file, this.sourcePath, subpath, item.alias)
+        : item.alias
+          ? `[[${item.basename}|${item.alias}]]`
+          : `[[${item.basename}]]`;
 
     const value = this.getValue();
-    const cursor = this.inputEl.selectionStart ?? value.length;
-    const subpath = item.heading?.trim() ? `#${item.heading.trim()}` : undefined;
-    const insertion = this.app.fileManager.generateMarkdownLink(
-      file,
-      this.sourcePath,
-      subpath,
-      item.alias,
-    );
+    const cursor = resolveWikiLinkCursor(value, this.inputEl.selectionStart ?? value.length);
     const { next, cursor: nextCursor } = replaceWikiPartial(value, cursor, insertion);
+
+    if (this.onValueChange) {
+      this.onValueChange(next, nextCursor);
+    }
     this.setValue(next);
     this.inputEl.setSelectionRange(nextCursor, nextCursor);
     this.inputEl.dispatchEvent(new Event("input", { bubbles: true }));
+    void this.inputEl.focus();
     this.close();
   }
 }
@@ -83,8 +103,9 @@ export function attachWikiLinkSuggest(
   app: App,
   inputEl: HTMLInputElement,
   sourcePath = "",
+  onValueChange?: (value: string, cursor: number) => void,
 ): () => void {
-  const suggest = new WikiLinkInputSuggest(app, inputEl, sourcePath);
+  const suggest = new WikiLinkInputSuggest(app, inputEl, sourcePath, onValueChange);
   return () => suggest.close();
 }
 
@@ -99,16 +120,21 @@ export function wikiLinkSuggest(
       : { app: params as App };
 
   let current = resolve(params);
-  let detach = attachWikiLinkSuggest(current.app, node, current.sourcePath ?? "");
+  let suggest = new WikiLinkInputSuggest(
+    current.app,
+    node,
+    current.sourcePath ?? "",
+    current.onValueChange,
+  );
 
   return {
     update(nextParams) {
-      detach();
       current = resolve(nextParams);
-      detach = attachWikiLinkSuggest(current.app, node, current.sourcePath ?? "");
+      suggest.setSourcePath(current.sourcePath ?? "");
+      suggest.setOnValueChange(current.onValueChange);
     },
     destroy() {
-      detach();
+      suggest.close();
     },
   };
 }

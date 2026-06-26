@@ -17,8 +17,11 @@
     type TimelineSectionGroup,
     type TimelineTripGroup,
   } from "../../notes/dailyNoteTimeline";
-  import { updateJournalLine } from "../../notes/editJournalLine";
-  import { openWikiLinkInMain } from "../../notes/openInMainPane";
+import { updateJournalLine } from "../../notes/editJournalLine";
+import { resortJournalCalloutEntries } from "../../notes/dailyComposer";
+import { dateFromDateKey, stripLeadingGermanDateFromCalloutTitle } from "../../notes/journalCallout";
+import { openWikiLinkInMain } from "../../notes/openInMainPane";
+import { isWikiLinkSuggestOpen } from "../wikiLinkInputSuggest";
   import { parseJournalEntryDisplay, formatJournalEntryText } from "../../notes/parseJournalEntryDisplay";
   import { entryHueFromIndex, formatDayBubbleLabel } from "../formatDayBubble";
   import TimelineOutlineEntry from "./TimelineOutlineEntry.svelte";
@@ -35,6 +38,7 @@
   import FlexTextFilter from "./FlexTextFilter.svelte";
   import { COMPOSER_ICON, COMPOSER_LABEL } from "../composer/composerUi";
   import { TASK_COMPOSER_ICON, TASK_COMPOSER_LABEL } from "../../integrations/universalTasks";
+  import { WEATHER_ICON, WEATHER_LABEL } from "../../weather/weatherUi";
 
   function selectedDateKey(d: Date): string {
     const y = d.getFullYear();
@@ -52,8 +56,18 @@
     return [{ section: "", calloutTitle: "", entries: day.entries }];
   }
 
+  function outlineSectionCalloutLabel(group: TimelineSectionGroup): string {
+    const title = group.calloutTitle.trim();
+    if (group.section.trim().toLowerCase() === DEFAULT_JOURNAL_HEADING.toLowerCase()) {
+      return stripLeadingGermanDateFromCalloutTitle(title);
+    }
+    return title;
+  }
+
   function sectionCalloutDiffers(group: TimelineSectionGroup): boolean {
-    return group.calloutTitle.trim().toLowerCase() !== group.section.trim().toLowerCase();
+    const label = outlineSectionCalloutLabel(group);
+    if (!label) return false;
+    return label.toLowerCase() !== group.section.trim().toLowerCase();
   }
 
   export let app: App;
@@ -65,6 +79,7 @@
   export let onOutlinePatch: (patch: Partial<OutlineSettings>) => void = () => {};
   export let onOpenComposer: (date: Date) => void = () => {};
   export let onOpenTaskComposer: (date: Date) => void = () => {};
+  export let onInsertWeather: (date: Date) => void = () => {};
   export let onSelectDay: (dateKey: string) => void = () => {};
 
   const { refreshTick, calendarContext } = store;
@@ -83,6 +98,7 @@
   let rangeBtn: HTMLButtonElement;
   let rangeIconEl: HTMLSpanElement;
   let dailyNoteBtn: HTMLButtonElement;
+  let weatherBtn: HTMLButtonElement;
   let taskComposerBtn: HTMLButtonElement;
   let loadGeneration = 0;
   let lastLoadSignature = "";
@@ -332,9 +348,17 @@
     onOpenTaskComposer($selectedDate);
   }
 
+  function insertWeather() {
+    onInsertWeather($selectedDate);
+  }
+
   function openDayNote(day: TimelineDay) {
-    onSelectDay(day.dateKey);
+    selectDay(day);
     void openTimelineEntry(app, day.filePath, 0);
+  }
+
+  function selectDay(day: TimelineDay) {
+    onSelectDay(day.dateKey);
   }
 
   function openWikiLink(dest: string, sourcePath: string) {
@@ -362,7 +386,10 @@
     if (!trimmed || trimmed === entry.text) return;
 
     const ok = await updateJournalLine(app, day.filePath, entry.line, entry.rawLine, trimmed);
-    if (ok) store.refreshTick.update((n) => n + 1);
+    if (ok) {
+      await resortJournalCalloutEntries(app, day.filePath, journalHeading, dateFromDateKey(day.dateKey));
+      store.refreshTick.update((n) => n + 1);
+    }
   }
 
   async function commitTimeEdit(day: TimelineDay, entry: TimelineEntry, time: string) {
@@ -372,7 +399,10 @@
     if (next === entry.text) return;
 
     const ok = await updateJournalLine(app, day.filePath, entry.line, entry.rawLine, next);
-    if (ok) store.refreshTick.update((n) => n + 1);
+    if (ok) {
+      await resortJournalCalloutEntries(app, day.filePath, journalHeading, dateFromDateKey(day.dateKey));
+      store.refreshTick.update((n) => n + 1);
+    }
   }
 
   function isEditing(day: TimelineDay, entry: TimelineEntry): boolean {
@@ -381,9 +411,11 @@
 
   function onEditKeydown(day: TimelineDay, entry: TimelineEntry, ev: KeyboardEvent) {
     if (ev.key === "Enter") {
+      if (isWikiLinkSuggestOpen()) return;
       ev.preventDefault();
       void commitEdit(day, entry);
     } else if (ev.key === "Escape") {
+      if (isWikiLinkSuggestOpen()) return;
       ev.preventDefault();
       cancelEdit();
     }
@@ -472,6 +504,13 @@
     taskComposerBtn.title = TASK_COMPOSER_LABEL;
   }
 
+  function updateWeatherButton() {
+    if (!weatherBtn) return;
+    setIcon(weatherBtn, WEATHER_ICON);
+    weatherBtn.setAttribute("aria-label", WEATHER_LABEL);
+    weatherBtn.title = WEATHER_LABEL;
+  }
+
   function updateTimeToggleButton() {
     if (!timeToggleBtn) return;
     setIcon(timeToggleBtn, "clock");
@@ -491,6 +530,7 @@
     updateHeadingButton();
     updateTimeToggleButton();
     updateDailyNoteButton();
+    updateWeatherButton();
     updateTaskComposerButton();
   });
 
@@ -500,6 +540,7 @@
     updateHeadingButton();
     updateTimeToggleButton();
     updateDailyNoteButton();
+    updateWeatherButton();
     updateTaskComposerButton();
     return () => {
       scrollHost?.removeEventListener("scroll", onListScroll);
@@ -554,6 +595,12 @@
         ></button>
         <button
           type="button"
+          bind:this={weatherBtn}
+          class="{dk.iconRoundBtnToolbar} udn-timelineHeadWeather"
+          use:panelTapAction={insertWeather}
+        ></button>
+        <button
+          type="button"
           bind:this={taskComposerBtn}
           class="{dk.iconRoundBtnToolbar} udn-timelineHeadTaskComposer"
           use:panelTapAction={openTaskComposer}
@@ -600,6 +647,7 @@
                 class:udn-timelineDay--inTrip={Boolean(group.tripLabel)}
                 style="--ref-hue: {entryHueFromIndex(dayIndex)}"
                 data-date-key={day.dateKey}
+                use:panelTapAction={() => selectDay(day)}
               >
                 <div class="udn-timelineDayHead">
                   <button type="button" class="udn-dateBubble" use:panelTapAction={() => openDayNote(day)}>
@@ -643,6 +691,7 @@
           class:udn-timelineDay--selected={isSelected}
           style="--ref-hue: {entryHueFromIndex(dayIndex)}"
           data-date-key={day.dateKey}
+          use:panelTapAction={() => selectDay(day)}
         >
           <div class="udn-timelineDayHead">
             <button type="button" class="udn-dateBubble" use:panelTapAction={() => openDayNote(day)}>
@@ -662,7 +711,7 @@
                   <div class="udn-sectionGroupHead">
                     <span class="udn-sectionGroupHeading">{sectionGroup.section}</span>
                     {#if sectionCalloutDiffers(sectionGroup)}
-                      <span class="udn-sectionGroupCallout">{sectionGroup.calloutTitle}</span>
+                      <span class="udn-sectionGroupCallout">{outlineSectionCalloutLabel(sectionGroup)}</span>
                     {/if}
                   </div>
                   <div class="udn-sectionGroupEntries">

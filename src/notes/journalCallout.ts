@@ -49,6 +49,13 @@ export function formatGermanShortDate(date: Date): string {
   return `${String(d).padStart(2, "0")}.${String(m).padStart(2, "0")}.${y}`;
 }
 
+const LEADING_GERMAN_DATE = /^(\d{1,2}\.\d{1,2}\.\d{4})(?:\s*·\s*)?/;
+
+/** Remove leading DD.MM.YYYY (and optional „ · “) from a callout title for outline display. */
+export function stripLeadingGermanDateFromCalloutTitle(title: string): string {
+  return title.trim().replace(LEADING_GERMAN_DATE, "").trim();
+}
+
 export function dateFromDateKey(dateKey: string): Date {
   const [y, m, d] = dateKey.split("-").map(Number);
   return new Date(y!, m! - 1, d!, 0, 0, 0, 0);
@@ -189,6 +196,8 @@ export function resolveComposerCalloutTitle(
 
 const CALLOUT_START = /^>\s*\[!([^\]|]+)\]/;
 
+const DECORATIVE_CALLOUT_TYPES = new Set(["weather"]);
+
 export function parseManagedCalloutType(line: string): string | null {
   const m = line.trim().match(CALLOUT_START);
   return m?.[1]?.trim().toLowerCase() ?? null;
@@ -196,8 +205,13 @@ export function parseManagedCalloutType(line: string): string | null {
 
 export function isManagedCalloutStart(line: string, heading: string): boolean {
   const type = parseManagedCalloutType(line);
-  if (!type) return false;
+  if (!type || DECORATIVE_CALLOUT_TYPES.has(type)) return false;
   return calloutTypesForHeading(heading).includes(type);
+}
+
+export function isDecorativeCalloutLine(line: string): boolean {
+  const type = parseManagedCalloutType(line);
+  return type != null && DECORATIVE_CALLOUT_TYPES.has(type);
 }
 
 const KNOWN_SECTION_CALLOUT_TITLES = new Set([
@@ -275,6 +289,66 @@ export function buildComposerCalloutBlock(
     .map((text) => `> - ${text}`);
   if (bullets.length === 0) return [];
   return [`> [!${type}] ${title}`, ...bullets, ""];
+}
+
+export function upsertManagedCalloutTitle(
+  lines: string[],
+  journalHeading: string,
+  title: string,
+  date?: Date,
+): string[] {
+  const heading = journalHeading.trim();
+  const trimmedTitle = title.trim();
+  if (!trimmedTitle) return lines;
+
+  const range = extractSectionRange(lines, heading);
+  if (!range) return lines;
+
+  const before = lines.slice(0, range.start + 1);
+  let sectionBody = lines.slice(range.start + 1, range.end);
+  const after = lines.slice(range.end);
+  const type = formatComposerCalloutType(heading);
+  const titleLine = `> [!${type}] ${trimmedTitle}`;
+
+  const stripped: string[] = [];
+  let i = 0;
+  while (i < sectionBody.length) {
+    const line = sectionBody[i] ?? "";
+    if (isDecorativeCalloutLine(line)) {
+      i++;
+      while (i < sectionBody.length && (sectionBody[i]?.trim() ?? "").startsWith(">")) i++;
+      continue;
+    }
+    stripped.push(line);
+    i++;
+  }
+
+  const updated: string[] = [];
+  let found = false;
+  i = 0;
+  while (i < stripped.length) {
+    const line = stripped[i] ?? "";
+    if (
+      isManagedCalloutStart(line, heading) ||
+      (heading.toLowerCase() === "reisen" && /^>\s*\[!/.test(line.trim()))
+    ) {
+      updated.push(titleLine);
+      found = true;
+      i++;
+      while (i < stripped.length && (stripped[i]?.trim() ?? "").startsWith(">")) i++;
+      continue;
+    }
+    updated.push(line);
+    i++;
+  }
+
+  if (!found) {
+    let insertAt = 0;
+    while (insertAt < updated.length && updated[insertAt]?.trim() === "") insertAt++;
+    updated.splice(insertAt, 0, titleLine, "");
+  }
+
+  return [...before, ...updated, ...after];
 }
 
 export function extractSectionRange(

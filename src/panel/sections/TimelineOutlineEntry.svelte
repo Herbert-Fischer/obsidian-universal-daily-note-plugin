@@ -1,9 +1,11 @@
 <script lang="ts">
   import type { App } from "obsidian";
+  import { tick } from "svelte";
   import { dk, sidebarPointerAction } from "@denkarium/obsidian-lib-ui";
   import { parseJournalEntryDisplay } from "../../notes/parseJournalEntryDisplay";
+  import { stripCalendarSyncMarker } from "../../integrations/calendarSyncMarker";
   import { parseWikiLinks } from "../../notes/parseWikiLinks";
-  import { wikiLinkSuggest } from "../wikiLinkInputSuggest";
+  import { wikiLinkSuggest, isWikiLinkSuggestOpen } from "../wikiLinkInputSuggest";
   import type { TimelineDay, TimelineEntry } from "../../notes/dailyNoteTimeline";
 
   export let day: TimelineDay;
@@ -21,6 +23,7 @@
   export let onOpenWikiLink: (dest: string, sourcePath: string) => void = () => {};
 
   $: display = parseJournalEntryDisplay(entry.text);
+  $: displayBody = stripCalendarSyncMarker(display.body);
   $: storedTime = display.time ?? "";
 
   let timeDraft = "";
@@ -47,6 +50,21 @@
       ev.preventDefault();
       (ev.currentTarget as HTMLInputElement).blur();
     }
+  }
+
+  function applyWikiLinkValue(next: string, cursor: number) {
+    editBody = next;
+    void tick().then(() => {
+      editInput?.focus();
+      editInput?.setSelectionRange(cursor, cursor);
+    });
+  }
+
+  function onEditBlur() {
+    window.setTimeout(() => {
+      if (isWikiLinkSuggestOpen()) return;
+      onCommitEdit(day, entry);
+    }, 150);
   }
 </script>
 
@@ -82,8 +100,8 @@
       class="{dk.input} udn-timelineEntryEdit"
       bind:value={editBody}
       bind:this={editInput}
-      use:wikiLinkSuggest={{ app, sourcePath: day.filePath }}
-      on:blur={() => onCommitEdit(day, entry)}
+      use:wikiLinkSuggest={{ app, sourcePath: day.filePath, onValueChange: applyWikiLinkValue }}
+      on:blur={onEditBlur}
       on:keydown={(ev) => onEditKeydown(day, entry, ev)}
     />
   {:else}
@@ -93,7 +111,7 @@
       title="Doppelklick zum Bearbeiten"
       on:dblclick={() => onStartEdit(day, entry)}
     >
-      {#each parseWikiLinks(display.body) as seg, i (i + seg.kind + (seg.kind === "link" ? seg.dest : seg.value))}
+      {#each parseWikiLinks(displayBody) as seg, i (i + seg.kind + (seg.kind === "link" ? seg.dest : seg.value))}
         {#if seg.kind === "link"}
           <a
             href="#"

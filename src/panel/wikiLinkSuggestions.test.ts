@@ -44,6 +44,12 @@ describe("matchWikiLinkSuggestions", () => {
     expect(hits.map((h) => h.label)).toEqual(expect.arrayContaining(["Mona", "M. Buchmann"]));
   });
 
+  it("lists pages when query is empty after [[", () => {
+    const hits = matchWikiLinkSuggestions(files, "");
+    expect(hits.length).toBeGreaterThan(0);
+    expect(hits.map((h) => h.label)).toContain("Daily Stuff");
+  });
+
   it("inserts alias suggestion metadata", () => {
     const hits = matchWikiLinkSuggestions(files, "Mona");
     const aliasHit = hits.find((h) => h.alias === "Mona");
