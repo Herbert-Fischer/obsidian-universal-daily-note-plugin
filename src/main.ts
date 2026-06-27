@@ -17,7 +17,9 @@ import {
 import { dateFromDailyNoteFile } from "./integrations/universalCalendar";
 import { runInsertWeather } from "./weather/runInsertWeather";
 import { syncCalendarAppointmentsIntoDailyNote } from "./integrations/calendarAppointments";
+import { cleanupReisenCalendarSyncForRecentDays } from "./integrations/cleanupReisenCalendarSync";
 import { WEATHER_ICON, WEATHER_LABEL } from "./weather/weatherUi";
+import { registerTrack3dProcessor } from "./tracks/track3dView";
 
 function migrateCollapsed(raw: Partial<Record<string, boolean>> | undefined): Record<SectionId, boolean> {
   const merged = { ...DEFAULT_SECTIONS_COLLAPSED, ...raw };
@@ -55,6 +57,10 @@ function mergeSettings(raw: Partial<UniversalDailyNoteSettings> | null): Univers
     quickCapture: { ...DEFAULT_SETTINGS.quickCapture, ...loaded.quickCapture },
     calendarSync: { ...DEFAULT_SETTINGS.calendarSync, ...loaded.calendarSync },
     weatherCapture: { ...DEFAULT_SETTINGS.weatherCapture, ...loaded.weatherCapture },
+    composerTemplates: { ...DEFAULT_SETTINGS.composerTemplates, ...loaded.composerTemplates },
+    composerWindow: { ...DEFAULT_SETTINGS.composerWindow, ...loaded.composerWindow },
+    wandernLayout: { ...DEFAULT_SETTINGS.wandernLayout, ...loaded.wandernLayout },
+    tracks: { ...DEFAULT_SETTINGS.tracks, ...loaded.tracks },
     analytics: { ...DEFAULT_SETTINGS.analytics, ...loaded.analytics },
     outline: migrateOutline(loaded.outline),
     sections: {
@@ -68,6 +74,8 @@ export default class UniversalDailyNotePlugin extends Plugin {
 
   async onload() {
     await this.loadSettings();
+
+    registerTrack3dProcessor(this);
 
     this.registerView(VIEW_TYPE_DAILY_PANEL, (leaf) => new DailyPanelView(leaf, this));
     this.registerView(VIEW_TYPE_VERWEISE, (leaf) => new VerweisePanelView(leaf, this));
@@ -200,7 +208,6 @@ export default class UniversalDailyNotePlugin extends Plugin {
         const added = await syncCalendarAppointmentsIntoDailyNote(this.app, {
           date,
           fallback: this.settings.dailyNoteFallback,
-          journalHeading: this.settings.outline.journalHeading,
           settings: this.settings.calendarSync,
         });
         if (added > 0) {
@@ -212,6 +219,30 @@ export default class UniversalDailyNotePlugin extends Plugin {
     });
 
     this.addCommand({
+      id: "cleanup-reisen-calendar-sync",
+      name: "Kalender-Termine aus Reisen bereinigen",
+      icon: "brush",
+      callback: async () => {
+        const { files, removed, moved } = await cleanupReisenCalendarSyncForRecentDays(
+          this.app,
+          this.settings.dailyNoteFallback,
+          this.settings.tagebuchVerweise,
+          this.settings.outline.durationDays,
+        );
+        if (removed === 0) {
+          new Notice("Keine Kalender-Termine in Reisen gefunden.");
+          return;
+        }
+        new Notice(
+          `${removed} Termin${removed === 1 ? "" : "e"} aus Reisen entfernt` +
+            (moved > 0 ? `, ${moved} ins Tagebuch übernommen` : "") +
+            (files > 1 ? ` (${files} Tage).` : "."),
+        );
+      },
+    });
+
+    this.addCommand({
+      id: "open-today-daily-note",
       name: "Heutige Daily Note öffnen oder erstellen",
       callback: async () => {
         await openOrCreateDailyNoteForDate(this.app, new Date(), this.settings.dailyNoteFallback);
@@ -262,11 +293,25 @@ export default class UniversalDailyNotePlugin extends Plugin {
   }
 
   /** Called by Universal Calendar and other integrations. */
-  openComposerForDate(date: Date, options?: { onSaved?: () => void }): void {
+  openComposerForDate(date: Date, options?: { onSaved?: (date: Date) => void }): void {
     openDailyComposer(this, {
       date,
       journalHeading: this.settings.outline.journalHeading,
-      onSaved: options?.onSaved,
+      onSaved: (savedDate) => {
+        options?.onSaved?.(savedDate);
+        for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_DAILY_PANEL)) {
+          if (leaf.view instanceof DailyPanelView) {
+            leaf.view.pinOutlineDay(savedDate, { refresh: true });
+          }
+        }
+      },
+      onDateChange: (d) => {
+        for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_DAILY_PANEL)) {
+          if (leaf.view instanceof DailyPanelView) {
+            leaf.view.pinOutlineDay(d);
+          }
+        }
+      },
       onHeadingChange: (heading) => {
         this.settings.outline.journalHeading = heading;
         void this.saveSettings();

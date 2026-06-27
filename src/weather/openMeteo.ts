@@ -104,27 +104,74 @@ function hitToGeoPlace(hit: GeocodeHit): GeoPlace {
   };
 }
 
+const NOMINATIM_USER_AGENT = "UniversalDailyNote/1.1.0 (Obsidian plugin; weather capture)";
+
+type NominatimAddress = {
+  city?: string;
+  town?: string;
+  village?: string;
+  hamlet?: string;
+  municipality?: string;
+  state?: string;
+  country?: string;
+};
+
+/** Map Nominatim reverse-geocode address fields to Open-Meteo-style place parts. */
+export function nominatimAddressToPlaceFields(address: NominatimAddress): {
+  name: string;
+  admin1?: string;
+  country?: string;
+} {
+  const name =
+    address.village ??
+    address.town ??
+    address.city ??
+    address.hamlet ??
+    address.municipality ??
+    "";
+  return {
+    name,
+    admin1: address.state,
+    country: address.country,
+  };
+}
+
+function coordinatePlaceName(latitude: number, longitude: number): string {
+  return `${latitude.toFixed(2)}°, ${longitude.toFixed(2)}°`;
+}
+
 export async function reverseGeocode(latitude: number, longitude: number): Promise<GeoPlace> {
-  const url =
-    `https://geocoding-api.open-meteo.com/v1/reverse?latitude=${latitude}` +
-    `&longitude=${longitude}&language=de&count=1`;
-  const res = await requestUrl({ url });
-  const data = res.json as GeocodeResult;
-  const hit = data.results?.[0];
-  if (!hit) {
+  const coordFallback = (): GeoPlace => ({
+    latitude,
+    longitude,
+    placeName: coordinatePlaceName(latitude, longitude),
+  });
+
+  try {
+    const url =
+      `https://nominatim.openstreetmap.org/reverse?lat=${encodeURIComponent(String(latitude))}` +
+      `&lon=${encodeURIComponent(String(longitude))}` +
+      `&format=json&accept-language=de&addressdetails=1`;
+    const res = await requestUrl({
+      url,
+      headers: { "User-Agent": NOMINATIM_USER_AGENT },
+    });
+    if (res.status >= 400) return coordFallback();
+
+    const data = res.json as { address?: NominatimAddress };
+    const fields = data.address ? nominatimAddressToPlaceFields(data.address) : null;
+    if (!fields?.name) return coordFallback();
+
     return {
       latitude,
       longitude,
-      placeName: `${latitude.toFixed(2)}°, ${longitude.toFixed(2)}°`,
+      placeName: formatPlaceName(fields),
+      admin1: fields.admin1,
+      country: fields.country,
     };
+  } catch {
+    return coordFallback();
   }
-  return {
-    latitude: hit.latitude,
-    longitude: hit.longitude,
-    placeName: formatPlaceName(hit),
-    admin1: hit.admin1,
-    country: hit.country,
-  };
 }
 
 export async function searchGeocode(query: string): Promise<GeoPlace | null> {

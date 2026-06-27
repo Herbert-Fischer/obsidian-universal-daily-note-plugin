@@ -54,7 +54,7 @@ export type ComposerChip = {
   defaultTime?: string;
 };
 
-export const DEFAULT_COMPOSER_CHIPS: ComposerChip[] = [
+export const TAGEBUCH_COMPOSER_CHIPS: ComposerChip[] = [
   { label: "Aufstehen", template: "Aufstehen", defaultTime: "07:30" },
   { label: "Mittagessen", template: "Mittagessen:", defaultTime: "12:00" },
   { label: "Abendessen", template: "Abendessen:", defaultTime: "18:30" },
@@ -62,9 +62,35 @@ export const DEFAULT_COMPOSER_CHIPS: ComposerChip[] = [
   { label: "Termin", template: "Termin:", defaultTime: "10:00" },
   { label: "Besuch", template: "Besuch:", defaultTime: "14:00" },
   { label: "Garten", template: "Garten:", defaultTime: "16:00" },
-  { label: "Ankunft", template: "Ankunft:", defaultTime: "12:00" },
-  { label: "Abfahrt", template: "Abfahrt:", defaultTime: "10:00" },
 ];
+
+export const REISEN_COMPOSER_CHIPS: ComposerChip[] = [
+  { label: "Abfahrt", template: "Abfahrt:", defaultTime: "10:00" },
+  { label: "Etappe", template: "Etappe:", defaultTime: "12:00" },
+  { label: "Highlight", template: "Highlight:", defaultTime: "15:00" },
+  { label: "Ankunft", template: "Ankunft:", defaultTime: "18:00" },
+  { label: "Unterkunft", template: "Unterkunft:", defaultTime: "19:00" },
+  { label: "Foto", template: "Foto:", defaultTime: "14:00" },
+];
+
+export const WANDERN_COMPOSER_CHIPS: ComposerChip[] = [
+  { label: "Start", template: "Start:", defaultTime: "09:00" },
+  { label: "Kurzbeschreibung", template: "Kurzbeschreibung:", defaultTime: "09:30" },
+  { label: "Beschreibung", template: "Beschreibung:", defaultTime: "15:00" },
+  { label: "Gipfel", template: "Gipfel:", defaultTime: "12:00" },
+  { label: "Ende", template: "Ende:", defaultTime: "16:00" },
+  { label: "Track", template: "Track:", defaultTime: "15:00" },
+  { label: "Foto", template: "Foto:", defaultTime: "15:30" },
+];
+
+export const GENERIC_COMPOSER_CHIPS: ComposerChip[] = [
+  { label: "Termin", template: "Termin:", defaultTime: "10:00" },
+  { label: "Besuch", template: "Besuch:", defaultTime: "14:00" },
+  { label: "Notiz", template: "Notiz:", defaultTime: "12:00" },
+];
+
+/** @deprecated Use chipsForHeading */
+export const DEFAULT_COMPOSER_CHIPS: ComposerChip[] = TAGEBUCH_COMPOSER_CHIPS;
 
 function localDayKey(d: Date): string {
   const y = d.getFullYear();
@@ -158,8 +184,8 @@ export function buildChipEntryText(chip: ComposerChip, time: string): string {
   return `${time} ${template}`;
 }
 
-export function chipsFromPrefixes(prefixes: string[]): ComposerChip[] {
-  const base = [...DEFAULT_COMPOSER_CHIPS];
+export function chipsFromPrefixes(prefixes: string[], base: ComposerChip[]): ComposerChip[] {
+  const merged = [...base];
   const seen = new Set(base.map((c) => c.template.toLowerCase()));
   for (const prefix of prefixes) {
     const p = prefix.trim();
@@ -167,9 +193,17 @@ export function chipsFromPrefixes(prefixes: string[]): ComposerChip[] {
     const key = p.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    base.push({ label: p.replace(/:$/, ""), template: p.endsWith(":") ? p : `${p}:`, defaultTime: "12:00" });
+    merged.push({ label: p.replace(/:$/, ""), template: p.endsWith(":") ? p : `${p}:`, defaultTime: "12:00" });
   }
-  return base;
+  return merged;
+}
+
+export function chipsForHeading(heading: string, prefixes: string[]): ComposerChip[] {
+  const h = heading.trim().toLowerCase();
+  if (h === "tagebuch") return chipsFromPrefixes(prefixes, TAGEBUCH_COMPOSER_CHIPS);
+  if (h === "reisen") return chipsFromPrefixes(prefixes, REISEN_COMPOSER_CHIPS);
+  if (h === "wandern") return chipsFromPrefixes(prefixes, WANDERN_COMPOSER_CHIPS);
+  return chipsFromPrefixes(prefixes, GENERIC_COMPOSER_CHIPS);
 }
 
 /** Build a short summary from journal entry texts. */
@@ -186,6 +220,9 @@ export function suggestSummaryFromEntries(entryTexts: string[]): string {
     } else if (lower.startsWith("spaziergang:")) {
       const detail = trimmed.replace(/^spaziergang:\s*/i, "").trim();
       parts.push(detail ? `Spaziergang ${detail}` : "Spaziergang");
+    } else if (lower.startsWith("kurzbeschreibung:")) {
+      const detail = trimmed.replace(/^kurzbeschreibung:\s*/i, "").trim();
+      if (detail) parts.push(detail);
     } else if (lower.startsWith("besuch")) {
       parts.push(trimmed);
     } else if (lower.startsWith("film:") || lower.startsWith("kaffee")) {
@@ -290,6 +327,9 @@ export type LoadComposerSectionHeadingsOptions = {
   durationDays: number;
 };
 
+/** Always available in composer heading picker, even before first use in the vault. */
+export const COMPOSER_SECTION_PRESETS = ["Tagebuch", "Reisen", "Wandern"] as const;
+
 export async function loadComposerSectionHeadings(
   app: App,
   date: Date,
@@ -314,7 +354,11 @@ export async function loadComposerSectionHeadings(
     defaultHeading,
   });
 
-  return finalizeJournalHeadings([...fromFile, ...fromVault, defaultHeading], excluded, defaultHeading);
+  return finalizeJournalHeadings(
+    [...fromFile, ...fromVault, defaultHeading, ...COMPOSER_SECTION_PRESETS],
+    excluded,
+    defaultHeading,
+  );
 }
 
 export async function loadComposerState(

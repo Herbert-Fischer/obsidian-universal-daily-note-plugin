@@ -8,11 +8,13 @@ import { normalizeActiveJournalHeading } from "../../notes/journalHeadingFilter"
 import { dateFromDailyNoteFile } from "../../integrations/universalCalendar";
 import { getMainAreaActiveMarkdownFile } from "../../tagebuchVerweise/mainPageFile";
 import { runInsertWeather } from "../../weather/runInsertWeather";
+import { attachComposerDrag, applyComposerWindowPosition } from "./composerDrag";
 
 export type OpenDailyComposerOptions = {
   date?: Date;
   journalHeading?: string;
-  onSaved?: () => void;
+  onSaved?: (date: Date) => void;
+  onDateChange?: (date: Date) => void;
   onHeadingChange?: (heading: string) => void;
 };
 
@@ -20,6 +22,7 @@ export class DailyComposerModal extends Modal {
   private component: DailyComposer | null = null;
   private currentDate: Date;
   private detachViewport: (() => void) | null = null;
+  private detachDrag: (() => void) | null = null;
   private readonly isMobile = Platform.isMobile;
 
   constructor(
@@ -30,6 +33,7 @@ export class DailyComposerModal extends Modal {
     super(app);
     this.currentDate = normalizeLocalDay(options.date ?? new Date());
     this.onSaved = options.onSaved;
+    this.onDateChange = options.onDateChange;
     this.onHeadingChange = options.onHeadingChange;
     this.initialHeading = normalizeActiveJournalHeading(
       options.journalHeading ?? plugin.settings.outline.journalHeading,
@@ -37,7 +41,8 @@ export class DailyComposerModal extends Modal {
     );
   }
 
-  private onSaved?: () => void;
+  private onSaved?: (date: Date) => void;
+  private onDateChange?: (date: Date) => void;
   private onHeadingChange?: (heading: string) => void;
   private initialHeading: string;
 
@@ -51,10 +56,22 @@ export class DailyComposerModal extends Modal {
       this.detachViewport = attachMobileViewport(modalEl, contentEl);
     } else {
       this.setTitle("Tages-Composer");
+      this.modalEl.addClass("udn-composerModal--draggableHost");
+      applyComposerWindowPosition(this.modalEl, this.plugin.settings.composerWindow ?? { x: null, y: null });
+      this.detachDrag = attachComposerDrag(
+        this.modalEl,
+        this.titleEl,
+        this.plugin.settings.composerWindow ?? { x: null, y: null },
+        (pos) => {
+          this.plugin.settings.composerWindow = { x: pos.x, y: pos.y };
+          void this.plugin.saveSettings();
+        },
+      );
     }
     contentEl.addClass("udn-composerModalContent");
 
-    const { outline, dailyNoteFallback, tagebuchVerweise, quickCapture } = this.plugin.settings;
+    const { outline, dailyNoteFallback, tagebuchVerweise, quickCapture, composerTemplates, tracks, weatherCapture } =
+      this.plugin.settings;
 
     this.component = new DailyComposer({
       target: contentEl,
@@ -68,11 +85,16 @@ export class DailyComposerModal extends Modal {
         tagebuchSettings: tagebuchVerweise,
         entryPrefixes: quickCapture.entryPrefixes,
         calendarSync: this.plugin.settings.calendarSync ?? DEFAULT_SETTINGS.calendarSync,
+        composerTemplates: composerTemplates ?? DEFAULT_SETTINGS.composerTemplates,
+        tracksSettings: tracks ?? DEFAULT_SETTINGS.tracks,
+        wandernLayout: this.plugin.settings.wandernLayout ?? DEFAULT_SETTINGS.wandernLayout,
+        attachmentsFolder: quickCapture.attachmentsFolder,
+        weatherLastLocation: weatherCapture.lastLocation,
         timeFormat: quickCapture.timeFormat,
         isMobile: this.isMobile,
         onClose: () => this.close(),
         onSaved: () => {
-          this.onSaved?.();
+          this.onSaved?.(this.currentDate);
         },
         onHeadingChange: (heading: string) => {
           this.initialHeading = heading;
@@ -80,23 +102,36 @@ export class DailyComposerModal extends Modal {
         },
         onDateChange: (d: Date) => {
           this.currentDate = normalizeLocalDay(d);
+          this.onDateChange?.(this.currentDate);
         },
         onInsertWeather: async () => {
           const ok = await runInsertWeather(this.plugin, this.currentDate, this.initialHeading);
-          if (ok) this.onSaved?.();
+          if (ok) this.onSaved?.(this.currentDate);
           return ok;
+        },
+        onPersistSideEffects: (patch) => {
+          if (patch.lastLocation !== undefined) {
+            this.plugin.settings.weatherCapture.lastLocation = patch.lastLocation;
+          }
+          if (patch.lastTripLabel !== undefined) {
+            this.plugin.settings.composerTemplates.lastTripLabel = patch.lastTripLabel;
+          }
+          void this.plugin.saveSettings();
         },
       },
     });
   }
 
   onClose(): void {
+    this.detachDrag?.();
+    this.detachDrag = null;
     this.detachViewport?.();
     this.detachViewport = null;
     this.component?.$destroy();
     this.component = null;
     this.modalEl.removeClass("udn-composerModal");
     this.modalEl.removeClass("udn-composerModal--mobile");
+    this.modalEl.removeClass("udn-composerModal--draggableHost");
   }
 }
 

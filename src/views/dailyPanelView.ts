@@ -51,6 +51,10 @@ export class DailyPanelView extends ItemView {
     }
   }
 
+  pinOutlineDay(date: Date, options?: { refresh?: boolean }): void {
+    this.panelMount?.pinOutlineDay(date, options);
+  }
+
   async onOpen(): Promise<void> {
     applyDenkariumItemViewScrollLayout(this);
 

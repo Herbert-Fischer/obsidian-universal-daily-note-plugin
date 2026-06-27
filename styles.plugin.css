@@ -737,6 +737,167 @@ body.is-mobile .udn-verweise .udn-outlineEntry .udn-timelineEntryBody {
   max-width: 720px;
 }
 
+.udn-composerModal.modal {
+  width: min(720px, 92vw);
+  max-width: 720px;
+}
+
+.udn-composerModal--draggableHost.modal {
+  position: fixed;
+  margin: 0;
+}
+
+.udn-composerModal--draggable .modal-title {
+  cursor: grab;
+  user-select: none;
+}
+
+.udn-composerModal--draggable .modal-title:active {
+  cursor: grabbing;
+}
+
+.udn-wandernForm {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.udn-wandernTextarea {
+  width: 100%;
+  min-height: 88px;
+  resize: vertical;
+}
+
+.udn-wandernTrackInfo {
+  font-size: var(--dk-font-caption);
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.udn-wandernPhotos {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.udn-wandernPhotosHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.udn-wandernPhotoRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.udn-wandernPhotoPath {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--dk-font-caption);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.udn-wandernPreview {
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+  font-size: var(--dk-font-caption);
+  white-space: pre-wrap;
+  max-height: 240px;
+  overflow: auto;
+}
+
+.udn-track3d {
+  margin: 8px 0;
+}
+
+.udn-track3dMapStage {
+  position: relative;
+  padding: 0;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s) var(--radius-s) 0 0;
+  overflow: hidden;
+}
+
+.udn-track3dMapInner {
+  display: block;
+}
+
+.udn-track3dMap {
+  display: block;
+  width: 100%;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.udn-track3dLoading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--dk-font-caption);
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--background-secondary) 88%, transparent);
+  border-radius: var(--radius-s) var(--radius-s) 0 0;
+  z-index: 1;
+}
+
+.udn-track3dCanvas {
+  display: block;
+  width: 100%;
+  border-radius: var(--radius-s);
+  border: 1px solid var(--background-modifier-border);
+}
+
+.udn-track3dFallback {
+  padding: 10px;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s) var(--radius-s) 0 0;
+}
+
+.udn-track3dProfile {
+  display: block;
+  width: 100%;
+  border-radius: 0;
+  border: 1px solid var(--background-modifier-border);
+  border-top: none;
+}
+
+.udn-track3dAttribution {
+  margin: 0;
+  padding: 4px 10px 6px;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  border-left: 1px solid var(--background-modifier-border);
+  border-right: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+}
+
+.udn-track3d:has(.udn-track3dAttribution) .udn-track3dProfile {
+  border-radius: 0 0 var(--radius-s) var(--radius-s);
+}
+
+.udn-track3d:not(:has(.udn-track3dAttribution)) .udn-track3dProfile {
+  border-radius: 0 0 var(--radius-s) var(--radius-s);
+}
+
+.udn-track3dHint {
+  margin: 4px 0 0;
+  font-size: var(--dk-font-caption);
+  color: var(--text-muted);
+}
+
 .udn-composerModal .modal-content {
   padding: 0;
   overflow: hidden;
@@ -1065,12 +1226,13 @@ body.is-mobile .udn-composer--mobile .udn-composerPrefixFilter {
 }
 
 body.is-mobile .udn-composerMobileDock {
-  position: static;
+  position: sticky;
+  bottom: var(--udn-vv-keyboard-inset, 0px);
   flex-shrink: 0;
-  z-index: 1;
+  z-index: 2;
   background: var(--background-primary);
   border-top: 1px solid var(--background-modifier-border);
-  box-shadow: none;
+  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.06);
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
@@ -1081,6 +1243,9 @@ body.is-mobile .udn-composer--mobile .udn-composerSection {
   min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  scroll-padding-bottom: calc(
+    var(--udn-composer-dock-height, 72px) + var(--udn-vv-keyboard-inset, 0px) + 8px
+  );
 }
 
 body.is-mobile .udn-composer--mobile .udn-composerCalloutTitle {
@@ -1101,6 +1266,87 @@ body.is-mobile .udn-composer--mobile .udn-composerSummaryInput {
   min-width: 0;
   min-height: 30px;
   font-size: var(--font-ui-small);
+}
+
+.udn-composerHiddenFile {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  overflow: hidden;
+}
+
+.udn-wandernTrackEmpty {
+  margin: 0;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.udn-wandernTrackPicker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+}
+
+.udn-wandernTrackPickerStatus {
+  margin: 0;
+  font-size: var(--dk-font-caption);
+  color: var(--text-muted);
+}
+
+.udn-wandernTrackOption {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-s);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.udn-wandernTrackOption:hover {
+  background: var(--background-modifier-hover);
+}
+
+.udn-wandernTrackOption--active {
+  border-color: var(--interactive-accent);
+  background: var(--background-modifier-hover);
+}
+
+.udn-wandernTrackOptionLabel {
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-medium);
+}
+
+.udn-wandernTrackOptionHint {
+  font-size: var(--dk-font-caption);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.udn-trackPickRow {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.udn-trackPickHint {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
 }
 
 body.is-mobile .udn-composerMobileDock .udn-composerAddRow--pinned {

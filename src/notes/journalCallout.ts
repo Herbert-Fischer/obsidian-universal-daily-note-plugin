@@ -5,6 +5,7 @@ const HEADING_CALLOUT_WRITE: Record<string, string> = {
   tagebuch: "tagebuch-ref",
   sonstiges: "notes",
   reisen: "compass",
+  wandern: "mountain",
   wichtig: "cone",
   gesundheit: "activity",
   arbeit: "command",
@@ -19,6 +20,7 @@ const HEADING_CALLOUT_ALIASES: Record<string, string[]> = {
   tagebuch: ["tagebuch-ref", "tagebuch", "calendar"],
   sonstiges: ["notes", "box", "sonstiges"],
   reisen: ["compass", "globe", "travel", "reisen", "reise", "notes"],
+  wandern: ["mountain", "footprints", "wandern", "hike", "notes"],
   wichtig: ["cone", "warning", "wichtig"],
   gesundheit: ["activity", "gesundheit"],
   arbeit: ["command", "industry", "Industry", "arbeit"],
@@ -82,13 +84,13 @@ export function calloutTypesForHeading(heading: string): string[] {
   return [writeType];
 }
 
-const CALLOUT_TITLE = /^>\s*\[!([^\]|]+)\]\s*(.*)$/;
+const CALLOUT_TITLE = /^>\s*\[!([^\]|]+)(?:\|([^\]]*))?\]([+-])?\s*(.*)$/;
 
 /** Trip name from a Reisen callout title line (e.g. „Mamas 90ter Geburtstag“). */
 export function parseReisenTripLabel(calloutLine: string): string | null {
   const m = calloutLine.trim().match(CALLOUT_TITLE);
   if (!m) return null;
-  const rest = (m[2] ?? "").trim();
+  const rest = (m[2]?.trim() || (m[4]?.trim() ?? "").replace(/^[+-]\s*/, "").trim());
   if (!rest || rest.toLowerCase() === "reisen") return null;
 
   const brackets = [...rest.matchAll(/\[([^\]]+)\]/g)]
@@ -138,8 +140,10 @@ export function formatComposerCalloutTitle(
 /** Raw callout title from a managed callout start line. */
 export function parseComposerCalloutTitle(calloutLine: string): string | null {
   const m = calloutLine.trim().match(CALLOUT_TITLE);
-  const title = m?.[2]?.trim();
-  return title || null;
+  if (!m) return null;
+  const fromPipe = m[2]?.trim();
+  const fromRest = (m[4]?.trim() ?? "").replace(/^[+-]\s*/, "").trim();
+  return fromPipe || fromRest || null;
 }
 
 export function readCalloutTitleFromLines(
@@ -231,7 +235,7 @@ const KNOWN_SECTION_CALLOUT_TITLES = new Set([
 export function isReisenTripCalloutTitleLine(line: string): boolean {
   const m = line.trim().match(CALLOUT_TITLE);
   if (!m) return false;
-  const rest = (m[2] ?? "").trim();
+  const rest = (m[2]?.trim() || (m[4]?.trim() ?? "").replace(/^[+-]\s*/, "").trim());
   if (!rest || rest.toLowerCase() === "reisen") return false;
   if (KNOWN_SECTION_CALLOUT_TITLES.has(rest.toLowerCase())) return false;
   if (/^\d{1,2}\.\d{1,2}\.\d{4}$/.test(rest)) return false;
@@ -258,7 +262,7 @@ export function isLegacyMisplacedSonstigesTripCallout(line: string): boolean {
   if (type !== "notes") return isReisenTripCalloutLine(line);
   const m = line.trim().match(CALLOUT_TITLE);
   if (!m) return false;
-  const rest = (m[2] ?? "").trim();
+  const rest = (m[2]?.trim() || (m[4]?.trim() ?? "").replace(/^[+-]\s*/, "").trim());
   if (!rest || rest.toLowerCase() === "sonstiges") return false;
   if (KNOWN_SECTION_CALLOUT_TITLES.has(rest.toLowerCase())) return false;
   if (/^\d{1,2}\.\d{1,2}\.\d{4}$/.test(rest)) return false;

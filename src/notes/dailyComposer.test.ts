@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   buildChipEntryText,
+  COMPOSER_SECTION_PRESETS,
   rewriteJournalBullets,
   suggestSummaryFromEntries,
   updateSummaryInContent,
   DEFAULT_COMPOSER_CHIPS,
 } from "./dailyComposer";
+import { finalizeJournalHeadings } from "./journalHeadingFilter";
 import { extractJournalLines, extractJournalLinesFromCallout } from "./dailyNoteTimeline";
 
 describe("rewriteJournalBullets", () => {
@@ -134,6 +136,17 @@ describe("suggestSummaryFromEntries", () => {
     ]);
     expect(summary).toContain("Pizza");
     expect(summary).toContain("Spaziergang");
+  });
+});
+
+describe("COMPOSER_SECTION_PRESETS", () => {
+  it("includes Wandern for composer picker before vault use", () => {
+    expect(COMPOSER_SECTION_PRESETS).toContain("Wandern");
+    const headings = finalizeJournalHeadings(["Sonstiges"], [], "Tagebuch");
+    const merged = finalizeJournalHeadings([...headings, ...COMPOSER_SECTION_PRESETS], [], "Tagebuch");
+    expect(merged).toContain("Wandern");
+    expect(merged).toContain("Reisen");
+    expect(merged).toContain("Sonstiges");
   });
 });
 

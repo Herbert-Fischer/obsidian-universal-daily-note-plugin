@@ -12,11 +12,42 @@ export type TagebuchVerweiseSettings = {
 
 export type CalendarSyncSettings = {
   enabled: boolean;
-  /** HH:mm for all-day calendar items */
-  allDayTime: string;
   includeTodos: boolean;
   /** Sync once per session when outline loads a day */
   syncOnOutlineLoad: boolean;
+  /** Vault markdown files from Universal Calendar (by date / creation) */
+  includeMarkdownNotes: boolean;
+};
+
+export type ComposerWindowSettings = {
+  x: number | null;
+  y: number | null;
+};
+
+export type WandernLayoutSettings = {
+  template: string;
+  maxPhotos: number;
+  track3dEnabled: boolean;
+  track3dHeight: number;
+  track3dElevationExaggeration: number;
+  /** Base folder for Wandern photos: …/Bilder/<Callout-Titel>/ */
+  photosFolder: string;
+  /** Base folder for Wandern GPX: …/GPX/<Callout-Titel>.gpx */
+  tracksFolder: string;
+};
+
+export type ComposerTemplatesSettings = {
+  tagebuchBulkEnabled: boolean;
+  reisenBulkEnabled: boolean;
+  wandernBulkEnabled: boolean;
+  /** Last Reisen trip label for callout title fallback */
+  lastTripLabel: string;
+};
+
+export type TracksSettings = {
+  enabled: boolean;
+  /** Vault folder with GPX/TCX files (YYYY-MM-DD in filename) */
+  folder: string;
 };
 
 export type QuickCaptureSettings = {
@@ -80,6 +111,10 @@ export type UniversalDailyNoteSettings = {
   quickCapture: QuickCaptureSettings;
   calendarSync: CalendarSyncSettings;
   weatherCapture: WeatherCaptureSettings;
+  composerTemplates: ComposerTemplatesSettings;
+  composerWindow: ComposerWindowSettings;
+  wandernLayout: WandernLayoutSettings;
+  tracks: TracksSettings;
   analytics: AnalyticsSettings;
   outline: OutlineSettings;
   sections: SectionsSettings;
@@ -116,23 +151,47 @@ export const DEFAULT_SETTINGS: UniversalDailyNoteSettings = {
       "Termin:",
       "Besuch:",
       "Garten:",
-      "Ankunft:",
-      "Abfahrt:",
+      "Etappe:",
+      "Highlight:",
+      "Unterkunft:",
     ],
     attachmentsFolder: "Calendar/Attachments",
     syncHeadingWithOutline: true,
   },
   calendarSync: {
     enabled: true,
-    allDayTime: "09:00",
     includeTodos: false,
     syncOnOutlineLoad: true,
+    includeMarkdownNotes: false,
   },
   weatherCapture: {
     updateFrontmatter: true,
     format: "callout",
     historicalTime: "12:00",
     lastLocation: "",
+  },
+  composerTemplates: {
+    tagebuchBulkEnabled: true,
+    reisenBulkEnabled: true,
+    wandernBulkEnabled: true,
+    lastTripLabel: "",
+  },
+  composerWindow: {
+    x: null,
+    y: null,
+  },
+  wandernLayout: {
+    template: "",
+    maxPhotos: 3,
+    track3dEnabled: true,
+    track3dHeight: 400,
+    track3dElevationExaggeration: 4,
+    photosFolder: "Calendar/Anhänge/Bilder",
+    tracksFolder: "Calendar/Anhänge/GPX",
+  },
+  tracks: {
+    enabled: true,
+    folder: "Calendar/Tracks",
   },
   analytics: {
     enabled: false,

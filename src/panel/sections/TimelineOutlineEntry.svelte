@@ -2,6 +2,7 @@
   import type { App } from "obsidian";
   import { tick } from "svelte";
   import { dk, sidebarPointerAction } from "@denkarium/obsidian-lib-ui";
+  import { panelTapAction } from "../panelTapAction";
   import { parseJournalEntryDisplay } from "../../notes/parseJournalEntryDisplay";
   import { stripCalendarSyncMarker } from "../../integrations/calendarSyncMarker";
   import { parseWikiLinks } from "../../notes/parseWikiLinks";
@@ -21,6 +22,7 @@
   export let onCommitTimeEdit: (day: TimelineDay, entry: TimelineEntry, time: string) => void = () => {};
   export let onEditKeydown: (day: TimelineDay, entry: TimelineEntry, ev: KeyboardEvent) => void = () => {};
   export let onOpenWikiLink: (dest: string, sourcePath: string) => void = () => {};
+  export let onSelectDay: (day: TimelineDay) => void = () => {};
 
   $: display = parseJournalEntryDisplay(entry.text);
   $: displayBody = stripCalendarSyncMarker(display.body);
@@ -66,9 +68,19 @@
       onCommitEdit(day, entry);
     }, 150);
   }
+
+  function onEntryTap(ev: PointerEvent) {
+    const target = ev.target as HTMLElement;
+    if (target.closest("a.internal-link, input, button")) return;
+    onSelectDay(day);
+  }
 </script>
 
-<div class="udn-outlineEntry">
+<div
+  class="udn-outlineEntry"
+  class:udn-outlineEntry--editing={editing}
+  use:panelTapAction={onEntryTap}
+>
   {#if showTimeBubbles}
     {#if editing}
       <input

@@ -11,6 +11,7 @@ import {
 import { DEFAULT_EXCLUDED_JOURNAL_HEADINGS, DEFAULT_JOURNAL_HEADING } from "../settings";
 import { entryMatchesTextFilter } from "./entryTextFilter";
 import { readDailyNoteSummary } from "./dailyNoteSummary";
+import { parseWandernMetaLine, wandernTimelineTextFromMeta } from "./wandernLayout";
 import {
   isLegacyMisplacedSonstigesTripCallout,
   isManagedCalloutStart,
@@ -22,6 +23,34 @@ import {
   stripLeadingGermanDateFromCalloutTitle,
   dateFromDateKey,
 } from "./journalCallout";
+
+function tryWandernTimelineEntry(
+  line: string,
+  lineIndex: number,
+  section: string,
+): TimelineEntry | null {
+  const meta = parseWandernMetaLine(line.trim());
+  if (!meta) return null;
+  const text = wandernTimelineTextFromMeta(meta);
+  if (!text) return null;
+  return { line: lineIndex, text, rawLine: line, section };
+}
+
+function sectionHasJournalActivity(textLines: string[], sectionStart: number, heading: string): boolean {
+  const headingLower = heading.trim().toLowerCase();
+  for (let j = sectionStart + 1; j < textLines.length; j++) {
+    const line = textLines[j] ?? "";
+    const trimmed = line.trim();
+    if (/^#{1,6}\s/.test(trimmed)) break;
+    if (!trimmed || trimmed === "---") continue;
+    if (/^[-*+]\s/.test(trimmed) || /^>\s*[-*+]\s/.test(trimmed)) return true;
+    if (headingLower === "wandern") {
+      if (parseWandernMetaLine(trimmed)) return true;
+      if (isManagedCalloutStart(line, heading)) return true;
+    }
+  }
+  return false;
+}
 
 export type TimelineEntry = {
   line: number;
@@ -192,6 +221,7 @@ export function extractJournalLines(
 ): TimelineEntry[] {
   const target = journalHeading.trim().toLowerCase();
   const isReisen = target === "reisen";
+  const isWandern = target === "wandern";
   let inSection = false;
   let inManagedCallout = false;
   let skipReisenTripCallout = false;
@@ -226,6 +256,14 @@ export function extractJournalLines(
     if (!inSection) continue;
     if (!trimmed || trimmed === "---") continue;
     if (/^#{1,6}\s/.test(trimmed)) break;
+
+    if (isWandern) {
+      const entry = tryWandernTimelineEntry(line, i, journalHeading);
+      if (entry) {
+        out.push(entry);
+        continue;
+      }
+    }
 
     if (isManagedCalloutStart(line, journalHeading)) {
       inManagedCallout = true;
@@ -315,6 +353,14 @@ export function extractJournalLinesAllHeadings(
       continue;
     }
 
+    if (currentSection?.trim().toLowerCase() === "wandern") {
+      const entry = tryWandernTimelineEntry(line, i, currentSection);
+      if (entry) {
+        out.push(entry);
+        continue;
+      }
+    }
+
     const sectionLabel = reisenTripSection ? "Reisen" : currentSection;
 
     if (currentSection && !reisenTripSection && isManagedCalloutStart(line, currentSection)) {
@@ -384,19 +430,7 @@ export function extractUsedJournalHeadings(textLines: string[]): string[] {
     const heading = h2[1]?.trim();
     if (!heading) continue;
 
-    let hasEntry = false;
-    for (let j = i + 1; j < textLines.length; j++) {
-      const line = textLines[j] ?? "";
-      const trimmed = line.trim();
-      if (/^#{1,6}\s/.test(trimmed)) break;
-      if (!trimmed || trimmed === "---") continue;
-      if (/^[-*+]\s/.test(trimmed) || /^>\s*[-*+]\s/.test(trimmed)) {
-        hasEntry = true;
-        break;
-      }
-    }
-
-    if (hasEntry) {
+    if (sectionHasJournalActivity(textLines, i, heading)) {
       const key = heading.toLowerCase();
       if (!seen.has(key)) {
         seen.add(key);
@@ -466,7 +500,6 @@ async function loadDayFromFile(
       await syncCalendarAppointmentsIntoDailyNote(app, {
         date: new Date(y, m - 1, d, 0, 0, 0, 0),
         fallback: plugin.settings.dailyNoteFallback,
-        journalHeading: plugin.settings.outline.journalHeading,
         settings: sync,
         oncePerSession: true,
       });

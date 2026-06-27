@@ -1,5 +1,6 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
 import type UniversalDailyNotePlugin from "./main";
+import { DEFAULT_WANDERN_LAYOUT_TEMPLATE } from "./notes/wandernLayout";
 
 export class UniversalDailyNoteSettingTab extends PluginSettingTab {
   plugin: UniversalDailyNotePlugin;
@@ -116,7 +117,7 @@ export class UniversalDailyNoteSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Termine automatisch übernehmen")
-      .setDesc("Universal Calendar: Termine als „Termin:“-Zeilen ins Tagebuch (Composer, Speichern, Outline).")
+      .setDesc("Universal Calendar: CalDAV-Termine mit Uhrzeit als „Termin:“-Zeilen immer in ## Tagebuch.")
       .addToggle((t) =>
         t.setValue(cal.enabled).onChange(async (value) => {
           cal.enabled = value;
@@ -135,24 +136,204 @@ export class UniversalDailyNoteSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Ganztägige Termine")
-      .setDesc("Uhrzeit für ganztägige Kalender-Einträge (HH:mm).")
-      .addText((t) =>
-        t.setValue(cal.allDayTime).onChange(async (value) => {
-          cal.allDayTime = value.trim() || "09:00";
+      .setName("Vault-Notizen aus Kalender")
+      .setDesc("Markdown-Dateien aus Universal Calendar (nach Datum/Erstellung) als Termin übernehmen.")
+      .addToggle((t) =>
+        t.setValue(cal.includeMarkdownNotes ?? false).onChange(async (value) => {
+          cal.includeMarkdownNotes = value;
           await this.plugin.saveSettings();
         }),
       );
 
     new Setting(containerEl)
       .setName("CalDAV-Aufgaben (VTODO)")
-      .setDesc("Auch CalDAV-Todos als Termin-Zeile übernehmen.")
+      .setDesc("Auch CalDAV-Todos als Termin-Zeile übernehmen (nur mit konkreter Uhrzeit).")
       .addToggle((t) =>
         t.setValue(cal.includeTodos).onChange(async (value) => {
           cal.includeTodos = value;
           await this.plugin.saveSettings();
         }),
       );
+
+    containerEl.createEl("p", {
+      cls: "setting-item-description",
+      text: "Ganztages-Termine werden nicht übernommen — nur Einträge mit konkreter Startzeit.",
+    });
+
+    const tpl = this.plugin.settings.composerTemplates ?? {
+      tagebuchBulkEnabled: true,
+      reisenBulkEnabled: true,
+      wandernBulkEnabled: true,
+      lastTripLabel: "",
+    };
+
+    containerEl.createEl("h3", { text: "Composer-Vorlagen" });
+
+    new Setting(containerEl)
+      .setName("Typischer Tag (Tagebuch)")
+      .setDesc("Bulk-Vorlage: Wetter, Aufstehen, Mittagessen, Spaziergang, Kalender-Termine.")
+      .addToggle((t) =>
+        t.setValue(tpl.tagebuchBulkEnabled).onChange(async (value) => {
+          tpl.tagebuchBulkEnabled = value;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Typischer Reisetag")
+      .setDesc("Bulk-Vorlage: Standort, Etappen, Highlights, optional Foto und GPX-Track.")
+      .addToggle((t) =>
+        t.setValue(tpl.reisenBulkEnabled).onChange(async (value) => {
+          tpl.reisenBulkEnabled = value;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Typische Wanderung (Wandern)")
+      .setDesc("Bulk-Vorlage: Standort, Start, Kurz- und Beschreibung, optional Foto und GPX-Track.")
+      .addToggle((t) =>
+        t.setValue(tpl.wandernBulkEnabled).onChange(async (value) => {
+          tpl.wandernBulkEnabled = value;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    const composerWindow = this.plugin.settings.composerWindow ?? { x: null, y: null };
+
+    containerEl.createEl("h3", { text: "Composer-Fenster" });
+
+    new Setting(containerEl)
+      .setName("Position zurücksetzen")
+      .setDesc("Composer wieder zentriert öffnen (Desktop).")
+      .addButton((btn) =>
+        btn.setButtonText("Zurücksetzen").onClick(async () => {
+          composerWindow.x = null;
+          composerWindow.y = null;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    const wl = this.plugin.settings.wandernLayout ?? {
+      template: "",
+      maxPhotos: 3,
+      track3dEnabled: true,
+      track3dHeight: 400,
+      track3dElevationExaggeration: 4,
+      photosFolder: "Calendar/Anhänge/Bilder",
+      tracksFolder: "Calendar/Anhänge/GPX",
+    };
+    if (!wl.template.trim()) {
+      wl.template = DEFAULT_WANDERN_LAYOUT_TEMPLATE;
+    }
+
+    containerEl.createEl("h3", { text: "Wandern-Layout" });
+
+    containerEl.createEl("p", {
+      cls: "setting-item-description",
+      text: "Platzhalter: {{titel}}, {{kurz}}, {{beschreibung}}, {{track_summary}}, {{track_link}}, {{track_gpx}}, {{track3d}}, {{fotos}}, {{foto1}}…{{fotoN}}, {{datum}}. Fotos: <Fotos-Ordner>/<Callout-Titel>/01.jpg. GPX: <Track-Ordner>/<Callout-Titel>.gpx.",
+    });
+
+    new Setting(containerEl)
+      .setName("Fotos-Ordner")
+      .setDesc("Basisordner für Wandern-Fotos; Unterordner = Callout-Titel (z. B. Calendar/Anhänge/Bilder).")
+      .addText((t) =>
+        t.setValue(wl.photosFolder ?? "Calendar/Anhänge/Bilder").onChange(async (value) => {
+          wl.photosFolder = value.trim() || "Calendar/Anhänge/Bilder";
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Track-Ordner")
+      .setDesc("Zielordner für GPX beim Speichern; Dateiname = Callout-Titel (z. B. Calendar/Anhänge/GPX).")
+      .addText((t) =>
+        t.setValue(wl.tracksFolder ?? "Calendar/Anhänge/GPX").onChange(async (value) => {
+          wl.tracksFolder = value.trim() || "Calendar/Anhänge/GPX";
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Markdown-Vorlage")
+      .setDesc("Wird beim Speichern von ## Wandern in die Daily Note geschrieben.")
+      .addTextArea((t) => {
+        t.inputEl.rows = 12;
+        t.setValue(wl.template).onChange(async (value) => {
+          wl.template = value;
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("Max. Fotos")
+      .addText((t) =>
+        t.setValue(String(wl.maxPhotos ?? 3)).onChange(async (value) => {
+          const n = Math.max(1, Number.parseInt(value, 10) || 3);
+          wl.maxPhotos = n;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("3D-Track in Vorlage")
+      .setDesc("{{track3d}} erzeugt einen udn-track-3d Codeblock.")
+      .addToggle((t) =>
+        t.setValue(wl.track3dEnabled ?? true).onChange(async (value) => {
+          wl.track3dEnabled = value;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("3D-Track Höhe (px)")
+      .addText((t) =>
+        t.setValue(String(wl.track3dHeight ?? 400)).onChange(async (value) => {
+          const n = Math.max(120, Number.parseInt(value, 10) || 400);
+          wl.track3dHeight = n;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("3D-Track Höhen-Exaggeration")
+      .setDesc("Vertikale Überhöhung der GPX-Höhendaten (Standard 4).")
+      .addText((t) =>
+        t.setValue(String(wl.track3dElevationExaggeration ?? 4)).onChange(async (value) => {
+          const n = Math.max(1, Number.parseFloat(value) || 4);
+          wl.track3dElevationExaggeration = n;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    const tr = this.plugin.settings.tracks ?? { enabled: true, folder: "Calendar/Tracks" };
+
+    containerEl.createEl("h3", { text: "GPS-Tracks" });
+
+    new Setting(containerEl)
+      .setName("Tracks für Reisen- und Wandern-Vorlage")
+      .setDesc("GPX/TCX aus Vault-Ordner laden (Dateiname enthält YYYY-MM-DD).")
+      .addToggle((t) =>
+        t.setValue(tr.enabled).onChange(async (value) => {
+          tr.enabled = value;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Track-Ordner")
+      .setDesc("z. B. Calendar/Tracks/Garmin oder Calendar/Tracks/Google")
+      .addText((t) =>
+        t.setValue(tr.folder).onChange(async (value) => {
+          tr.folder = value.trim() || "Calendar/Tracks";
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    containerEl.createEl("p", {
+      cls: "setting-item-description",
+      text: "Garmin: GPX pro Aktivität exportieren. Google Timeline: JSON am Android-Gerät exportieren und mit einem Konverter in Tages-GPX umwandeln.",
+    });
 
     const an = this.plugin.settings.analytics;
 

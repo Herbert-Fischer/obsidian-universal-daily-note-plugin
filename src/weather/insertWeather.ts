@@ -77,7 +77,8 @@ async function resolvePlace(
   if (isToday) {
     try {
       const pos = await getCurrentPosition();
-      return reverseGeocode(pos.coords.latitude, pos.coords.longitude);
+      const place = await reverseGeocode(pos.coords.latitude, pos.coords.longitude);
+      if (!place.placeName.includes("°")) return place;
     } catch {
       /* fall through to prompt */
     }

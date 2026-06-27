@@ -26,7 +26,15 @@
     store: PanelStore,
     setSelectedDate: (d: Date) => void,
     setCalendarContext: (ctx: CalendarSyncContext) => void,
+    pinOutlineDay: (d: Date) => void,
   ) => void;
+
+  function dateKeyFromDate(d: Date): string {
+    const y = d.getFullYear();
+    const m = d.getMonth() + 1;
+    const day = d.getDate();
+    return `${y}-${String(m).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  }
 
   const calCtx = getUniversalCalendarContext(app);
   const initialDate = calCtx?.selectedDate ?? new Date();
@@ -103,8 +111,13 @@
       if (noteDate) {
         const normalized = normalizeLocalDay(noteDate);
         if (outlinePinnedDate) {
-          if (sameLocalDay(outlinePinnedDate, normalized)) return;
-          outlinePinnedDate = null;
+          if (sameLocalDay(outlinePinnedDate, normalized) && !syncingFromCalendar) {
+            pushToUniversalCalendar(
+              outlinePinnedDate,
+              new Date(outlinePinnedDate.getFullYear(), outlinePinnedDate.getMonth(), 1),
+            );
+          }
+          return;
         }
         const current = normalizeLocalDay(get(selectedDate));
         if (!sameLocalDay(current, noteDate)) {
@@ -128,8 +141,12 @@
     setSelectedDate(outlinePinnedDate);
   }
 
+  function pinOutlineDayForDate(date: Date): void {
+    selectOutlineDay(dateKeyFromDate(date));
+  }
+
   onMount(() => {
-    onStoreReady(store, setSelectedDate, setCalendarContext);
+    onStoreReady(store, setSelectedDate, setCalendarContext, pinOutlineDayForDate);
     syncFromActiveContext();
 
     let syncTimer: ReturnType<typeof setTimeout> | null = null;
@@ -184,7 +201,11 @@
       openDailyComposer(plugin, {
         date: d,
         journalHeading: outlineSettings.journalHeading,
-        onSaved: () => bumpRefresh(store),
+        onSaved: (savedDate) => {
+          pinOutlineDayForDate(savedDate);
+          bumpRefresh(store);
+        },
+        onDateChange: pinOutlineDayForDate,
         onHeadingChange: (heading) => {
           patchOutline({ journalHeading: heading });
         },

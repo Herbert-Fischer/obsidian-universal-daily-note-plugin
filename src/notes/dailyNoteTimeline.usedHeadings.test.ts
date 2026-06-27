@@ -34,4 +34,13 @@ describe("extractUsedJournalHeadings", () => {
     const lines = ["## Tagebuch", "nur Text", "## Sonstiges", "- real entry"];
     expect(extractUsedJournalHeadings(lines)).toEqual(["Sonstiges"]);
   });
+
+  it("detects Wandern sections with composer meta instead of bullets", () => {
+    const lines = [
+      "## Wandern",
+      "> [!mountain]+ Wandern: Test",
+      '<!-- udn-wandern: {"titel":"Wandern: Test","kurz":"Kurz","beschreibung":"","track":"","trackPath":"","fotos":[]} -->',
+    ];
+    expect(extractUsedJournalHeadings(lines)).toEqual(["Wandern"]);
+  });
 });

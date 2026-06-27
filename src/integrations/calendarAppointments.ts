@@ -21,6 +21,9 @@ export {
   withCalendarSyncMarker,
 } from "./calendarSyncMarker";
 
+/** Calendar sync always writes to this journal section. */
+export const CALENDAR_SYNC_JOURNAL_HEADING = DEFAULT_JOURNAL_HEADING;
+
 export type CalendarItemLike = {
   id: string;
   source: "markdown" | "caldav_event" | "caldav_todo";
@@ -75,6 +78,13 @@ function isCalendarItemVisible(item: CalendarItemLike, plugin: CalendarPluginLik
   return true;
 }
 
+/** Items eligible for daily-note Termin: lines (CalDAV with time, no all-day, no vault markdown by default). */
+export function isSyncableCalendarItem(item: CalendarItemLike, settings: CalendarSyncSettings): boolean {
+  if (item.allDay) return false;
+  if (item.source === "markdown" && !settings.includeMarkdownNotes) return false;
+  return true;
+}
+
 export function getCalendarItemsForDay(app: App, date: Date, settings: CalendarSyncSettings): CalendarItemLike[] {
   const plugin = app.plugins.plugins[UNIVERSAL_CALENDAR_PLUGIN_ID] as CalendarPluginLike | undefined;
   if (!plugin?.store?.getItemsForDay) return [];
@@ -82,12 +92,12 @@ export function getCalendarItemsForDay(app: App, date: Date, settings: CalendarS
   return plugin.store
     .getItemsForDay(date)
     .filter((item) => isCalendarItemVisible(item, plugin))
+    .filter((item) => isSyncableCalendarItem(item, settings))
     .filter((item) => settings.includeTodos || item.source !== "caldav_todo")
     .sort((a, b) => a.start.getTime() - b.start.getTime() || a.title.localeCompare(b.title, "de"));
 }
 
-function formatItemTime(item: CalendarItemLike, allDayTime: string): string {
-  if (item.allDay) return allDayTime.trim() || "09:00";
+function formatItemTime(item: CalendarItemLike): string {
   const hh = String(item.start.getHours()).padStart(2, "0");
   const mm = String(item.start.getMinutes()).padStart(2, "0");
   return `${hh}:${mm}`;
@@ -102,11 +112,8 @@ function formatAppointmentTitle(item: CalendarItemLike): string {
   return title;
 }
 
-export function formatCalendarAppointmentEntry(
-  item: CalendarItemLike,
-  settings: CalendarSyncSettings,
-): string {
-  const time = formatItemTime(item, settings.allDayTime);
+export function formatCalendarAppointmentEntry(item: CalendarItemLike): string {
+  const time = formatItemTime(item);
   const body = withCalendarSyncMarker(`Termin: ${formatAppointmentTitle(item)}`, item.id);
   return formatJournalEntryText(time, body);
 }
@@ -127,7 +134,7 @@ export function mergeCalendarAppointmentTexts(
   const known = collectCalendarSyncIds(entryTexts);
   const additions = items
     .filter((item) => !known.has(item.id))
-    .map((item) => formatCalendarAppointmentEntry(item, options.settings));
+    .map((item) => formatCalendarAppointmentEntry(item));
 
   if (additions.length === 0) return entryTexts;
   return sortJournalEntryTexts([...entryTexts, ...additions]);
@@ -136,7 +143,6 @@ export function mergeCalendarAppointmentTexts(
 export type SyncCalendarAppointmentsOptions = {
   date: Date;
   fallback: DailyNoteFallbackSettings;
-  journalHeading?: string;
   settings: CalendarSyncSettings;
   oncePerSession?: boolean;
 };
@@ -147,7 +153,7 @@ export async function syncCalendarAppointmentsIntoDailyNote(
 ): Promise<number> {
   if (!options.settings.enabled) return 0;
 
-  const heading = options.journalHeading?.trim() || DEFAULT_JOURNAL_HEADING;
+  const heading = CALENDAR_SYNC_JOURNAL_HEADING;
   const y = options.date.getFullYear();
   const m = options.date.getMonth() + 1;
   const d = options.date.getDate();
@@ -177,7 +183,7 @@ export async function syncCalendarAppointmentsIntoDailyNote(
     app,
     {
       file: state.file,
-      journalHeading: state.journalHeading,
+      journalHeading: heading,
       calloutTitle: state.calloutTitle,
       summary: state.summary,
       dateKey: state.dateKey,

@@ -163,8 +163,10 @@ import { isWikiLinkSuggestOpen } from "../wikiLinkInputSuggest";
 
   $: if (!loading) {
     const key = selectedDateKey(noteDate);
-    if (key !== lastScrolledDateKey) {
+    const refreshChanged = refreshKey !== lastRefreshKey;
+    if (key !== lastScrolledDateKey || refreshChanged) {
       lastScrolledDateKey = key;
+      lastRefreshKey = refreshKey;
       void tick().then(() => {
         scrollToDate(key);
         void ensureSelectedDayVisible(key);
@@ -676,6 +678,7 @@ import { isWikiLinkSuggestOpen } from "../wikiLinkInputSuggest";
                       onCommitTimeEdit={commitTimeEdit}
                       onEditKeydown={onEditKeydown}
                       onOpenWikiLink={openWikiLink}
+                      onSelectDay={selectDay}
                     />
                   {/each}
                 </div>
@@ -729,6 +732,7 @@ import { isWikiLinkSuggestOpen } from "../wikiLinkInputSuggest";
                         onCommitTimeEdit={commitTimeEdit}
                         onEditKeydown={onEditKeydown}
                         onOpenWikiLink={openWikiLink}
+                        onSelectDay={selectDay}
                       />
                     {/each}
                   </div>
@@ -750,6 +754,7 @@ import { isWikiLinkSuggestOpen } from "../wikiLinkInputSuggest";
                   onCommitTimeEdit={commitTimeEdit}
                   onEditKeydown={onEditKeydown}
                   onOpenWikiLink={openWikiLink}
+                  onSelectDay={selectDay}
                 />
               {/each}
             {/if}

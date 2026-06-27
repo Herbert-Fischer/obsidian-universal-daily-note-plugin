@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { geocodeResultScore, geocodeSearchCandidates } from "./openMeteo";
+import { geocodeResultScore, geocodeSearchCandidates, nominatimAddressToPlaceFields } from "./openMeteo";
 
 describe("geocodeSearchCandidates", () => {
   it("falls back to city name from full place label", () => {
@@ -20,5 +20,39 @@ describe("geocodeResultScore", () => {
     const hit = { name: "Gersfeld", admin1: "Hessen", country: "Deutschland" };
     expect(geocodeResultScore(hit, "Gersfeld, Hessen, Deutschland")).toBe(40);
     expect(geocodeResultScore(hit, "Gersfeld, Bayern, Deutschland")).toBe(30);
+  });
+});
+
+describe("nominatimAddressToPlaceFields", () => {
+  it("prefers village over municipality for the place name", () => {
+    expect(
+      nominatimAddressToPlaceFields({
+        village: "Gersfeld",
+        municipality: "Gersfeld (Rhön)",
+        state: "Hessen",
+        country: "Deutschland",
+      }),
+    ).toEqual({
+      name: "Gersfeld",
+      admin1: "Hessen",
+      country: "Deutschland",
+    });
+  });
+
+  it("falls back to town or city when village is missing", () => {
+    expect(
+      nominatimAddressToPlaceFields({
+        town: "Erbach",
+        state: "Hessen",
+        country: "Deutschland",
+      }).name,
+    ).toBe("Erbach");
+    expect(
+      nominatimAddressToPlaceFields({
+        city: "Berlin",
+        state: "Berlin",
+        country: "Deutschland",
+      }).name,
+    ).toBe("Berlin");
   });
 });
