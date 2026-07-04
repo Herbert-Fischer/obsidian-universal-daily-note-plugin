@@ -520,6 +520,319 @@
   cursor: default;
 }
 
+.udn-timelineEntryBody--feed {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.15rem 0.35rem;
+}
+
+.udn-feedLinkBubbles {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.2rem;
+  margin-left: 0.1rem;
+}
+
+.udn-feedLinkBubble {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 0.08em 0.45em;
+  font-size: 0.72em;
+  font-weight: 500;
+  line-height: 1.25;
+  border-radius: 999px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.udn-feedLinkBubble:hover {
+  color: var(--link-color, var(--text-accent));
+  border-color: var(--background-modifier-border-hover, var(--background-modifier-border));
+  background: var(--background-modifier-hover);
+}
+
+.udn-feedLinkBubble--heizung {
+  border-color: rgba(234, 88, 12, 0.35);
+  background: rgba(234, 88, 12, 0.1);
+  color: rgb(154, 52, 18);
+}
+
+.udn-feedLinkBubble--lueftung {
+  border-color: rgba(14, 165, 233, 0.35);
+  background: rgba(14, 165, 233, 0.1);
+  color: rgb(3, 105, 161);
+}
+
+.udn-feedLinkBubble--reisen {
+  border-color: rgba(180, 83, 9, 0.35);
+  background: rgba(180, 83, 9, 0.1);
+  color: rgb(146, 64, 14);
+}
+
+.udn-feedLinkBubble--wandern {
+  border-color: rgba(22, 163, 74, 0.35);
+  background: rgba(22, 163, 74, 0.1);
+  color: rgb(21, 128, 61);
+}
+
+.udn-feedLinkBubble--sonstiges {
+  border-color: rgba(124, 58, 237, 0.35);
+  background: rgba(124, 58, 237, 0.1);
+  color: rgb(91, 33, 182);
+}
+
+.udn-feedSourceBubble {
+  cursor: default;
+}
+
+.udn-feedSourceBubble:hover {
+  color: inherit;
+  border-color: inherit;
+  background: inherit;
+}
+
+.udn-feedLinkBubble--default {
+  border-color: var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-muted);
+}
+
+.udn-feedLinkBubble--broken {
+  border-color: var(--text-error);
+  background: color-mix(in srgb, var(--text-error) 12%, var(--background-secondary));
+  color: var(--text-error);
+  text-decoration: underline dotted;
+}
+
+.udn-feedDetailFeedBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.udn-feedDetailFeedRow {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.udn-feedDetailFeedInput {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.udn-feedDetailVerweise {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.udn-feedDetailVerweiseInput {
+  width: 100%;
+  min-height: 1.8rem;
+}
+
+.udn-feedDetailVerweise .udn-timelineEntryBody {
+  min-height: 1.8rem;
+  padding: 2px 0;
+  cursor: text;
+}
+
+.udn-photoCollageField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.udn-photoStrip {
+  --udn-photo-row-height: 140px;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 6px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s, 4px);
+  background: var(--background-secondary);
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+}
+
+.udn-photoStripItem {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  scroll-snap-align: start;
+}
+
+.udn-photoStripImageBtn {
+  appearance: none;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s, 4px);
+  padding: 0;
+  background: var(--background-primary);
+  cursor: zoom-in;
+  overflow: hidden;
+  line-height: 0;
+}
+
+.udn-photoStripImageBtn img {
+  display: block;
+  height: var(--udn-photo-row-height);
+  width: auto;
+  min-width: calc(var(--udn-photo-row-height) * 0.75);
+  max-width: calc(var(--udn-photo-row-height) * 1.6);
+  object-fit: cover;
+}
+
+.udn-photoStripActions {
+  display: flex;
+  gap: 4px;
+  justify-content: center;
+}
+
+div[data-callout-metadata*="gallery"].callout > .callout-content > p {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: var(--denkarium-gallery-gap, 5px);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x proximity;
+}
+
+div[data-callout-metadata*="gallery"].callout > .callout-content > p .internal-embed.image-embed {
+  flex: 0 0 auto;
+  scroll-snap-align: start;
+  margin: 0;
+}
+
+div[data-callout-metadata*="gallery"].callout > .callout-content > p img {
+  display: block;
+  height: var(--udn-photo-row-height, 160px);
+  width: auto;
+  min-width: calc(var(--udn-photo-row-height, 160px) * 0.75);
+  max-width: calc(var(--udn-photo-row-height, 160px) * 1.6);
+  max-height: none;
+  object-fit: cover;
+  cursor: zoom-in;
+  border-radius: var(--radius-s, 4px);
+}
+
+.udn-photoLightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.udn-photoLightboxBackdrop {
+  position: absolute;
+  inset: 0;
+  border: none;
+  padding: 0;
+  background: rgba(0, 0, 0, 0.82);
+  cursor: zoom-out;
+}
+
+.udn-photoLightboxStage {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: min(96vw, 100%);
+  height: min(92vh, 100%);
+  padding: 48px 56px;
+  box-sizing: border-box;
+}
+
+.udn-photoLightboxImage {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: var(--radius-s, 4px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+}
+
+.udn-photoLightboxNav,
+.udn-photoLightboxClose {
+  position: absolute;
+  z-index: 2;
+  appearance: none;
+  border: 1px solid color-mix(in srgb, white 25%, transparent);
+  background: color-mix(in srgb, black 35%, transparent);
+  color: #fff;
+  cursor: pointer;
+}
+
+.udn-photoLightboxNav {
+  top: 50%;
+  transform: translateY(-50%);
+  width: 40px;
+  height: 56px;
+  border-radius: 8px;
+  font-size: 1.8rem;
+  line-height: 1;
+}
+
+.udn-photoLightboxPrev {
+  left: 12px;
+}
+
+.udn-photoLightboxNext {
+  right: 12px;
+}
+
+.udn-photoLightboxNav:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.udn-photoLightboxClose {
+  top: 12px;
+  right: 12px;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.udn-photoLightboxCounter {
+  position: absolute;
+  z-index: 2;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, black 45%, transparent);
+  color: #fff;
+  font-size: var(--dk-font-caption);
+}
+
 .udn-composerEntryTime,
 input.udn-timeBubbleInput {
   appearance: none;
@@ -583,9 +896,16 @@ input.udn-timeBubbleInput {
   cursor: pointer;
 }
 
-.udn-timelineList .udn-outlineEntry .internal-link:hover,
-.udn-timelineList .udn-outlineEntry .external-link:hover {
-  text-decoration: underline;
+.udn-timelineList .udn-outlineEntry .internal-link.udn-feedLinkBubble,
+.udn-verweise .udn-outlineEntry .internal-link.udn-feedLinkBubble,
+.udn-feedDetailVerweise .internal-link.udn-feedLinkBubble {
+  text-decoration: none;
+}
+
+.udn-timelineList .udn-outlineEntry .internal-link.udn-feedLinkBubble:hover,
+.udn-verweise .udn-outlineEntry .internal-link.udn-feedLinkBubble:hover,
+.udn-feedDetailVerweise .internal-link.udn-feedLinkBubble:hover {
+  text-decoration: none;
 }
 
 body.is-mobile .udn-timelineHead {
@@ -766,6 +1086,7 @@ body.is-mobile .udn-verweise .udn-outlineEntry .udn-timelineEntryBody {
   width: 100%;
   min-height: 88px;
   resize: vertical;
+  font-size: var(--dk-font-body);
 }
 
 .udn-wandernTrackInfo {
@@ -1158,6 +1479,9 @@ body.is-mobile .udn-composer--mobile {
   min-height: 0;
   height: auto;
   --udn-mobile-control: 28px;
+  padding-bottom: calc(
+    var(--udn-composer-dock-height, 0px) + var(--udn-vv-keyboard-inset, 0px) + env(safe-area-inset-bottom, 0px)
+  );
 }
 
 body.is-mobile .udn-composerHead {
@@ -1226,10 +1550,25 @@ body.is-mobile .udn-composer--mobile .udn-composerPrefixFilter {
 }
 
 body.is-mobile .udn-composerMobileDock {
-  position: sticky;
+  position: fixed;
+  left: 0;
+  right: 0;
   bottom: var(--udn-vv-keyboard-inset, 0px);
   flex-shrink: 0;
-  z-index: 2;
+  z-index: 20;
+  background: var(--background-primary);
+  border-top: 1px solid var(--background-modifier-border);
+  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.06);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+body.is-mobile .udn-composerMobileFoot {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: var(--udn-vv-keyboard-inset, 0px);
+  flex-shrink: 0;
+  z-index: 20;
   background: var(--background-primary);
   border-top: 1px solid var(--background-modifier-border);
   box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.06);
@@ -1265,7 +1604,7 @@ body.is-mobile .udn-composer--mobile .udn-composerSummaryInput {
   flex: 1 1 0;
   min-width: 0;
   min-height: 30px;
-  font-size: var(--font-ui-small);
+  font-size: var(--dk-font-body);
 }
 
 .udn-composerHiddenFile {
@@ -1388,7 +1727,7 @@ body.is-mobile .udn-composerEntry.udn-outlineEntry {
 body.is-mobile .udn-composer--mobile .udn-composerEntry .dk-input {
   width: auto;
   min-height: 30px;
-  font-size: var(--font-ui-small);
+  font-size: var(--dk-font-body);
   border-radius: var(--dk-radius);
 }
 
@@ -1405,7 +1744,7 @@ body.is-mobile .udn-composer--mobile .udn-composerEntry .udn-timelineEntryEdit,
 body.is-mobile .udn-composer--mobile .udn-composerEntry .udn-timelineEntryBody {
   flex: 1 1 0;
   min-width: 0;
-  font-size: var(--font-ui-small);
+  font-size: var(--dk-font-body);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1433,7 +1772,7 @@ body.is-mobile .udn-composerMobileDock .udn-composerAddInput {
   flex: 1 1 0;
   width: auto;
   min-width: 0;
-  font-size: var(--font-ui-small);
+  font-size: var(--dk-font-body);
   min-height: 32px;
   padding: 4px 8px;
 }
@@ -1480,4 +1819,374 @@ body.is-mobile .udn-composerFoot--mobile .dk-btnPrimary {
 .udn-outline .suggestion-container,
 .udn-composerModalContent .suggestion-container {
   z-index: 1000;
+}
+
+/* Profile bubble (Tagebuch-first) */
+.udn-profileBubble {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.35em;
+  height: 1.35em;
+  min-width: 1.35em;
+  padding: 0;
+  border-radius: 999px;
+  font-size: var(--dk-font-mini);
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.udn-profileBubble--empty {
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-faint);
+  font-weight: 400;
+}
+
+.udn-profileBubble.udn-feedLinkBubble:not(.udn-profileBubble--empty) {
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.udn-profileBubble.udn-feedLinkBubble--default,
+.udn-profileFilterChip.udn-feedLinkBubble--default,
+.udn-sectionFilterChip.udn-feedLinkBubble--default {
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-muted);
+}
+
+.udn-profileBubble.udn-feedLinkBubble--heizung,
+.udn-profileFilterChip.udn-feedLinkBubble--heizung,
+.udn-sectionFilterChip.udn-feedLinkBubble--heizung {
+  border-color: rgba(234, 88, 12, 0.35);
+  background: rgba(234, 88, 12, 0.1);
+  color: rgb(154, 52, 18);
+}
+
+.udn-profileBubble.udn-feedLinkBubble--lueftung,
+.udn-profileFilterChip.udn-feedLinkBubble--lueftung,
+.udn-sectionFilterChip.udn-feedLinkBubble--lueftung {
+  border-color: rgba(14, 165, 233, 0.35);
+  background: rgba(14, 165, 233, 0.1);
+  color: rgb(3, 105, 161);
+}
+
+.udn-profileBubble.udn-feedLinkBubble--reisen,
+.udn-profileFilterChip.udn-feedLinkBubble--reisen,
+.udn-sectionFilterChip.udn-feedLinkBubble--reisen {
+  border-color: rgba(180, 83, 9, 0.35);
+  background: rgba(180, 83, 9, 0.1);
+  color: rgb(146, 64, 14);
+}
+
+.udn-profileBubble.udn-feedLinkBubble--wandern,
+.udn-profileFilterChip.udn-feedLinkBubble--wandern,
+.udn-sectionFilterChip.udn-feedLinkBubble--wandern {
+  border-color: rgba(22, 163, 74, 0.35);
+  background: rgba(22, 163, 74, 0.1);
+  color: rgb(21, 128, 61);
+}
+
+.udn-profileBubble.udn-feedLinkBubble--sonstiges,
+.udn-profileFilterChip.udn-feedLinkBubble--sonstiges,
+.udn-sectionFilterChip.udn-feedLinkBubble--sonstiges {
+  border-color: rgba(124, 58, 237, 0.35);
+  background: rgba(124, 58, 237, 0.1);
+  color: rgb(91, 33, 182);
+}
+
+.udn-profileBubble.udn-feedLinkBubble--heizung:hover,
+.udn-profileFilterChip.udn-feedLinkBubble--heizung:hover,
+.udn-sectionFilterChip.udn-feedLinkBubble--heizung:hover {
+  border-color: rgba(234, 88, 12, 0.5);
+  background: rgba(234, 88, 12, 0.16);
+  color: rgb(154, 52, 18);
+}
+
+.udn-profileBubble.udn-feedLinkBubble--lueftung:hover,
+.udn-profileFilterChip.udn-feedLinkBubble--lueftung:hover,
+.udn-sectionFilterChip.udn-feedLinkBubble--lueftung:hover {
+  border-color: rgba(14, 165, 233, 0.5);
+  background: rgba(14, 165, 233, 0.16);
+  color: rgb(3, 105, 161);
+}
+
+.udn-profileBubble.udn-feedLinkBubble--reisen:hover,
+.udn-profileFilterChip.udn-feedLinkBubble--reisen:hover,
+.udn-sectionFilterChip.udn-feedLinkBubble--reisen:hover {
+  border-color: rgba(180, 83, 9, 0.5);
+  background: rgba(180, 83, 9, 0.16);
+  color: rgb(146, 64, 14);
+}
+
+.udn-profileBubble.udn-feedLinkBubble--wandern:hover,
+.udn-profileFilterChip.udn-feedLinkBubble--wandern:hover,
+.udn-sectionFilterChip.udn-feedLinkBubble--wandern:hover {
+  border-color: rgba(22, 163, 74, 0.5);
+  background: rgba(22, 163, 74, 0.16);
+  color: rgb(21, 128, 61);
+}
+
+.udn-profileBubble.udn-feedLinkBubble--sonstiges:hover,
+.udn-profileFilterChip.udn-feedLinkBubble--sonstiges:hover,
+.udn-sectionFilterChip.udn-feedLinkBubble--sonstiges:hover {
+  border-color: rgba(124, 58, 237, 0.5);
+  background: rgba(124, 58, 237, 0.16);
+  color: rgb(91, 33, 182);
+}
+
+.udn-profileFilterChips,
+.udn-sectionFilterChips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0 6px;
+}
+
+.udn-sectionFilterChip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  font-size: var(--dk-font-mini);
+  font-weight: 500;
+  line-height: 1.35;
+  cursor: pointer;
+  white-space: nowrap;
+  opacity: 0.72;
+}
+
+.udn-sectionFilterChip:hover {
+  opacity: 1;
+}
+
+.udn-sectionFilterChip--active {
+  opacity: 1;
+  font-weight: 600;
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 1px;
+}
+
+.udn-profileFilterChip--active {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 1px;
+}
+
+.udn-outlineEntry--hasLinks .udn-outlineEntryMain {
+  align-items: flex-start;
+}
+
+.udn-outlineEntryMain {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.udn-outlineEntryLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-left: calc(var(--udn-time-bubble-width, 5em) + 6px);
+}
+
+.udn-outlineEntryLinks .udn-feedLinkBubbles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.udn-composerEntry--expanded {
+  flex-wrap: wrap;
+}
+
+.udn-composerEntryExpand {
+  flex: 1 1 100%;
+  padding-left: calc(var(--udn-time-bubble-width, 5em) + 1.35em + 12px);
+}
+
+.udn-composerEntry--reisen .udn-timelineEntryBody,
+.udn-composerEntry--reisen .udn-composerEntryInput {
+  cursor: pointer;
+}
+
+.udn-composerEntryExpand--reisen {
+  padding-left: 0;
+}
+
+.udn-reisenForm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.udn-reisenReiseRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.udn-reisenReiseLabel {
+  flex-shrink: 0;
+  width: var(--udn-time-bubble-width, 5em);
+  font-size: var(--dk-font-mini);
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.udn-reisenReiseFields {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.udn-reisenReiseSelect {
+  width: 100%;
+  min-width: 0;
+}
+
+.udn-reisenDetailInput {
+  width: 100%;
+  min-height: 5em;
+  margin: 0;
+  padding: 8px 10px;
+  box-sizing: border-box;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: transparent;
+  font-family: inherit;
+  font-size: var(--dk-font-body);
+  line-height: var(--dk-line-tight);
+  color: var(--text-normal);
+  resize: vertical;
+}
+
+.udn-reisenDetailInput::placeholder {
+  color: var(--text-faint);
+}
+
+.udn-reisenDetailInput:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+}
+
+.udn-composerReiseGroupHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  list-style: none;
+  margin: 8px 0 4px;
+  padding: 4px 0 2px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.udn-composerReiseGroupLabel {
+  font-size: var(--dk-font-mini);
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.udn-composerExpandField {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+}
+
+/* Mobile: compact typography */
+body.is-mobile .udn-composer--mobile {
+  --udn-mobile-control: 24px;
+  --udn-mobile-font: var(--font-ui-smaller);
+}
+
+body.is-mobile .udn-composer--mobile .udn-composerEntry .dk-input,
+body.is-mobile .udn-composer--mobile .udn-composerEntry .udn-timelineEntryBody,
+body.is-mobile .udn-outline .udn-outlineEntry .udn-timelineEntryBody,
+body.is-mobile .udn-outline .udn-outlineEntry .udn-timelineEntryEdit {
+  font-size: var(--udn-mobile-font, var(--font-ui-smaller));
+}
+
+body.is-mobile .udn-outline .udn-outlineEntry {
+  flex-wrap: wrap;
+}
+
+body.is-mobile .udn-outlineEntryLinks {
+  padding-left: calc(var(--udn-time-bubble-width, 4.2em) + 1.35em + 6px);
+}
+
+/* Mobile landscape: composer split */
+body.is-mobile .udn-composer--mobile-landscape .udn-composerHeadCompact {
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+body.is-mobile .udn-composer--mobile-landscape .udn-composerHeadCompactTop {
+  flex: 1 1 auto;
+}
+
+body.is-mobile .udn-composer--mobile-landscape .udn-composerFilterBubbles {
+  flex: 0 0 auto;
+}
+
+body.is-mobile .udn-composerSection.udn-composerSplit {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  min-height: 0;
+  flex: 1 1 0;
+}
+
+body.is-mobile .udn-composerSplitList {
+  flex: 1 1 45%;
+  min-width: 0;
+  overflow: auto;
+}
+
+body.is-mobile .udn-composerSplitDetail {
+  flex: 1 1 55%;
+  min-width: 0;
+  overflow: auto;
+  border-left: 1px solid var(--background-modifier-border);
+  padding-left: 8px;
+}
+
+body.is-mobile .udn-composerSplitDetailTitle {
+  margin: 0 0 6px;
+  font-size: var(--font-ui-smaller);
+  font-weight: 600;
+}
+
+@media (orientation: landscape) {
+  body.is-mobile .udn-view--outline .udn-timelineHead {
+    padding: 4px 6px;
+    gap: 4px;
+  }
+
+  body.is-mobile .udn-view--outline .udn-outlineEntry .udn-timeBubbleInput {
+    width: 4.2em;
+    min-width: 4.2em;
+    max-width: 4.2em;
+  }
+
+  body.is-mobile .udn-view--outline {
+    --udn-time-bubble-width: 4.2em;
+  }
 }

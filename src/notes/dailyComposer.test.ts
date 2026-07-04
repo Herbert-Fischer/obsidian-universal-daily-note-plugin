@@ -72,6 +72,39 @@ describe("rewriteJournalBullets", () => {
     expect(out).not.toContain("- 12:00 Journal");
   });
 
+  it("rewrites Tagebuch that already has photo collage meta (re-save)", () => {
+    const lines = [
+      "## Tagebuch",
+      "> [!tagebuch-ref] 02.07.2026 · test",
+      "> - 07:30 Aufstehen",
+      "> - 11:00 Spaziergang:",
+      "> - 12:00 Mittagessen:",
+      ">",
+      "> > [!blank-container|no-margin gallery gallery-row]",
+      "> > ![[Calendar/Attachments/2026-07-02/a.jpg]] ![[Calendar/Attachments/2026-07-02/b.jpg]]",
+      "",
+      '<!-- udn-photos: {"fotos":["Calendar/Attachments/2026-07-02/a.jpg"],"layout":"gallery-row"} -->',
+    ];
+    const photoCollageMarkdown = [
+      "> > [!blank-container|no-margin gallery gallery-row]",
+      "> > ![[Calendar/Attachments/2026-07-02/a.jpg]]",
+    ].join("\n");
+    const photoMeta =
+      '<!-- udn-photos: {"fotos":["Calendar/Attachments/2026-07-02/a.jpg"],"layout":"gallery-row"} -->';
+    const out = rewriteJournalBullets(
+      lines,
+      "Tagebuch",
+      ["07:30 Aufstehen", "12:00 Mittagessen: Salat"],
+      new Date(2026, 6, 2),
+      "02.07.2026 · test",
+      photoCollageMarkdown,
+      photoMeta,
+    );
+    expect(out.filter((l) => l.includes("07:30 Aufstehen")).length).toBe(1);
+    expect(out.filter((l) => l.includes("12:00 Mittagessen: Salat")).length).toBe(1);
+    expect(out.filter((l) => l.startsWith("<!-- udn-photos:")).length).toBe(1);
+  });
+
   it("sorts callout bullets by time", () => {
     const out = rewriteJournalBullets(
       ["## Tagebuch"],

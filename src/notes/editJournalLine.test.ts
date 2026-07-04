@@ -23,6 +23,7 @@ describe("extractJournalLines rawLine", () => {
       line: 1,
       text: "07:30 Aufstehen",
       rawLine: "- 07:30 Aufstehen",
+      feedProfile: "tagebuch",
     });
   });
 });

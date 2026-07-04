@@ -69,6 +69,18 @@ export const WANDERN_BULK_CHIPS: ComposerChip[] = [
   { label: "Foto", template: "Foto:", defaultTime: "15:30" },
 ];
 
+export const HEIZUNG_BULK_CHIPS: ComposerChip[] = [
+  { label: "Störung", template: "Störung:", defaultTime: "12:00" },
+  { label: "Wartung", template: "Wartung:", defaultTime: "10:00" },
+  { label: "Foto", template: "Foto:", defaultTime: "12:30" },
+];
+
+export const LUEFTUNG_BULK_CHIPS: ComposerChip[] = [
+  { label: "Filter", template: "Filter:", defaultTime: "10:00" },
+  { label: "Wartung", template: "Wartung:", defaultTime: "11:00" },
+  { label: "Foto", template: "Foto:", defaultTime: "12:30" },
+];
+
 export const COMPOSER_TEMPLATE_PACKS: ComposerTemplatePack[] = [
   {
     id: "tagebuch-bulk",
@@ -94,6 +106,22 @@ export const COMPOSER_TEMPLATE_PACKS: ComposerTemplatePack[] = [
     chips: WANDERN_BULK_CHIPS,
     actions: ["location", "track", "photo"],
   },
+  {
+    id: "heizung-bulk",
+    label: "Typischer Heizungseintrag",
+    headings: ["Heizung"],
+    kind: "bulk",
+    chips: HEIZUNG_BULK_CHIPS,
+    actions: ["photo"],
+  },
+  {
+    id: "lueftung-bulk",
+    label: "Typischer Lüftungseintrag",
+    headings: ["Lüftung"],
+    kind: "bulk",
+    chips: LUEFTUNG_BULK_CHIPS,
+    actions: ["photo"],
+  },
 ];
 
 const WEATHER_TITLE_PATTERN = /[°℃]|☀|⛅|🌤|🌥|☁|🌦|🌧|⛈|🌩|❄|🌨|💨/;
@@ -112,6 +140,8 @@ export function templatesForHeading(
     if (pack.id === "tagebuch-bulk" && !settings.tagebuchBulkEnabled) return false;
     if (pack.id === "reisen-bulk" && !settings.reisenBulkEnabled) return false;
     if (pack.id === "wandern-bulk" && !settings.wandernBulkEnabled) return false;
+    if (pack.id === "heizung-bulk" && !settings.heizungBulkEnabled) return false;
+    if (pack.id === "lueftung-bulk" && !settings.lueftungBulkEnabled) return false;
     return true;
   });
 }
@@ -310,6 +340,8 @@ export type ApplyBulkTemplateOptions = {
   templateSettings: ComposerTemplatesSettings;
   tracksSettings: TracksSettings;
   lastLocation: string;
+  filePath?: string;
+  linkOverrides?: Record<string, string>;
   onlyMissing: boolean;
   includePhoto: boolean;
   photoEmbed?: string;
@@ -382,6 +414,8 @@ export async function applyBulkTemplate(
       const existingTexts = new Set(entries.map(composerEntryText));
       const merged = mergeCalendarAppointmentTexts(options.app, options.date, [...existingTexts], {
         settings: options.calendarSync,
+        sourcePath: options.filePath ?? "",
+        linkOverrides: options.linkOverrides ?? {},
       });
       for (const text of merged) {
         if (existingTexts.has(text)) continue;

@@ -36,6 +36,22 @@ describe("journalCallout", () => {
     ]);
   });
 
+  it("writes udn-entry metadata on a separate callout line", () => {
+    const block = buildComposerCalloutBlock(
+      "Tagebuch",
+      [
+        '13:06 Fahrt <!-- udn-entry:{"id":"3m2g","profile":"reisen","context":"Erbach"} -->',
+      ],
+      new Date(2026, 5, 1),
+    );
+    expect(block).toEqual([
+      "> [!tagebuch-ref] 01.06.2026",
+      "> - 13:06 Fahrt",
+      '> <!-- udn-entry:{"id":"3m2g","profile":"reisen","context":"Erbach"} -->',
+      "",
+    ]);
+  });
+
   it("detects managed callout starts including legacy types", () => {
     expect(isManagedCalloutStart("> [!tagebuch-ref] 23.06.2026", "Tagebuch")).toBe(true);
     expect(isManagedCalloutStart("> [!tagebuch] Tagebuch", "Tagebuch")).toBe(true);

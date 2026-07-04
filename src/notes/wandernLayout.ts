@@ -1,11 +1,22 @@
 import type { App, TFile } from "obsidian";
 import type { WandernLayoutSettings } from "../settings";
+import { DEFAULT_JOURNAL_HEADING } from "../settings";
 import { ensureSectionHeading } from "./appendLogLine";
+import { upsertTagebuchFeedLine } from "./appendTagebuchFeedLine";
 import { updateSummaryInContent } from "./dailyComposer";
+import { buildWandernFeedKurz } from "./feedDetailComposer";
 import { extractSectionRange } from "./journalCallout";
 import { formatGermanShortDate } from "./journalCallout";
+import { journalProfileById } from "./journalProfiles";
 import { formatTrackSummary, type TrackMatch } from "../tracks/gpxImport";
 import { normalizeWandernPhotoPath, normalizeWandernTrackPath } from "./attachJournalMedia";
+import { processVaultFile } from "./vaultProcess";
+import {
+  buildPhotoCollageMarkdown,
+  buildPhotoCollageMarkdownAsync,
+  type PhotoCollageLayout,
+  stripPhotoEmbed,
+} from "./photoCollage";
 
 export type WandernMeta = {
   kurz: string;
@@ -14,6 +25,7 @@ export type WandernMeta = {
   trackPath: string;
   fotos: string[];
   titel: string;
+  layout?: PhotoCollageLayout | "";
 };
 
 export type WandernComposerData = {
@@ -38,7 +50,6 @@ export const DEFAULT_WANDERN_LAYOUT_TEMPLATE = `> [!mountain]+ {{titel}}
 > > >
 > > > {{track3d}}
 > >
-> > > [!blank-container|no-margin gallery]
 > > > {{fotos}}`;
 
 export function replaceMultilinePlaceholder(template: string, key: string, value: string): string {
@@ -49,7 +60,11 @@ export function replaceMultilinePlaceholder(template: string, key: string, value
     const prefixMatch = line.match(/^((?:>\s*)*)/);
     const linePrefix = prefixMatch?.[1] ?? "";
     if (line === `${linePrefix}${token}`) {
-      if (value) out.push(...value.split("\n"));
+      if (value) {
+        out.push(
+          ...value.split("\n").map((part) => (part.length === 0 ? linePrefix.trimEnd() : `${linePrefix}${part}`)),
+        );
+      }
       continue;
     }
     out.push(line.replaceAll(token, value));
@@ -136,6 +151,100 @@ export function parseWandernMetaFromLines(lines: string[]): WandernMeta | null {
   return null;
 }
 
+function stripCalloutPrefix(line: string): string {
+  return line.replace(/^(?:>\s*)+/, "").trim();
+}
+
+/** Fallback when `<!-- udn-wandern:` metadata is missing (manual or legacy notes). */
+export function parseWandernFromSectionLines(
+  lines: string[],
+  fallbackTitel: string,
+): WandernComposerData | null {
+  let titel = fallbackTitel.trim() || "Wandern";
+  let kurz = "";
+  let beschreibung = "";
+  const photos: string[] = [];
+  let trackPath = "";
+
+  for (const rawLine of lines) {
+    const line = stripCalloutPrefix(rawLine);
+    if (!line) continue;
+
+    const mountain = line.match(/^\[!mountain[^\]]*\]\+?\s*(.+)$/i);
+    if (mountain?.[1]?.trim()) {
+      titel = mountain[1].trim();
+      continue;
+    }
+
+    const kurzMatch = line.match(/^\*\*Kurz:\*\*\s*(.+)$/i);
+    if (kurzMatch?.[1]) {
+      kurz = kurzMatch[1].trim();
+      continue;
+    }
+
+    const embeds = [...line.matchAll(/!\[\[([^\]|]+)(?:\|[^\]]*)?\]\]/g)].map((m) => m[1]!.trim());
+    for (const embed of embeds) {
+      if (/\.(gpx|tcx)$/i.test(embed)) {
+        trackPath = embed;
+      } else if (/\.(jpe?g|png|webp|gif|heic)$/i.test(embed)) {
+        photos.push(embed);
+      }
+    }
+
+    const trackPathMatch = line.match(/^path:\s*(.+)$/i);
+    if (trackPathMatch?.[1]) {
+      trackPath = trackPathMatch[1].trim();
+    }
+  }
+
+  const descLines: string[] = [];
+  let inDescription = false;
+  for (const rawLine of lines) {
+    const line = stripCalloutPrefix(rawLine);
+    if (/^\*\*Kurz:\*\*/i.test(line)) {
+      inDescription = true;
+      continue;
+    }
+    if (!inDescription) continue;
+    if (
+      !line ||
+      /^\[!/.test(line) ||
+      /^\*\*Kurz:\*\*/i.test(line) ||
+      line.startsWith("```") ||
+      /^path:/i.test(line) ||
+      /!\[\[/.test(line)
+    ) {
+      if (descLines.length > 0) break;
+      continue;
+    }
+    descLines.push(line);
+  }
+  beschreibung = descLines.join("\n").trim();
+
+  if (!kurz && !beschreibung && photos.length === 0 && !trackPath && titel === (fallbackTitel.trim() || "Wandern")) {
+    return null;
+  }
+
+  const track: TrackMatch | null = trackPath
+    ? {
+        path: trackPath,
+        name: trackPath.split("/").pop() ?? trackPath,
+        distanceKm: null,
+        durationSec: null,
+        startLabel: null,
+        endLabel: null,
+      }
+    : null;
+
+  return {
+    titel,
+    kurz,
+    beschreibung,
+    track,
+    photos,
+  };
+}
+
 export type RenderWandernTemplateOptions = {
   titel: string;
   kurz: string;
@@ -144,14 +253,11 @@ export type RenderWandernTemplateOptions = {
   photos: string[];
   date: Date;
   layout: WandernLayoutSettings;
+  photoCollageMarkdown?: string;
+  layoutClass?: PhotoCollageLayout | "";
 };
 
-export function buildPhotoCollageMarkdown(photoEmbeds: string[], calloutPrefix = ""): string {
-  const embeds = photoEmbeds.map((p) => (p.trim().startsWith("![[") ? p.trim() : `![[${p.trim()}]]`)).filter(Boolean);
-  if (embeds.length === 0) return "";
-  if (embeds.length === 1) return `${calloutPrefix}${embeds[0]}`;
-  return `${calloutPrefix}${embeds.join(" ")}`;
-}
+export { buildPhotoCollageMarkdown } from "./photoCollage";
 
 export function renderWandernTemplate(options: RenderWandernTemplateOptions): string {
   const template = options.layout.template.trim() || DEFAULT_WANDERN_LAYOUT_TEMPLATE;
@@ -169,6 +275,14 @@ export function renderWandernTemplate(options: RenderWandernTemplateOptions): st
     options.layout.track3dEnabled && trackPath
       ? buildTrack3dBlock(trackPath, options.layout.track3dHeight, track3dPrefix, exaggeration)
       : "";
+  const fotoPaths = options.photos.map((p) => stripPhotoEmbed(p)).filter(Boolean);
+  const fotosMarkdown =
+    options.photoCollageMarkdown ??
+    buildPhotoCollageMarkdown(
+      fotoPaths,
+      "",
+      options.layoutClass ?? "",
+    );
   const replacements: Record<string, string> = {
     titel: options.titel.trim() || "Wandern",
     kurz: options.kurz.trim(),
@@ -177,13 +291,31 @@ export function renderWandernTemplate(options: RenderWandernTemplateOptions): st
     track_link: trackPath ? buildTrackLink(trackPath) : "",
     track_gpx: trackPath,
     track3d,
-    fotos: buildPhotoCollageMarkdown(photoEmbeds.filter(Boolean), fotosPrefix),
+    fotos: fotosMarkdown,
     datum: formatGermanShortDate(options.date),
     ...fotoSlots,
   };
 
   let out = template;
-  const multilineKeys = new Set(["track3d", "fotos"]);
+  if (!replacements.fotos?.trim()) {
+    const withoutGallery: string[] = [];
+    for (const line of out.split("\n")) {
+      if (
+        /\[!blank-container[^\]]*gallery/i.test(line) ||
+        line.includes("{{fotos}}") ||
+        /\bcollage-\d/i.test(line)
+      ) {
+        const prev = withoutGallery[withoutGallery.length - 1];
+        if (prev && /^>+\s*$/.test(prev)) {
+          withoutGallery.pop();
+        }
+        continue;
+      }
+      withoutGallery.push(line);
+    }
+    out = withoutGallery.join("\n");
+  }
+  const multilineKeys = new Set(["track3d", "fotos", "beschreibung"]);
   for (const [key, value] of Object.entries(replacements)) {
     if (multilineKeys.has(key)) {
       out = replaceMultilinePlaceholder(out, key, value);
@@ -194,7 +326,7 @@ export function renderWandernTemplate(options: RenderWandernTemplateOptions): st
   return out.replace(/\{\{foto\d+\}\}/g, "").trim();
 }
 
-export function wandernMetaFromData(data: WandernComposerData): WandernMeta {
+export function wandernMetaFromData(data: WandernComposerData, layout: PhotoCollageLayout | "" = ""): WandernMeta {
   return {
     titel: data.titel.trim(),
     kurz: data.kurz.trim(),
@@ -202,6 +334,7 @@ export function wandernMetaFromData(data: WandernComposerData): WandernMeta {
     track: data.track ? formatTrackSummary(data.track) : "",
     trackPath: data.track?.path ?? "",
     fotos: data.photos.map((p) => (p.startsWith("![[") ? p : `![[${p}]]`)),
+    ...(layout ? { layout } : {}),
   };
 }
 
@@ -292,6 +425,9 @@ export async function loadWandernComposerData(
     };
   }
 
+  const parsed = parseWandernFromSectionLines(sectionLines, fallbackTitel);
+  if (parsed) return parsed;
+
   return {
     titel: fallbackTitel,
     kurz: "",
@@ -308,12 +444,14 @@ export async function saveWandernComposerState(
   date: Date,
   data: WandernComposerData,
   layout: WandernLayoutSettings,
+  feedTime?: string,
 ): Promise<boolean> {
   const titel = data.titel.trim() || "Wandern";
   const photosFolder = layout.photosFolder?.trim() || "Calendar/Anhänge/Bilder";
   const tracksFolder = layout.tracksFolder?.trim() || "Calendar/Anhänge/GPX";
+  const maxPhotos = Math.max(1, layout.maxPhotos ?? 3);
   const normalizedPhotos: string[] = [];
-  for (let i = 0; i < data.photos.length; i++) {
+  for (let i = 0; i < Math.min(data.photos.length, maxPhotos); i++) {
     const raw = data.photos[i]!.replace(/^!\[\[|\]\]$/g, "");
     const path = await normalizeWandernPhotoPath(app, raw, i, titel, photosFolder);
     normalizedPhotos.push(path);
@@ -327,8 +465,20 @@ export async function saveWandernComposerState(
       name: trackPath.split("/").pop() ?? trackPath,
     };
   }
-  const dataWithAssets = { ...data, photos: normalizedPhotos, track };
-  const meta = wandernMetaFromData(dataWithAssets);
+  const dataWithAssets: WandernComposerData = {
+    ...data,
+    titel,
+    photos: normalizedPhotos,
+    track,
+  };
+  const template = layout.template.trim() || DEFAULT_WANDERN_LAYOUT_TEMPLATE;
+  const fotosPrefix = calloutPrefixBeforePlaceholder(template, "fotos");
+  const { markdown: photoCollageMarkdown, layout: layoutClass } = await buildPhotoCollageMarkdownAsync(
+    app,
+    dataWithAssets.photos,
+    fotosPrefix,
+  );
+  const meta = wandernMetaFromData(dataWithAssets, layoutClass);
   const rendered = renderWandernTemplate({
     titel: dataWithAssets.titel,
     kurz: dataWithAssets.kurz,
@@ -337,13 +487,34 @@ export async function saveWandernComposerState(
     photos: dataWithAssets.photos,
     date,
     layout,
+    photoCollageMarkdown,
+    layoutClass,
   });
 
-  await app.vault.process(file, (raw) => {
+  await processVaultFile(app, file, (raw) => {
     let content = updateSummaryInContent(raw, summary.trim());
     let lines = content.split("\n");
     lines = ensureSectionHeading(lines, "Wandern");
     lines = replaceWandernSectionBody(lines, rendered, meta);
+    if (feedTime !== undefined) {
+      const profile = journalProfileById("wandern");
+      if (profile) {
+        lines = upsertTagebuchFeedLine(
+          lines,
+          {
+            time: feedTime.trim() || "12:00",
+            kurz: buildWandernFeedKurz(meta.kurz, meta.titel),
+            metadata: {
+              profile: "wandern",
+              context: meta.titel.trim() !== "Wandern" ? meta.titel.trim() : "",
+            },
+            suffixLinks: profile.feedSuffix,
+          },
+          date,
+        );
+        lines = ensureSectionHeading(lines, DEFAULT_JOURNAL_HEADING);
+      }
+    }
     content = lines.join("\n");
     return content.endsWith("\n") || content.length === 0 ? content : `${content}\n`;
   });

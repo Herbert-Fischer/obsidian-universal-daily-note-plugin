@@ -1,3 +1,5 @@
+import type { FeedProfile, FeedProfileFilter } from "./notes/feedMetadata";
+
 export type DailyNoteFallbackSettings = {
   folder: string;
   filenameFormat: string;
@@ -24,6 +26,12 @@ export type ComposerWindowSettings = {
   y: number | null;
 };
 
+export type ComposerAutoOpenMode = "never" | "todayCommand" | "todayNoteOpen";
+
+export type ComposerSettings = {
+  autoOpen: ComposerAutoOpenMode;
+};
+
 export type WandernLayoutSettings = {
   template: string;
   maxPhotos: number;
@@ -40,8 +48,16 @@ export type ComposerTemplatesSettings = {
   tagebuchBulkEnabled: boolean;
   reisenBulkEnabled: boolean;
   wandernBulkEnabled: boolean;
+  heizungBulkEnabled: boolean;
+  lueftungBulkEnabled: boolean;
   /** Last Reisen trip label for callout title fallback */
   lastTripLabel: string;
+};
+
+export type FeedDetailLayoutSettings = {
+  heizungPhotosFolder: string;
+  lueftungPhotosFolder: string;
+  maxPhotos: number;
 };
 
 export type TracksSettings = {
@@ -99,6 +115,14 @@ export type OutlineSettings = {
   textFilterEnabled: boolean;
   /** Substring filter for entry lines (e.g. "Mittagessen:") */
   textFilterQuery: string;
+  /** Active profile filters (empty = all). Replaces legacy feedProfileFilter. */
+  feedProfileFilters: FeedProfile[];
+  /** When filters are active, also show entries outside the selected profiles. */
+  includeRestOfTagebuch: boolean;
+  /** @deprecated Migrated to feedProfileFilters */
+  feedProfileFilter?: FeedProfileFilter;
+  /** Subfilter by feed context (trip, hike title, …) */
+  feedContextFilter: string;
 };
 
 export const DEFAULT_JOURNAL_HEADING = "Tagebuch";
@@ -110,9 +134,13 @@ export type UniversalDailyNoteSettings = {
   tagebuchVerweise: TagebuchVerweiseSettings;
   quickCapture: QuickCaptureSettings;
   calendarSync: CalendarSyncSettings;
+  /** User-edited Termin text per calendar event id (vault-only, no CalDAV back-sync). */
+  calendarLinkOverrides: Record<string, string>;
   weatherCapture: WeatherCaptureSettings;
   composerTemplates: ComposerTemplatesSettings;
+  feedDetailLayout: FeedDetailLayoutSettings;
   composerWindow: ComposerWindowSettings;
+  composer: ComposerSettings;
   wandernLayout: WandernLayoutSettings;
   tracks: TracksSettings;
   analytics: AnalyticsSettings;
@@ -164,6 +192,7 @@ export const DEFAULT_SETTINGS: UniversalDailyNoteSettings = {
     syncOnOutlineLoad: true,
     includeMarkdownNotes: false,
   },
+  calendarLinkOverrides: {},
   weatherCapture: {
     updateFrontmatter: true,
     format: "callout",
@@ -174,11 +203,21 @@ export const DEFAULT_SETTINGS: UniversalDailyNoteSettings = {
     tagebuchBulkEnabled: true,
     reisenBulkEnabled: true,
     wandernBulkEnabled: true,
+    heizungBulkEnabled: true,
+    lueftungBulkEnabled: true,
     lastTripLabel: "",
+  },
+  feedDetailLayout: {
+    heizungPhotosFolder: "Atlas/Immobilien/EFH Hettenhausen/Anhänge/Heizung/Probleme",
+    lueftungPhotosFolder: "Atlas/Immobilien/EFH Hettenhausen/Anhänge/Lueftung/Wartungsprotokoll Fotos",
+    maxPhotos: 6,
   },
   composerWindow: {
     x: null,
     y: null,
+  },
+  composer: {
+    autoOpen: "todayCommand",
   },
   wandernLayout: {
     template: "",
@@ -205,6 +244,9 @@ export const DEFAULT_SETTINGS: UniversalDailyNoteSettings = {
     rangeMode: "scroll",
     textFilterEnabled: false,
     textFilterQuery: "",
+    feedProfileFilters: [],
+    includeRestOfTagebuch: false,
+    feedContextFilter: "",
   },
   sections: {
     collapsed: { ...DEFAULT_SECTIONS_COLLAPSED },

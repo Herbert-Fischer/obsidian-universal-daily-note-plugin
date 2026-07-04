@@ -1,5 +1,6 @@
 import type { App, TFile } from "obsidian";
 import type { CalendarSyncSettings, DailyNoteFallbackSettings, TagebuchVerweiseSettings } from "../settings";
+import { syncCalendarAppointmentsIntoDailyNote } from "../integrations/calendarAppointments";
 import { dateKeyFromDailyNoteBasename, listDailyNoteFilesInFolder } from "./dailyNoteFallbackPaths";
 import { getDailyNoteInterface, getExistingDailyNoteFile } from "./dailyNotesCore";
 import { addLocalDays, normalizeLocalDay } from "../panel/dateUtils";
@@ -10,19 +11,40 @@ import {
 } from "./journalHeadingFilter";
 import { DEFAULT_EXCLUDED_JOURNAL_HEADINGS, DEFAULT_JOURNAL_HEADING } from "../settings";
 import { entryMatchesTextFilter } from "./entryTextFilter";
+import {
+  entryMatchesFeedContextFilter,
+  entryMatchesFeedProfileFilters,
+  effectiveFeedProfile,
+  parseFeedMetadataComment,
+  resolveFeedMetadata,
+  resolveOutlineFeedFilters,
+  type FeedProfile,
+} from "./feedMetadata";
 import { readDailyNoteSummary } from "./dailyNoteSummary";
-import { parseWandernMetaLine, wandernTimelineTextFromMeta } from "./wandernLayout";
+import { stripLeadingTimeFromKurz, findTagebuchFeedLine } from "./appendTagebuchFeedLine";
+import { parseJournalEntryDisplay } from "./parseJournalEntryDisplay";
+import { buildReisenFeedKurz, buildWandernFeedKurz, feedDetailTimelineTextFromMeta, parseFeedDetailMetaFromLines, parseFeedDetailMetaLine } from "./feedDetailComposer";
+import { parseSonstigesMetaFromLines, parseSonstigesMetaLine, SONSTIGES_HEADING } from "./sonstigesComposer";
+import { collectReisenEntryIds, parseReisenMetaLine, parseReisenSortLine, reisenSupplementMatchesByTitle } from "./reisenComposer";
+import { journalProfileById, journalProfileForHeading } from "./journalProfiles";
+import { parseWandernMetaFromLines, parseWandernMetaLine, wandernTimelineTextFromMeta } from "./wandernLayout";
 import {
   isLegacyMisplacedSonstigesTripCallout,
   isManagedCalloutStart,
   isPlainJournalBulletLine,
   isReisenTripCalloutLine,
   extractReisenTripFromSection,
+  extractSectionRange,
   parseReisenTripLabel,
   readCalloutTitleFromLines,
   stripLeadingGermanDateFromCalloutTitle,
   dateFromDateKey,
 } from "./journalCallout";
+import { stripEntryMeta, parseEntryMetaComment, isEntryMetaCommentLine } from "./journalEntryMeta";
+import {
+  entryMatchesProfileFilter,
+  feedProfileForSectionHeading,
+} from "./journalEntryGroups";
 
 function tryWandernTimelineEntry(
   line: string,
@@ -34,6 +56,123 @@ function tryWandernTimelineEntry(
   const text = wandernTimelineTextFromMeta(meta);
   if (!text) return null;
   return { line: lineIndex, text, rawLine: line, section };
+}
+
+function tryFeedDetailTimelineEntry(
+  line: string,
+  lineIndex: number,
+  section: string,
+  allLines: string[],
+): TimelineEntry | null {
+  const profile = journalProfileForHeading(section);
+  if (!profile || profile.kind !== "detail" || (profile.id !== "heizung" && profile.id !== "lueftung")) {
+    return null;
+  }
+  const meta = parseFeedDetailMetaLine(line.trim(), profile);
+  if (!meta) return null;
+
+  const context =
+    meta.titel.trim().toLowerCase() !== profile.label.toLowerCase() ? meta.titel.trim() : "";
+  let feed = findTagebuchFeedLine(allLines, profile.id, context);
+  if (!feed && context) {
+    feed = findTagebuchFeedLine(allLines, profile.id, "");
+  }
+  if (feed) {
+    return {
+      line: feed.lineIndex,
+      text: feed.text,
+      rawLine: feed.rawLine,
+      section,
+      feedProfile: profile.id,
+      ...(context ? { feedContext: context } : {}),
+    };
+  }
+
+  const text = feedDetailTimelineTextFromMeta(meta, profile);
+  if (!text) return null;
+  return {
+    line: lineIndex,
+    text,
+    rawLine: line,
+    section,
+    feedProfile: profile.id,
+    ...(context ? { feedContext: context } : {}),
+  };
+}
+
+function extractFeedDetailSectionEntries(textLines: string[], journalHeading: string): TimelineEntry[] {
+  const profile = journalProfileForHeading(journalHeading);
+  if (!profile || (profile.id !== "heizung" && profile.id !== "lueftung")) return [];
+
+  const range = extractSectionRange(textLines, profile.label);
+  if (!range) return [];
+
+  for (let i = range.start + 1; i < range.end; i++) {
+    const entry = tryFeedDetailTimelineEntry(textLines[i] ?? "", i, profile.label, textLines);
+    if (entry) return [entry];
+  }
+
+  return [];
+}
+
+function sonstigesFeedContext(textLines: string[]): string {
+  const title = readCalloutTitleFromLines(textLines, SONSTIGES_HEADING);
+  return title.trim().toLowerCase() !== SONSTIGES_HEADING.toLowerCase() ? title.trim() : "";
+}
+
+function sonstigesTimelineEntryFromFeed(
+  textLines: string[],
+  section: string,
+  fallbackLine: number,
+): TimelineEntry | null {
+  const context = sonstigesFeedContext(textLines);
+  const feed = findTagebuchFeedLine(textLines, "sonstiges", context);
+  if (feed) {
+    return {
+      line: feed.lineIndex,
+      text: feed.text,
+      rawLine: feed.rawLine,
+      section,
+      feedProfile: "sonstiges",
+      ...(context ? { feedContext: context } : {}),
+    };
+  }
+
+  const range = extractSectionRange(textLines, SONSTIGES_HEADING);
+  if (!range) return null;
+  const meta = parseSonstigesMetaFromLines(textLines.slice(range.start + 1, range.end));
+  if (!meta) return null;
+
+  const kurz = stripLeadingTimeFromKurz(meta.feedKurz || meta.titel || SONSTIGES_HEADING);
+  const time = meta.feedTime.trim() || "12:00";
+  const text = `${time} ${kurz}`.trim();
+  return {
+    line: fallbackLine,
+    text,
+    rawLine: `- ${text}`,
+    section,
+    feedProfile: "sonstiges",
+    ...(context ? { feedContext: context } : {}),
+  };
+}
+
+function extractSonstigesSectionEntries(textLines: string[], journalHeading: string): TimelineEntry[] {
+  if (journalHeading.trim().toLowerCase() !== SONSTIGES_HEADING.toLowerCase()) return [];
+  const range = extractSectionRange(textLines, SONSTIGES_HEADING);
+  if (!range) return [];
+  const entry = sonstigesTimelineEntryFromFeed(textLines, SONSTIGES_HEADING, range.start + 1);
+  return entry ? [entry] : [];
+}
+
+function trySonstigesTimelineEntry(
+  line: string,
+  lineIndex: number,
+  section: string,
+  allLines: string[],
+): TimelineEntry | null {
+  if (section.trim().toLowerCase() !== SONSTIGES_HEADING.toLowerCase()) return null;
+  if (!parseSonstigesMetaLine(line.trim())) return null;
+  return sonstigesTimelineEntryFromFeed(allLines, section, lineIndex);
 }
 
 function sectionHasJournalActivity(textLines: string[], sectionStart: number, heading: string): boolean {
@@ -48,6 +187,21 @@ function sectionHasJournalActivity(textLines: string[], sectionStart: number, he
       if (parseWandernMetaLine(trimmed)) return true;
       if (isManagedCalloutStart(line, heading)) return true;
     }
+    if (headingLower === SONSTIGES_HEADING.toLowerCase()) {
+      if (parseSonstigesMetaLine(trimmed)) return true;
+      if (isManagedCalloutStart(line, heading)) return true;
+      if (sonstigesTimelineEntryFromFeed(textLines, heading, j)) return true;
+    }
+    const profile = journalProfileForHeading(heading);
+    if (profile && (profile.id === "heizung" || profile.id === "lueftung")) {
+      if (parseFeedDetailMetaLine(trimmed, profile)) return true;
+      const context =
+        readCalloutTitleFromLines(textLines, heading)?.trim().toLowerCase() !== heading.trim().toLowerCase()
+          ? readCalloutTitleFromLines(textLines, heading)?.trim() ?? ""
+          : "";
+      if (findTagebuchFeedLine(textLines, profile.id, context)) return true;
+      if (isManagedCalloutStart(line, heading)) return true;
+    }
   }
   return false;
 }
@@ -58,6 +212,11 @@ export type TimelineEntry = {
   rawLine: string;
   /** Set when loading merged sections (journalHeading = Alle). */
   section?: string;
+  feedProfile?: FeedProfile;
+  feedContext?: string;
+  entryId?: string;
+  calloutId?: string;
+  hasCallout?: boolean;
 };
 
 export type TimelineDay = {
@@ -179,11 +338,123 @@ function formatRangeLabel(earliest: Date, latest: Date): string {
   return `${fmt(earliest)} - ${fmt(latest)}`;
 }
 
+function stripCalloutPrefix(line: string): string {
+  return line.trim().replace(/^>\s*/, "");
+}
+
+function feedMetaFromLine(line: string): ReturnType<typeof parseFeedMetadataComment> {
+  return parseFeedMetadataComment(stripCalloutPrefix(line));
+}
+
+export type TimelineContextGroup = {
+  profile: FeedProfile;
+  context: string;
+  entries: TimelineEntry[];
+};
+
+function entryMetaFromNextLine(textLines: string[], bulletIndex: number): ReturnType<typeof parseEntryMetaComment> {
+  const nextLine = textLines[bulletIndex + 1] ?? "";
+  if (!isEntryMetaCommentLine(nextLine)) return null;
+  return parseEntryMetaComment(cleanJournalLine(nextLine.trim()));
+}
+
+function pushJournalBulletLine(
+  out: TimelineEntry[],
+  textLines: string[],
+  lineIndex: number,
+  line: string,
+  section: string | undefined,
+  pendingFeedMeta: ReturnType<typeof parseFeedMetadataComment>,
+): number {
+  const trimmed = line.trim();
+  const text = cleanJournalLine(trimmed);
+  if (!text) return lineIndex;
+  const nearbyMeta = entryMetaFromNextLine(textLines, lineIndex);
+  pushJournalEntry(out, lineIndex, line, text, section, pendingFeedMeta ?? undefined, nearbyMeta ?? undefined);
+  return nearbyMeta ? lineIndex + 1 : lineIndex;
+}
+
+function pushJournalEntry(
+  out: TimelineEntry[],
+  lineIndex: number,
+  line: string,
+  text: string,
+  section?: string,
+  pendingMeta?: ReturnType<typeof parseFeedMetadataComment>,
+  nearbyEntryMeta?: ReturnType<typeof parseEntryMetaComment>,
+): void {
+  const inline = stripEntryMeta(text);
+  const displayText = inline.body;
+  const fromInline = inline.meta ?? nearbyEntryMeta ?? null;
+  const fromFeed = pendingMeta ?? resolveFeedMetadata(line, displayText);
+  const profile =
+    fromInline?.profile && fromInline.profile !== "tagebuch"
+      ? fromInline.profile
+      : fromFeed.profile !== "tagebuch"
+        ? fromFeed.profile
+        : undefined;
+  const context = fromInline?.context?.trim() || fromFeed.context?.trim() || undefined;
+  out.push({
+    line: lineIndex,
+    text: displayText,
+    rawLine: line,
+    ...(section ? { section } : {}),
+    feedProfile: profile ?? fromFeed.profile,
+    ...(context ? { feedContext: context } : {}),
+    ...(fromInline?.id ? { entryId: fromInline.id } : {}),
+    ...(fromInline?.callout ? { calloutId: fromInline.callout, hasCallout: true } : {}),
+  });
+}
+
 function cleanJournalLine(raw: string): string {
   return raw
     .trim()
     .replace(/^>\s*/, "")
     .replace(/^[-*+]\s+/, "");
+}
+
+export function applyFeedFiltersToEntries(
+  entries: TimelineEntry[],
+  journalHeading: string,
+  feedProfileFilters: FeedProfile[],
+  feedContextFilter: string,
+  includeRestOfTagebuch = false,
+): TimelineEntry[] {
+  if (feedProfileFilters.length === 0 && !feedContextFilter.trim()) return entries;
+  const heading = journalHeading.trim().toLowerCase();
+  const filterTagebuchOnly = heading === DEFAULT_JOURNAL_HEADING.toLowerCase() || isAllJournalHeadings(journalHeading);
+
+  const inScope = entries.filter((entry) => {
+    const section = entry.section?.trim().toLowerCase() || DEFAULT_JOURNAL_HEADING.toLowerCase();
+    if (feedProfileFilters.length > 0 || feedContextFilter.trim()) {
+      if (filterTagebuchOnly && section !== DEFAULT_JOURNAL_HEADING.toLowerCase()) {
+        return feedProfileFilters.length === 0 && !feedContextFilter.trim();
+      }
+    }
+    return true;
+  });
+
+  if (feedProfileFilters.length > 0) {
+    const matches = inScope.filter((entry) =>
+      entryMatchesFeedProfileFilters(entry.feedProfile, entry.feedContext, feedProfileFilters),
+    );
+    if (matches.length === 0) return [];
+    if (!includeRestOfTagebuch) return matches;
+    const rest = inScope.filter(
+      (entry) => effectiveFeedProfile(entry.feedProfile, entry.feedContext) === "tagebuch",
+    );
+    return mergeEntriesByLine([...matches, ...rest]);
+  }
+
+  const matches = inScope.filter((entry) =>
+    entryMatchesFeedContextFilter(entry.feedContext, feedContextFilter),
+  );
+  if (matches.length === 0) return [];
+  if (!includeRestOfTagebuch) return matches;
+  const rest = inScope.filter(
+    (entry) => effectiveFeedProfile(entry.feedProfile, entry.feedContext) === "tagebuch",
+  );
+  return mergeEntriesByLine([...matches, ...rest]);
 }
 
 function mergeEntriesByLine(entries: TimelineEntry[]): TimelineEntry[] {
@@ -192,6 +463,56 @@ function mergeEntriesByLine(entries: TimelineEntry[]): TimelineEntry[] {
     byLine.set(entry.line, entry);
   }
   return [...byLine.values()].sort((a, b) => a.line - b.line);
+}
+
+/** Keep one Tagebuch feed row per profile/context only for legacy rows without entryId. */
+export function dedupeFeedProfileEntries(entries: TimelineEntry[]): TimelineEntry[] {
+  const passthrough: TimelineEntry[] = [];
+  const byKey = new Map<string, TimelineEntry>();
+
+  for (const entry of entries) {
+    const profile = entry.feedProfile ?? "tagebuch";
+    if (profile === "tagebuch" || entry.entryId) {
+      passthrough.push(entry);
+      continue;
+    }
+    const ctx = (entry.feedContext ?? "").trim().toLowerCase();
+    const key = `${profile}::${ctx}`;
+    const prev = byKey.get(key);
+    if (!prev) {
+      byKey.set(key, entry);
+      continue;
+    }
+    const prefer =
+      entry.line > prev.line || (entry.line === prev.line && entry.rawLine.includes(">"))
+        ? entry
+        : prev;
+    byKey.set(key, prefer);
+  }
+
+  return [...passthrough, ...byKey.values()].sort((a, b) => a.line - b.line);
+}
+
+/** Group Tagebuch entries by profile + context (document order). */
+export function groupTimelineEntriesByContext(entries: TimelineEntry[]): TimelineContextGroup[] {
+  const groups: TimelineContextGroup[] = [];
+  const indexByKey = new Map<string, number>();
+
+  for (const entry of entries) {
+    const profile = entry.feedProfile ?? "tagebuch";
+    if (profile === "tagebuch" && !entry.feedContext?.trim()) continue;
+    const context = (entry.feedContext ?? "").trim();
+    const key = `${profile}::${context.toLowerCase()}`;
+    const idx = indexByKey.get(key);
+    if (idx != null) {
+      groups[idx]!.entries.push(entry);
+    } else {
+      indexByKey.set(key, groups.length);
+      groups.push({ profile, context, entries: [entry] });
+    }
+  }
+
+  return groups;
 }
 
 /** Reisen entries only from ## Reisen (section-based, not global callout scan). */
@@ -204,6 +525,24 @@ function resolveTripLabelForDay(
   journalHeading: string,
   entries: TimelineEntry[],
 ): string | null {
+  const reisenContexts = new Map<string, number>();
+  for (const entry of entries) {
+    if (effectiveFeedProfile(entry.feedProfile, entry.feedContext) !== "reisen") continue;
+    const ctx = entry.feedContext?.trim();
+    if (!ctx) continue;
+    reisenContexts.set(ctx, (reisenContexts.get(ctx) ?? 0) + 1);
+  }
+  if (reisenContexts.size > 0) {
+    let best = "";
+    let bestCount = 0;
+    for (const [ctx, count] of reisenContexts) {
+      if (count > bestCount) {
+        best = ctx;
+        bestCount = count;
+      }
+    }
+    return best || null;
+  }
   if (journalHeading.trim().toLowerCase() !== "reisen" || entries.length === 0) return null;
   const fromSection = extractReisenTripFromSection(lines, journalHeading);
   if (fromSection) return fromSection;
@@ -220,11 +559,18 @@ export function extractJournalLines(
   journalHeading: string,
 ): TimelineEntry[] {
   const target = journalHeading.trim().toLowerCase();
+  if (target === "heizung" || target === "lüftung" || target === "lueftung") {
+    return extractFeedDetailSectionEntries(textLines, journalHeading);
+  }
+  if (target === SONSTIGES_HEADING.toLowerCase()) {
+    return extractSonstigesSectionEntries(textLines, journalHeading);
+  }
   const isReisen = target === "reisen";
   const isWandern = target === "wandern";
   let inSection = false;
   let inManagedCallout = false;
   let skipReisenTripCallout = false;
+  let pendingFeedMeta: ReturnType<typeof parseFeedMetadataComment> = null;
   const out: TimelineEntry[] = [];
 
   for (let i = 0; i < textLines.length; i++) {
@@ -235,6 +581,13 @@ export function extractJournalLines(
       inSection = h2[1]?.trim().toLowerCase() === target;
       inManagedCallout = false;
       skipReisenTripCallout = false;
+      pendingFeedMeta = null;
+      continue;
+    }
+
+    const lineMeta = feedMetaFromLine(line);
+    if (lineMeta && inSection) {
+      pendingFeedMeta = lineMeta;
       continue;
     }
 
@@ -256,6 +609,7 @@ export function extractJournalLines(
     if (!inSection) continue;
     if (!trimmed || trimmed === "---") continue;
     if (/^#{1,6}\s/.test(trimmed)) break;
+    if (isEntryMetaCommentLine(line)) continue;
 
     if (isWandern) {
       const entry = tryWandernTimelineEntry(line, i, journalHeading);
@@ -274,8 +628,8 @@ export function extractJournalLines(
       if (!trimmed.startsWith(">")) {
         inManagedCallout = false;
       } else if (isPlainJournalBulletLine(line)) {
-        const text = cleanJournalLine(trimmed);
-        if (text) out.push({ line: i, text, rawLine: line });
+        i = pushJournalBulletLine(out, textLines, i, line, undefined, pendingFeedMeta);
+        pendingFeedMeta = null;
         continue;
       } else if (trimmed === ">") {
         continue;
@@ -285,8 +639,8 @@ export function extractJournalLines(
     }
 
     if (isPlainJournalBulletLine(line)) {
-      const text = cleanJournalLine(trimmed);
-      if (text) out.push({ line: i, text, rawLine: line });
+      i = pushJournalBulletLine(out, textLines, i, line, undefined, pendingFeedMeta);
+      pendingFeedMeta = null;
     }
   }
 
@@ -329,6 +683,7 @@ export function extractJournalLinesAllHeadings(
   let currentSection: string | null = null;
   let inManagedCallout = false;
   let reisenTripSection = false;
+  let pendingFeedMeta: ReturnType<typeof parseFeedMetadataComment> = null;
 
   for (let i = 0; i < textLines.length; i++) {
     const line = textLines[i] ?? "";
@@ -338,6 +693,13 @@ export function extractJournalLinesAllHeadings(
       currentSection = h2[1]?.trim() ?? null;
       inManagedCallout = false;
       reisenTripSection = false;
+      pendingFeedMeta = null;
+      continue;
+    }
+
+    const lineMeta = feedMetaFromLine(line);
+    if (lineMeta && currentSection?.trim().toLowerCase() === DEFAULT_JOURNAL_HEADING.toLowerCase()) {
+      pendingFeedMeta = lineMeta;
       continue;
     }
 
@@ -353,10 +715,28 @@ export function extractJournalLinesAllHeadings(
       continue;
     }
 
+    if (currentSection && isEntryMetaCommentLine(line)) continue;
+
     if (currentSection?.trim().toLowerCase() === "wandern") {
       const entry = tryWandernTimelineEntry(line, i, currentSection);
       if (entry) {
         out.push(entry);
+        continue;
+      }
+    }
+
+    if (currentSection) {
+      const feedDetailEntry = tryFeedDetailTimelineEntry(line, i, currentSection, textLines);
+      if (feedDetailEntry) {
+        out.push(feedDetailEntry);
+        continue;
+      }
+    }
+
+    if (currentSection) {
+      const sonstigesEntry = trySonstigesTimelineEntry(line, i, currentSection, textLines);
+      if (sonstigesEntry) {
+        out.push(sonstigesEntry);
         continue;
       }
     }
@@ -373,8 +753,10 @@ export function extractJournalLinesAllHeadings(
         inManagedCallout = false;
         reisenTripSection = false;
       } else if (isPlainJournalBulletLine(line)) {
-        const text = cleanJournalLine(trimmed);
-        if (text && sectionLabel) out.push({ line: i, text, rawLine: line, section: sectionLabel });
+        if (sectionLabel) {
+          i = pushJournalBulletLine(out, textLines, i, line, sectionLabel, pendingFeedMeta);
+        }
+        pendingFeedMeta = null;
         continue;
       } else if (trimmed === ">") {
         continue;
@@ -385,8 +767,13 @@ export function extractJournalLinesAllHeadings(
     }
 
     if (currentSection && !reisenTripSection && isPlainJournalBulletLine(line)) {
-      const text = cleanJournalLine(line.trim());
-      if (text) out.push({ line: i, text, rawLine: line, section: currentSection });
+      if (currentSection.trim().toLowerCase() === DEFAULT_JOURNAL_HEADING.toLowerCase()) {
+        i = pushJournalBulletLine(out, textLines, i, line, currentSection, pendingFeedMeta);
+        pendingFeedMeta = null;
+      } else {
+        const text = stripEntryMeta(cleanJournalLine(line.trim())).body;
+        if (text) out.push({ line: i, text, rawLine: line, section: currentSection });
+      }
     }
   }
 
@@ -457,6 +844,138 @@ export function resolveDailyNotesFolder(
   return fallback.folder.trim();
 }
 
+function reisenContextByEntryId(lines: string[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const line of lines) {
+    const meta = parseReisenMetaLine(line);
+    if (meta?.entryId && meta.reise.trim()) map.set(meta.entryId, meta.reise.trim());
+  }
+  return map;
+}
+
+function reisenTripLabelFromSection(lines: string[]): string {
+  const fromCallout = extractReisenTripFromSection(lines, "Reisen");
+  if (fromCallout?.trim()) return fromCallout.trim();
+  const range = extractSectionRange(lines, "Reisen");
+  if (!range) return "";
+  for (let i = range.start + 1; i < range.end; i++) {
+    const sort = parseReisenSortLine(lines[i] ?? "");
+    if (sort?.reise.trim()) return sort.reise.trim();
+    const meta = parseReisenMetaLine(lines[i] ?? "");
+    if (meta?.reise.trim()) return meta.reise.trim();
+  }
+  return "";
+}
+
+function mergeSyntheticTagebuchFeedEntries(lines: string[], entries: TimelineEntry[]): TimelineEntry[] {
+  const next = [...entries];
+  const has = (profile: FeedProfile) =>
+    next.some((e) => {
+      if (effectiveFeedProfile(e.feedProfile, e.feedContext) === profile) return true;
+      if ((e.feedProfile ?? "tagebuch") === profile) return true;
+      const meta = parseFeedMetadataComment(stripCalloutPrefix(e.rawLine));
+      return meta?.profile === profile;
+    });
+
+  const addDetail = (profileId: FeedProfile, label: string) => {
+    if (has(profileId)) return;
+    const profile = journalProfileById(profileId);
+    const def = journalProfileForHeading(label);
+    if (!profile || !def) return;
+    const range = extractSectionRange(lines, label);
+    if (!range) return;
+    const meta = parseFeedDetailMetaFromLines(lines.slice(range.start + 1, range.end), def);
+    if (!meta) return;
+    const kurz = stripLeadingTimeFromKurz(meta.kurz || meta.titel || label);
+    const suffix = (meta.feedLinks ?? profile.feedSuffix).trim();
+    const text = `${kurz} ${suffix}`.trim();
+    next.push({
+      line: range.start + 1,
+      text,
+      rawLine: `- ${text}`,
+      feedProfile: profileId,
+      ...(meta.titel !== label ? { feedContext: meta.titel } : {}),
+    });
+  };
+
+  addDetail("heizung", "Heizung");
+  addDetail("lueftung", "Lüftung");
+
+  if (!has("wandern")) {
+    const range = extractSectionRange(lines, "Wandern");
+    const profile = journalProfileById("wandern");
+    if (range && profile) {
+      const meta = parseWandernMetaFromLines(lines.slice(range.start + 1, range.end));
+      if (meta) {
+        const kurz = stripLeadingTimeFromKurz(buildWandernFeedKurz(meta.kurz, meta.titel || "Wandern"));
+        const text = `${kurz} ${profile.feedSuffix}`.trim();
+        next.push({
+          line: range.start + 1,
+          text,
+          rawLine: `- ${text}`,
+          feedProfile: "wandern",
+          ...(meta.titel.trim() !== "Wandern" ? { feedContext: meta.titel.trim() } : {}),
+        });
+      }
+    }
+  }
+
+  if (!has("sonstiges")) {
+    const range = extractSectionRange(lines, SONSTIGES_HEADING);
+    if (range) {
+      const entry = sonstigesTimelineEntryFromFeed(lines, SONSTIGES_HEADING, range.start + 1);
+      if (entry) {
+        next.push({
+          line: entry.line,
+          text: entry.text,
+          rawLine: entry.rawLine,
+          feedProfile: "sonstiges",
+          ...(entry.feedContext ? { feedContext: entry.feedContext } : {}),
+        });
+      }
+    }
+  }
+
+  if (!has("reisen")) {
+    const reisenEntries = extractJournalLines(lines, "Reisen");
+    const profile = journalProfileById("reisen");
+    const range = extractSectionRange(lines, "Reisen");
+    const reisenIds = collectReisenEntryIds(lines);
+    const trip = reisenTripLabelFromSection(lines);
+    if (profile && range && (reisenEntries.length > 0 || reisenIds.size > 0 || trip)) {
+      if (reisenEntries.length > 0) {
+        const kurz = stripLeadingTimeFromKurz(
+          buildReisenFeedKurz(
+            reisenEntries.map((e) => e.text),
+            "",
+          ),
+        );
+        const text = `${kurz} ${profile.feedSuffix}`.trim();
+        const first = reisenEntries[0]!;
+        next.push({
+          line: first.line,
+          text,
+          rawLine: first.rawLine,
+          feedProfile: "reisen",
+          ...(trip ? { feedContext: trip } : {}),
+        });
+      } else {
+        const kurz = stripLeadingTimeFromKurz(trip || "Reisen");
+        const text = `${kurz} ${profile.feedSuffix}`.trim();
+        next.push({
+          line: range.start + 1,
+          text,
+          rawLine: `- ${text}`,
+          feedProfile: "reisen",
+          ...(trip ? { feedContext: trip } : {}),
+        });
+      }
+    }
+  }
+
+  return next.sort((a, b) => a.line - b.line);
+}
+
 /** Day headline in outline: YAML summary for „Alle“, otherwise active section callout title. */
 export function resolveDayHeadline(
   lines: string[],
@@ -474,6 +993,91 @@ export function resolveDayHeadline(
   return title;
 }
 
+export function loadTagebuchTimelineEntries(lines: string[]): TimelineEntry[] {
+  let entries = extractJournalLines(lines, DEFAULT_JOURNAL_HEADING);
+  entries = overlayReisenTimelineEntries(lines, entries);
+  entries = mergeSyntheticTagebuchFeedEntries(lines, entries);
+  entries = dedupeFeedProfileEntries(entries);
+  return entries;
+}
+
+function overlayReisenTimelineEntries(lines: string[], entries: TimelineEntry[]): TimelineEntry[] {
+  const reisenIds = collectReisenEntryIds(lines);
+  if (reisenIds.size === 0 && !extractSectionRange(lines, "Reisen")) return entries;
+  const reisenContext = reisenContextByEntryId(lines);
+  const reisenByTitle = reisenSupplementMatchesByTitle(lines);
+  return entries.map((entry) => {
+    if (entry.entryId && reisenIds.has(entry.entryId)) {
+      return {
+        ...entry,
+        feedProfile: "reisen",
+        feedContext: entry.feedContext?.trim() || reisenContext.get(entry.entryId),
+        hasCallout: true,
+        calloutId: entry.entryId,
+      };
+    }
+    if (effectiveFeedProfile(entry.feedProfile, entry.feedContext) === "reisen") {
+      return entry;
+    }
+    const { body } = parseJournalEntryDisplay(entry.text);
+    const titleKey = stripLeadingTimeFromKurz(body).trim().toLowerCase();
+    const byTitle = titleKey ? reisenByTitle.get(titleKey) : undefined;
+    if (byTitle) {
+      return {
+        ...entry,
+        feedProfile: "reisen",
+        entryId: byTitle.entryId,
+        feedContext: entry.feedContext?.trim() || byTitle.reise || reisenContext.get(byTitle.entryId),
+        hasCallout: true,
+        calloutId: byTitle.entryId,
+      };
+    }
+    return entry;
+  });
+}
+
+const OUTLINE_SCAN_CONCURRENCY = 12;
+
+type OutlinePluginSettings = {
+  calendarSync: CalendarSyncSettings;
+  dailyNoteFallback: DailyNoteFallbackSettings;
+  tagebuchVerweise?: TagebuchVerweiseSettings;
+  outline: { journalHeading: string };
+};
+
+function getOutlinePluginSettings(app: App): { settings: OutlinePluginSettings } | undefined {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (app as any).plugins?.plugins?.["universal-daily-note"] as
+    | { settings?: OutlinePluginSettings }
+    | undefined;
+}
+
+async function trySyncCalendarForOutlineDay(app: App, dateKey: string): Promise<number> {
+  const plugin = getOutlinePluginSettings(app);
+  const sync = plugin?.settings?.calendarSync;
+  if (!sync?.enabled || !sync.syncOnOutlineLoad || !plugin?.settings) return 0;
+
+  const [y, m, d] = dateKey.split("-").map(Number);
+  if (!y || !m || !d) return 0;
+
+  try {
+    const dailyNotesFolder =
+      plugin.settings.tagebuchVerweise?.dailyNotesFolder?.trim() ||
+      plugin.settings.dailyNoteFallback?.folder?.trim() ||
+      "";
+    return await syncCalendarAppointmentsIntoDailyNote(app, {
+      date: new Date(y, m - 1, d, 0, 0, 0, 0),
+      fallback: plugin.settings.dailyNoteFallback,
+      settings: sync,
+      oncePerSession: true,
+      dailyNotesFolder,
+    });
+  } catch (e) {
+    console.warn("Universal Daily Note: calendar sync on outline load failed", e);
+    return 0;
+  }
+}
+
 async function loadDayFromFile(
   file: TFile,
   dateKey: string,
@@ -481,29 +1085,13 @@ async function loadDayFromFile(
   app: App,
   textQuery?: string,
   excludedHeadings: string[] = DEFAULT_EXCLUDED_JOURNAL_HEADINGS,
+  feedProfileFilters: FeedProfile[] = [],
+  feedContextFilter = "",
+  includeRestOfTagebuch = false,
+  runCalendarSync = true,
 ): Promise<TimelineDay | null> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const plugin = (app as any).plugins?.plugins?.["universal-daily-note"] as
-    | {
-        settings?: {
-          calendarSync: CalendarSyncSettings;
-          dailyNoteFallback: DailyNoteFallbackSettings;
-          outline: { journalHeading: string };
-        };
-      }
-    | undefined;
-  const sync = plugin?.settings?.calendarSync;
-  if (sync?.enabled && sync.syncOnOutlineLoad && plugin?.settings) {
-    const [y, m, d] = dateKey.split("-").map(Number);
-    if (y && m && d) {
-      const { syncCalendarAppointmentsIntoDailyNote } = await import("../integrations/calendarAppointments");
-      await syncCalendarAppointmentsIntoDailyNote(app, {
-        date: new Date(y, m - 1, d, 0, 0, 0, 0),
-        fallback: plugin.settings.dailyNoteFallback,
-        settings: sync,
-        oncePerSession: true,
-      });
-    }
+  if (runCalendarSync) {
+    await trySyncCalendarForOutlineDay(app, dateKey);
   }
 
   let text = "";
@@ -515,11 +1103,32 @@ async function loadDayFromFile(
 
   const lines = text.split("\n");
   const headingLower = journalHeading.trim().toLowerCase();
-  let entries = isAllJournalHeadings(journalHeading)
-    ? extractJournalLinesAllHeadings(lines, excludedHeadings)
-    : headingLower === "reisen"
-      ? extractReisenJournalLines(lines)
-      : extractJournalLines(lines, journalHeading);
+  const activeProfileFilters = resolveOutlineFeedFilters(feedProfileFilters);
+  const restEnabled = activeProfileFilters.length > 0 && includeRestOfTagebuch;
+  let entries: TimelineEntry[];
+  if (activeProfileFilters.length > 0 || feedContextFilter.trim()) {
+    entries = loadTagebuchTimelineEntries(lines);
+    entries = applyFeedFiltersToEntries(
+      entries,
+      DEFAULT_JOURNAL_HEADING,
+      activeProfileFilters,
+      feedContextFilter,
+      restEnabled,
+    );
+  } else if (isAllJournalHeadings(journalHeading)) {
+    entries = extractJournalLinesAllHeadings(lines, excludedHeadings);
+  } else if (headingLower === DEFAULT_JOURNAL_HEADING.toLowerCase()) {
+    entries = loadTagebuchTimelineEntries(lines);
+  } else if (headingLower === "reisen") {
+    entries = extractReisenJournalLines(lines);
+    if (entries.length === 0) {
+      entries = loadTagebuchTimelineEntries(lines).filter((entry) =>
+        entryMatchesFeedProfileFilters(entry.feedProfile, entry.feedContext, ["reisen"]),
+      );
+    }
+  } else {
+    entries = extractJournalLines(lines, journalHeading);
+  }
   const q = textQuery?.trim();
   if (q) {
     entries = entries.filter((e) => entryMatchesTextFilter(e.text, q));
@@ -571,6 +1180,9 @@ export type OutlineBatchOptions = {
   maxDaysBack?: number;
   /** When set, only days with matching journal lines are included. */
   textQuery?: string;
+  feedProfileFilters?: FeedProfile[];
+  feedContextFilter?: string;
+  includeRestOfTagebuch?: boolean;
 };
 
 export type OutlineDateBounds = {
@@ -670,6 +1282,10 @@ export async function loadOutlineBatch(
   const bounded = Boolean(options.bounds);
   const loadAll = bounded || Boolean(options.loadAll);
   const textQuery = options.textQuery?.trim() || undefined;
+  const feedProfileFilters = resolveOutlineFeedFilters(options.feedProfileFilters);
+  const feedContextFilter = options.feedContextFilter ?? "";
+  const includeRestOfTagebuch =
+    feedProfileFilters.length > 0 && (options.includeRestOfTagebuch ?? false);
   const dailyNotesFolder = resolveDailyNotesFolder(app, tagebuch, fallback);
   const filenameFormat = fallback.filenameFormat.trim() || "YYYY-MM-DD";
 
@@ -677,14 +1293,62 @@ export async function loadOutlineBatch(
   const keys = candidateKeys(keysDesc, anchor, options);
 
   const days: TimelineDay[] = [];
+  const outlinePlugin = getOutlinePluginSettings(app);
+  const calendarSync = outlinePlugin?.settings?.calendarSync;
+  const shouldSyncCalendar = Boolean(calendarSync?.enabled && calendarSync.syncOnOutlineLoad);
 
-  for (const key of keys) {
-    const file = fileByKey.get(key);
-    if (!file) continue;
-    const day = await loadDayFromFile(file, key, journalHeading, app, textQuery, excludedHeadings);
-    if (!day) continue;
-    days.push(day);
+  for (let i = 0; i < keys.length; i += OUTLINE_SCAN_CONCURRENCY) {
     if (!loadAll && days.length >= pageSize) break;
+
+    const chunk = keys.slice(i, i + OUTLINE_SCAN_CONCURRENCY);
+    const chunkDays = await Promise.all(
+      chunk.map(async (key) => {
+        const file = fileByKey.get(key);
+        if (!file) return null;
+        return loadDayFromFile(
+          file,
+          key,
+          journalHeading,
+          app,
+          textQuery,
+          excludedHeadings,
+          feedProfileFilters,
+          feedContextFilter,
+          includeRestOfTagebuch,
+          false,
+        );
+      }),
+    );
+
+    for (let j = 0; j < chunk.length; j++) {
+      let day = chunkDays[j];
+      if (!day) continue;
+
+      if (shouldSyncCalendar) {
+        const added = await trySyncCalendarForOutlineDay(app, day.dateKey);
+        if (added > 0) {
+          const file = fileByKey.get(day.dateKey);
+          if (file) {
+            day =
+              (await loadDayFromFile(
+                file,
+                day.dateKey,
+                journalHeading,
+                app,
+                textQuery,
+                excludedHeadings,
+                feedProfileFilters,
+                feedContextFilter,
+                includeRestOfTagebuch,
+                false,
+              )) ?? day;
+          }
+        }
+      }
+
+      days.push(day);
+      if (!loadAll && days.length >= pageSize) break;
+    }
   }
 
   days.sort((a, b) => b.dateKey.localeCompare(a.dateKey));

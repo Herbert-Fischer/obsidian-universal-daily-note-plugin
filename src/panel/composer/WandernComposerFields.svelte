@@ -1,9 +1,12 @@
 <script lang="ts">
+  import type { App } from "obsidian";
   import { dk } from "@denkarium/obsidian-lib-ui";
   import type { TrackMatch } from "../../tracks/gpxImport";
   import { formatTrackSummary } from "../../tracks/gpxImport";
   import type { TrackPickOption } from "../../tracks/trackPickModal";
+  import PhotoCollageField from "./PhotoCollageField.svelte";
 
+  export let app: App;
   export let kurz = "";
   export let beschreibung = "";
   export let titel = "";
@@ -19,6 +22,8 @@
   export let onBeschreibungChange: (v: string) => void = () => {};
   export let onTitelChange: (v: string) => void = () => {};
   export let onRemovePhoto: (index: number) => void = () => {};
+  export let onMovePhotoUp: (index: number) => void = () => {};
+  export let onMovePhotoDown: (index: number) => void = () => {};
   export let onAddPhotoClick: () => void = () => {};
   export let onPickTrackClick: () => void = () => {};
   export let onTrackOptionPick: (option: TrackPickOption) => void = () => {};
@@ -123,20 +128,15 @@
     {/if}
   </div>
 
-  <div class="udn-wandernPhotos">
-    <div class="udn-wandernPhotosHead">
-      <span class="udn-composerSummaryLabel">Fotos ({photos.length}/{maxPhotos})</span>
-      <button type="button" class={dk.btnSm} disabled={photos.length >= maxPhotos} on:click={onAddPhotoClick}>
-        Foto hinzufügen
-      </button>
-    </div>
-    {#each photos as photo, index (photo + index)}
-      <div class="udn-wandernPhotoRow">
-        <span class="udn-wandernPhotoPath">{photo}</span>
-        <button type="button" class={dk.btnSm} on:click={() => onRemovePhoto(index)}>Entfernen</button>
-      </div>
-    {/each}
-  </div>
+  <PhotoCollageField
+    {app}
+    {photos}
+    {maxPhotos}
+    onAddPhotoClick={onAddPhotoClick}
+    onRemovePhoto={onRemovePhoto}
+    onMovePhotoUp={onMovePhotoUp}
+    onMovePhotoDown={onMovePhotoDown}
+  />
 
   <div class="udn-wandernPreviewToggle">
     <button type="button" class={dk.btnSm} on:click={onTogglePreview}>

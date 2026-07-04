@@ -6,18 +6,22 @@ import {
   loadComposerState,
   saveComposerState,
 } from "../notes/dailyComposer";
+import { resolveWikiLinksInText, buildVaultLinkIndex, upgradeJournalEntryTextsLinks } from "../notes/resolveWikiLinks";
 import { formatJournalEntryText, sortJournalEntryTexts } from "../notes/parseJournalEntryDisplay";
 import {
   collectCalendarSyncIds,
   parseCalendarSyncId,
+  stripMarkdownCalendarAppointmentEntries,
   withCalendarSyncMarker,
 } from "./calendarSyncMarker";
 import { UNIVERSAL_CALENDAR_PLUGIN_ID } from "./universalCalendar";
 
 export {
   collectCalendarSyncIds,
+  isMarkdownCalendarSyncId,
   parseCalendarSyncId,
   stripCalendarSyncMarker,
+  stripMarkdownCalendarAppointmentEntries,
   withCalendarSyncMarker,
 } from "./calendarSyncMarker";
 
@@ -78,11 +82,10 @@ function isCalendarItemVisible(item: CalendarItemLike, plugin: CalendarPluginLik
   return true;
 }
 
-/** Items eligible for daily-note Termin: lines (CalDAV with time, no all-day, no vault markdown by default). */
-export function isSyncableCalendarItem(item: CalendarItemLike, settings: CalendarSyncSettings): boolean {
+/** Items eligible for daily-note Termin: timed CalDAV events/todos only (no vault markdown / invoices). */
+export function isSyncableCalendarItem(item: CalendarItemLike, _settings: CalendarSyncSettings): boolean {
   if (item.allDay) return false;
-  if (item.source === "markdown" && !settings.includeMarkdownNotes) return false;
-  return true;
+  return item.source === "caldav_event" || item.source === "caldav_todo";
 }
 
 export function getCalendarItemsForDay(app: App, date: Date, settings: CalendarSyncSettings): CalendarItemLike[] {
@@ -112,9 +115,20 @@ function formatAppointmentTitle(item: CalendarItemLike): string {
   return title;
 }
 
-export function formatCalendarAppointmentEntry(item: CalendarItemLike): string {
+export function formatCalendarAppointmentEntry(
+  item: CalendarItemLike,
+  app?: App,
+  sourcePath = "",
+  linkOverrides: Record<string, string> = {},
+): string {
   const time = formatItemTime(item);
-  const body = withCalendarSyncMarker(`Termin: ${formatAppointmentTitle(item)}`, item.id);
+  const override = linkOverrides[item.id]?.trim();
+  const rawTitle = override || formatAppointmentTitle(item);
+  const resolvedTitle =
+    app && rawTitle.includes("[[")
+      ? resolveWikiLinksInText(app, rawTitle, sourcePath, buildVaultLinkIndex(app))
+      : rawTitle;
+  const body = withCalendarSyncMarker(`Termin: ${resolvedTitle}`, item.id);
   return formatJournalEntryText(time, body);
 }
 
@@ -124,20 +138,25 @@ export function mergeCalendarAppointmentTexts(
   entryTexts: string[],
   options: {
     settings: CalendarSyncSettings;
+    sourcePath?: string;
+    linkOverrides?: Record<string, string>;
   },
 ): string[] {
-  if (!options.settings.enabled) return entryTexts;
+  const base = stripMarkdownCalendarAppointmentEntries(entryTexts);
+  if (!options.settings.enabled) return base;
 
   const items = getCalendarItemsForDay(app, date, options.settings);
-  if (items.length === 0) return entryTexts;
+  if (items.length === 0) return base;
 
-  const known = collectCalendarSyncIds(entryTexts);
+  const known = collectCalendarSyncIds(base);
+  const sourcePath = options.sourcePath ?? "";
+  const linkOverrides = options.linkOverrides ?? {};
   const additions = items
     .filter((item) => !known.has(item.id))
-    .map((item) => formatCalendarAppointmentEntry(item));
+    .map((item) => formatCalendarAppointmentEntry(item, app, sourcePath, linkOverrides));
 
-  if (additions.length === 0) return entryTexts;
-  return sortJournalEntryTexts([...entryTexts, ...additions]);
+  if (additions.length === 0) return base;
+  return sortJournalEntryTexts([...base, ...additions]);
 }
 
 export type SyncCalendarAppointmentsOptions = {
@@ -145,6 +164,8 @@ export type SyncCalendarAppointmentsOptions = {
   fallback: DailyNoteFallbackSettings;
   settings: CalendarSyncSettings;
   oncePerSession?: boolean;
+  /** Prefer daily notes in this folder (e.g. Calendar/Notes) before plugin fallback. */
+  dailyNotesFolder?: string;
 };
 
 export async function syncCalendarAppointmentsIntoDailyNote(
@@ -160,22 +181,41 @@ export async function syncCalendarAppointmentsIntoDailyNote(
   const dateKey = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
   const sessionKey = `${dateKey}|${heading.toLowerCase()}`;
 
-  if (options.oncePerSession && outlineSyncSession.has(sessionKey)) return 0;
-
-  const items = getCalendarItemsForDay(app, options.date, options.settings);
-  if (items.length === 0) {
-    if (options.oncePerSession) outlineSyncSession.add(sessionKey);
+  if (options.oncePerSession && outlineSyncSession.has(sessionKey)) {
     return 0;
   }
 
-  const state = await loadComposerState(app, options.date, options.fallback, heading);
+  const state = await loadComposerState(
+    app,
+    options.date,
+    options.fallback,
+    heading,
+    options.dailyNotesFolder,
+  );
   const existing = state.entries.map(composerEntryText);
-  const merged = mergeCalendarAppointmentTexts(app, options.date, existing, {
-    settings: options.settings,
-  });
+  const upgraded = upgradeJournalEntryTextsLinks(app, existing, state.file.path);
+  const plugin = app.plugins.plugins["universal-daily-note"] as
+    | { settings?: { calendarLinkOverrides?: Record<string, string> } }
+    | undefined;
+  const linkOverrides = plugin?.settings?.calendarLinkOverrides ?? {};
 
-  if (merged.length === existing.length) {
-    if (options.oncePerSession) outlineSyncSession.add(sessionKey);
+  const sessionDone = options.oncePerSession && outlineSyncSession.has(sessionKey);
+  let merged: string[];
+  if (sessionDone) {
+    merged = stripMarkdownCalendarAppointmentEntries(upgraded);
+  } else {
+    merged = mergeCalendarAppointmentTexts(app, options.date, upgraded, {
+      settings: options.settings,
+      sourcePath: state.file.path,
+      linkOverrides,
+    });
+  }
+
+  const changed =
+    merged.length !== existing.length || merged.some((line, index) => line !== existing[index]);
+
+  if (!changed) {
+    if (!sessionDone) outlineSyncSession.add(sessionKey);
     return 0;
   }
 
@@ -187,10 +227,11 @@ export async function syncCalendarAppointmentsIntoDailyNote(
       calloutTitle: state.calloutTitle,
       summary: state.summary,
       dateKey: state.dateKey,
+      photos: state.photos,
     },
     merged,
   );
 
-  if (options.oncePerSession) outlineSyncSession.add(sessionKey);
+  if (!sessionDone) outlineSyncSession.add(sessionKey);
   return merged.length - existing.length;
 }

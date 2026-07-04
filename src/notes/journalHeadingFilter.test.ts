@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   finalizeJournalHeadings,
   isExcludedJournalHeading,
+  mergeOutlineFilterHeadings,
   normalizeActiveJournalHeading,
 } from "./journalHeadingFilter";
 
@@ -26,5 +27,16 @@ describe("journalHeadingFilter", () => {
 
   it("preserves Alle as active heading", () => {
     expect(normalizeActiveJournalHeading("Alle")).toBe("Alle");
+  });
+
+  it("mergeOutlineFilterHeadings always includes profile sections", () => {
+    expect(mergeOutlineFilterHeadings(["Tagebuch", "Sonstiges"])).toEqual([
+      "Tagebuch",
+      "Heizung",
+      "Lüftung",
+      "Reisen",
+      "Sonstiges",
+      "Wandern",
+    ]);
   });
 });

@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   buildWandernAttachmentVaultPath,
   buildWandernTrackVaultPath,
   folderFromCalloutTitel,
   gpxFileNameFromCalloutTitel,
+  normalizeWandernPhotoPath,
   slugFromWandernTitel,
 } from "./attachJournalMedia";
 
@@ -31,5 +32,38 @@ describe("attachJournalMedia wandern", () => {
     expect(buildWandernTrackVaultPath("Wandern: Bläsis Mühle")).toBe(
       "Calendar/Anhänge/GPX/Wandern Bläsis Mühle.gpx",
     );
+  });
+
+  it("normalizeWandernPhotoPath creates destination folder before rename", async () => {
+    const createdFolders: string[] = [];
+    const renamed: string[] = [];
+    const sourcePath = "Calendar/Attachments/2026-06-14/wandern-01.jpg";
+    const destPath = buildWandernAttachmentVaultPath(0, "wandern-01.jpg", "Wandern: Bläsis Mühle");
+    const app = {
+      vault: {
+        getAbstractFileByPath(path: string) {
+          if (path === sourcePath) return { extension: "jpg" };
+          return null;
+        },
+        createFolder: vi.fn(async (folder: string) => {
+          createdFolders.push(folder);
+        }),
+        rename: vi.fn(async (_file: unknown, nextPath: string) => {
+          renamed.push(nextPath);
+        }),
+      },
+    };
+
+    const result = await normalizeWandernPhotoPath(
+      app as never,
+      sourcePath,
+      0,
+      "Wandern: Bläsis Mühle",
+      "Calendar/Anhänge/Bilder",
+    );
+
+    expect(result).toBe(destPath);
+    expect(createdFolders.at(-1)).toBe("Calendar/Anhänge/Bilder/Wandern_Bläsis_Mühle");
+    expect(renamed).toEqual([destPath]);
   });
 });

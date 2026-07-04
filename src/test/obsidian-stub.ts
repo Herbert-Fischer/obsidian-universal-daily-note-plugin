@@ -22,6 +22,13 @@ export function parseFrontMatterStringArray(
   return null;
 }
 
+export function parseFrontMatterAliases(frontmatter: Record<string, unknown> | null | undefined): string[] | null {
+  return (
+    parseFrontMatterStringArray(frontmatter ?? null, "aliases") ??
+    parseFrontMatterStringArray(frontmatter ?? null, "alias")
+  );
+}
+
 export class TFile {
   extension = "md";
   constructor(

@@ -2,6 +2,7 @@ import { TFile, type App } from "obsidian";
 import type { DailyNoteFallbackSettings, TagebuchVerweiseSettings } from "../settings";
 import { DEFAULT_JOURNAL_HEADING } from "../settings";
 import { ensureDailyNoteFileForDate } from "./appendLogLine";
+import { processVaultFile } from "./vaultProcess";
 import {
   extractAllH2Headings,
   extractJournalLines,
@@ -22,6 +23,7 @@ import {
   resolveComposerCalloutTitle,
 } from "./journalCallout";
 import { ensureSectionHeading, findInsertIndex } from "./appendLogLine";
+import { parseFeedMetadataComment } from "./feedMetadata";
 import { formatJournalEntryText, journalEntrySortMinutes, parseJournalEntryDisplay, sortJournalEntryTexts } from "./parseJournalEntryDisplay";
 import {
   parseCalendarSyncId,
@@ -29,6 +31,26 @@ import {
   withCalendarSyncMarker,
 } from "../integrations/calendarSyncMarker";
 import { readDailyNoteSummary } from "./dailyNoteSummary";
+import {
+  buildPhotoCollageMarkdownAsync,
+  mergePhotoSources,
+  parsePhotoCollageFromLines,
+  parsePhotoCollageMetaFromLines,
+  photoCollageMetaComment,
+  stripPhotoEmbed,
+  type PhotoCollageLayout,
+} from "./photoCollage";
+import { resolveJournalBodyWikiLinks, upgradeJournalEntryTextsLinks } from "./resolveWikiLinks";
+import type { FeedProfile } from "./feedMetadata";
+import {
+  appendEntryMeta,
+  entryMetaFromProfile,
+  generateEntryId,
+  isEntryMetaCommentLine,
+  stripEntryMeta,
+  type JournalEntryMeta,
+} from "./journalEntryMeta";
+import { loadReisenSupplements, mergeReisenSupplementsIntoEntries, type ReisenSortOrder } from "./reisenComposer";
 
 export type ComposerEntry = {
   id: string;
@@ -37,6 +59,12 @@ export type ComposerEntry = {
   body: string;
   rawLine: string;
   calendarId?: string;
+  entryId?: string;
+  profile?: FeedProfile;
+  context?: string;
+  calloutId?: string;
+  /** Fließtext im Profil-Supplement-Callout (z. B. ## Reisen). */
+  supplementDetail?: string;
 };
 
 export type ComposerState = {
@@ -46,6 +74,8 @@ export type ComposerState = {
   calloutTitle: string;
   summary: string;
   entries: ComposerEntry[];
+  photos: string[];
+  reisenSortOrders: Record<string, ReisenSortOrder>;
 };
 
 export type ComposerChip = {
@@ -83,6 +113,20 @@ export const WANDERN_COMPOSER_CHIPS: ComposerChip[] = [
   { label: "Foto", template: "Foto:", defaultTime: "15:30" },
 ];
 
+export const HEIZUNG_COMPOSER_CHIPS: ComposerChip[] = [
+  { label: "Störung", template: "Störung:", defaultTime: "12:00" },
+  { label: "Wartung", template: "Wartung:", defaultTime: "10:00" },
+  { label: "Temperatur", template: "Temperatur:", defaultTime: "08:00" },
+  { label: "Foto", template: "Foto:", defaultTime: "12:30" },
+];
+
+export const LUEFTUNG_COMPOSER_CHIPS: ComposerChip[] = [
+  { label: "Filter", template: "Filter:", defaultTime: "10:00" },
+  { label: "Wartung", template: "Wartung:", defaultTime: "11:00" },
+  { label: "Störung", template: "Störung:", defaultTime: "12:00" },
+  { label: "Foto", template: "Foto:", defaultTime: "12:30" },
+];
+
 export const GENERIC_COMPOSER_CHIPS: ComposerChip[] = [
   { label: "Termin", template: "Termin:", defaultTime: "10:00" },
   { label: "Besuch", template: "Besuch:", defaultTime: "14:00" },
@@ -100,9 +144,23 @@ function localDayKey(d: Date): string {
 }
 
 function entryToComposer(entry: TimelineEntry): ComposerEntry {
-  const { time, body } = parseJournalEntryDisplay(entry.text);
-  const calendarId = parseCalendarSyncId(entry.text) ?? undefined;
+  const rawText = entry.rawLine
+    .trim()
+    .replace(/^>\s*/, "")
+    .replace(/^[-*+]\s+/, "");
+  const stripped = stripEntryMeta(rawText);
+  const { time, body } = parseJournalEntryDisplay(stripped.body);
+  const calendarId = parseCalendarSyncId(stripped.body) ?? undefined;
   const displayBody = stripCalendarSyncMarker(body);
+  const meta = stripped.meta;
+  const profile =
+    meta?.profile && meta.profile !== "tagebuch"
+      ? meta.profile
+      : entry.feedProfile && entry.feedProfile !== "tagebuch"
+        ? entry.feedProfile
+        : undefined;
+  const context = meta?.context?.trim() || entry.feedContext?.trim() || undefined;
+  const entryId = meta?.id || entry.entryId || (profile || context ? generateEntryId() : undefined);
   return {
     id: calendarId ? `cal-${calendarId}` : `line-${entry.line}`,
     line: entry.line,
@@ -110,6 +168,10 @@ function entryToComposer(entry: TimelineEntry): ComposerEntry {
     body: displayBody,
     rawLine: entry.rawLine,
     calendarId,
+    entryId,
+    profile,
+    context,
+    calloutId: meta?.callout || entry.calloutId,
   };
 }
 
@@ -140,7 +202,7 @@ export async function resortJournalCalloutEntries(
   const file = app.vault.getAbstractFileByPath(filePath);
   if (!(file instanceof TFile)) return false;
 
-  await app.vault.process(file, (data) => {
+  await processVaultFile(app, file, (data) => {
     const heading = journalHeading.trim() || "Tagebuch";
     const lines = data.split("\n");
     let texts = extractJournalLines(lines, heading).map((entry) => entry.text);
@@ -162,12 +224,27 @@ export async function resortJournalCalloutEntries(
 }
 
 /** Stored journal line text for one composer row. */
-export function composerEntryText(entry: Pick<ComposerEntry, "time" | "body" | "calendarId">): string {
+export function composerEntryText(
+  entry: Pick<
+    ComposerEntry,
+    "time" | "body" | "calendarId" | "entryId" | "profile" | "context" | "calloutId" | "supplementDetail"
+  >,
+): string {
   let body = entry.body.trim();
   if (entry.calendarId) {
     body = withCalendarSyncMarker(body, entry.calendarId);
   }
-  return formatJournalEntryText(entry.time, body);
+  const line = formatJournalEntryText(entry.time, body);
+  const calloutId =
+    entry.profile === "reisen" && entry.supplementDetail?.trim() && entry.entryId
+      ? entry.entryId
+      : entry.calloutId;
+  const meta = entryMetaFromProfile(entry.profile, entry.context, entry.entryId, calloutId);
+  return appendEntryMeta(line, meta);
+}
+
+export function composerEntryMeta(entry: ComposerEntry): JournalEntryMeta | null {
+  return entryMetaFromProfile(entry.profile, entry.context, entry.entryId, entry.calloutId);
 }
 
 
@@ -203,6 +280,8 @@ export function chipsForHeading(heading: string, prefixes: string[]): ComposerCh
   if (h === "tagebuch") return chipsFromPrefixes(prefixes, TAGEBUCH_COMPOSER_CHIPS);
   if (h === "reisen") return chipsFromPrefixes(prefixes, REISEN_COMPOSER_CHIPS);
   if (h === "wandern") return chipsFromPrefixes(prefixes, WANDERN_COMPOSER_CHIPS);
+  if (h === "heizung") return chipsFromPrefixes(prefixes, HEIZUNG_COMPOSER_CHIPS);
+  if (h === "lüftung" || h === "lueftung") return chipsFromPrefixes(prefixes, LUEFTUNG_COMPOSER_CHIPS);
   return chipsFromPrefixes(prefixes, GENERIC_COMPOSER_CHIPS);
 }
 
@@ -264,6 +343,8 @@ export function rewriteJournalBullets(
   entryTexts: string[],
   date?: Date,
   calloutTitle?: string | null,
+  photoCollageMarkdown?: string,
+  photoCollageMetaLine?: string,
 ): string[] {
   const heading = journalHeading.trim();
   const bodies = sortJournalEntryTexts(entryTexts.map(formatComposerEntryLine).filter(Boolean));
@@ -271,9 +352,8 @@ export function rewriteJournalBullets(
 
   let resolvedTitle = calloutTitle?.trim() || resolveComposerCalloutTitle(lines, heading, date);
 
-  const calloutBlock = buildComposerCalloutBlock(heading, bodies, date, null, resolvedTitle);
-
   if (!range) {
+    const calloutBlock = buildComposerCalloutBlock(heading, bodies, date, null, resolvedTitle);
     const next = [...lines];
     if (next.length > 0 && next[next.length - 1] !== "") next.push("");
     next.push(`## ${heading}`, "");
@@ -284,6 +364,22 @@ export function rewriteJournalBullets(
   const before = lines.slice(0, range.start + 1);
   const sectionBody = lines.slice(range.start + 1, range.end);
   const after = lines.slice(range.end);
+
+  const calloutBlock = buildComposerCalloutBlock(heading, bodies, date, null, resolvedTitle);
+  let calloutWithExtras = calloutBlock;
+  if (photoCollageMarkdown?.trim()) {
+    const trimmed = calloutWithExtras;
+    if (trimmed.length > 0 && trimmed[trimmed.length - 1]?.trim() === "") {
+      calloutWithExtras = [
+        ...trimmed.slice(0, -1),
+        ">",
+        ...photoCollageMarkdown.split("\n"),
+        "",
+      ];
+    } else {
+      calloutWithExtras = [...trimmed, ">", ...photoCollageMarkdown.split("\n"), ""];
+    }
+  }
 
   const kept: string[] = [];
   let i = 0;
@@ -304,6 +400,27 @@ export function rewriteJournalBullets(
       i++;
       continue;
     }
+    if (parseFeedMetadataComment(trimmed.replace(/^>\s*/, ""))) {
+      i++;
+      if (sectionBody[i] && isPlainJournalBulletLine(sectionBody[i] ?? "")) i++;
+      continue;
+    }
+    if (trimmed.startsWith("<!-- udn-photos:")) {
+      i++;
+      continue;
+    }
+    if (trimmed.startsWith("<!-- udn-sonstiges:")) {
+      i++;
+      continue;
+    }
+    if (trimmed.startsWith("<!-- udn-reisen:") || trimmed.startsWith("<!-- udn-reisen-sort:")) {
+      i++;
+      continue;
+    }
+    if (isEntryMetaCommentLine(line)) {
+      i++;
+      continue;
+    }
     kept.push(line);
     i++;
   }
@@ -316,7 +433,8 @@ export function rewriteJournalBullets(
   } else if (rebuilt[rebuilt.length - 1]?.trim() !== "") {
     rebuilt.push("");
   }
-  if (calloutBlock.length > 0) rebuilt.push(...calloutBlock);
+  if (calloutWithExtras.length > 0) rebuilt.push(...calloutWithExtras);
+  if (photoCollageMetaLine?.trim()) rebuilt.push(photoCollageMetaLine);
   rebuilt.push(...after);
   return rebuilt;
 }
@@ -328,7 +446,7 @@ export type LoadComposerSectionHeadingsOptions = {
 };
 
 /** Always available in composer heading picker, even before first use in the vault. */
-export const COMPOSER_SECTION_PRESETS = ["Tagebuch", "Reisen", "Wandern"] as const;
+export const COMPOSER_SECTION_PRESETS = ["Tagebuch", "Reisen", "Wandern", "Heizung", "Lüftung", "Sonstiges"] as const;
 
 export async function loadComposerSectionHeadings(
   app: App,
@@ -366,8 +484,9 @@ export async function loadComposerState(
   date: Date,
   fallback: DailyNoteFallbackSettings,
   journalHeading: string,
+  dailyNotesFolder?: string,
 ): Promise<ComposerState> {
-  const file = await ensureDailyNoteFileForDate(app, date, fallback);
+  const file = await ensureDailyNoteFileForDate(app, date, fallback, dailyNotesFolder);
   const heading = journalHeading.trim() || "Tagebuch";
   let text = "";
   try {
@@ -383,8 +502,39 @@ export async function loadComposerState(
     entries = extractJournalLinesFromCallout(lines, heading).map(entryToComposer);
   }
   entries = sortComposerEntries(entries);
-  const summary = readDailyNoteSummary(app, file) || suggestSummaryFromEntries(entries.map(composerEntryText));
+  const reisenLoaded = await loadReisenSupplements(app, file);
+  entries = mergeReisenSupplementsIntoEntries(entries, reisenLoaded);
+  const priorTexts = entries.map(composerEntryText);
+  entries = entries.map((entry) => {
+    const body = resolveJournalBodyWikiLinks(app, entry.body, file.path);
+    return body === entry.body ? entry : { ...entry, body };
+  });
+  const resolvedTexts = entries.map(composerEntryText);
+  const linksUpgraded = resolvedTexts.some((text, index) => text !== priorTexts[index]);
+  const summary = readDailyNoteSummary(app, file) || suggestSummaryFromEntries(resolvedTexts);
   const calloutTitle = readCalloutTitleFromLines(lines, heading, noteDate);
+  const sectionLines = (() => {
+    const range = extractSectionRange(lines, heading);
+    return range ? lines.slice(range.start + 1, range.end) : [];
+  })();
+  const photoMeta = parsePhotoCollageMetaFromLines(sectionLines);
+  const parsedCollage = parsePhotoCollageFromLines(sectionLines, 0, sectionLines.length);
+  const photos = mergePhotoSources(parsedCollage, photoMeta).photos;
+
+  if (linksUpgraded) {
+    await saveComposerState(
+      app,
+      {
+        file,
+        journalHeading: heading,
+        calloutTitle,
+        summary,
+        dateKey: localDayKey(date),
+        photos,
+      },
+      resolvedTexts,
+    );
+  }
 
   return {
     file,
@@ -393,20 +543,38 @@ export async function loadComposerState(
     calloutTitle,
     summary,
     entries,
+    photos,
+    reisenSortOrders: reisenLoaded.sortOrders,
   };
 }
 
 export async function saveComposerState(
   app: App,
-  state: Pick<ComposerState, "file" | "journalHeading" | "calloutTitle" | "summary" | "dateKey">,
+  state: Pick<ComposerState, "file" | "journalHeading" | "calloutTitle" | "summary" | "dateKey"> & {
+    photos?: ComposerState["photos"];
+  },
   entryTexts: string[],
 ): Promise<boolean> {
-  const texts = entryTexts.map(formatComposerEntryLine).filter(Boolean);
+  const texts = upgradeJournalEntryTextsLinks(
+    app,
+    entryTexts.map(formatComposerEntryLine).filter(Boolean),
+    state.file.path,
+  );
   const heading = state.journalHeading.trim() || "Tagebuch";
   const date = dateFromDateKey(state.dateKey);
   const calloutTitle = state.calloutTitle.trim();
+  const photoPaths = (state.photos ?? []).map(stripPhotoEmbed).filter(Boolean);
+  const { markdown: photoCollageMarkdown, layout } = await buildPhotoCollageMarkdownAsync(
+    app,
+    photoPaths,
+    "> > ",
+  );
+  const photoCollageMetaLine =
+    photoPaths.length > 0
+      ? photoCollageMetaComment({ fotos: photoPaths, layout: layout as PhotoCollageLayout | "" })
+      : "";
 
-  await app.vault.process(state.file, (data) => {
+  await processVaultFile(app, state.file, (data) => {
     let content = updateSummaryInContent(data, state.summary.trim());
     let lines = content.split("\n");
     lines = ensureSectionHeading(lines, heading);
@@ -418,7 +586,15 @@ export async function saveComposerState(
       const idx = findInsertIndex(lines, null);
       lines = [...lines.slice(0, idx), `## ${heading}`, "", ...lines.slice(idx)];
     }
-    lines = rewriteJournalBullets(lines, heading, texts, date, calloutTitle);
+    lines = rewriteJournalBullets(
+      lines,
+      heading,
+      texts,
+      date,
+      calloutTitle,
+      photoCollageMarkdown,
+      photoCollageMetaLine,
+    );
     content = lines.join("\n");
     return content.endsWith("\n") || content.length === 0 ? content : `${content}\n`;
   });

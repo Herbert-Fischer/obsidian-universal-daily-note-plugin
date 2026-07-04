@@ -9,7 +9,6 @@
   import { DEFAULT_JOURNAL_HEADING, DEFAULT_SETTINGS } from "../../settings";
   import {
     loadOutlineBatch,
-    loadUsedJournalHeadings,
     openTimelineEntry,
     groupTimelineDaysByTrip,
     type TimelineDay,
@@ -34,11 +33,20 @@ import { isWikiLinkSuggestOpen } from "../wikiLinkInputSuggest";
     resolveOutlineLoadAnchor,
   } from "../../integrations/calendarRange";
   import { filterTimelineDaysByText } from "../../notes/entryTextFilter";
-  import { ALL_JOURNAL_HEADINGS, isAllJournalHeadings } from "../../notes/journalHeadingFilter";
+  import {
+    feedProfileLabel,
+    outlineSectionFiltersLabel,
+    OUTLINE_PROFILE_FILTER_OPTIONS,
+    normalizeOutlineProfileFilters,
+    toggleFeedProfileFilter,
+    type FeedProfile,
+  } from "../../notes/feedMetadata";
   import FlexTextFilter from "./FlexTextFilter.svelte";
   import { COMPOSER_ICON, COMPOSER_LABEL } from "../composer/composerUi";
   import { TASK_COMPOSER_ICON, TASK_COMPOSER_LABEL } from "../../integrations/universalTasks";
   import { WEATHER_ICON, WEATHER_LABEL } from "../../weather/weatherUi";
+
+  const OUTLINE_LOAD_HEADING = DEFAULT_JOURNAL_HEADING;
 
   function selectedDateKey(d: Date): string {
     const y = d.getFullYear();
@@ -85,7 +93,6 @@ import { isWikiLinkSuggestOpen } from "../wikiLinkInputSuggest";
   const { refreshTick, calendarContext } = store;
 
   let days: TimelineDay[] = [];
-  let usedHeadings: string[] = [];
   let loading = false;
   let loadingMore = false;
   let hasMore = false;
@@ -93,8 +100,8 @@ import { isWikiLinkSuggestOpen } from "../wikiLinkInputSuggest";
   let scrollBodyEl: HTMLDivElement;
   let scrollHost: HTMLElement | null = null;
   let timeToggleBtn: HTMLButtonElement;
-  let headingBtn: HTMLButtonElement;
-  let headingIconEl: HTMLSpanElement;
+  let filterBtn: HTMLButtonElement;
+  let filterIconEl: HTMLSpanElement;
   let rangeBtn: HTMLButtonElement;
   let rangeIconEl: HTMLSpanElement;
   let dailyNoteBtn: HTMLButtonElement;
@@ -112,8 +119,11 @@ import { isWikiLinkSuggestOpen } from "../wikiLinkInputSuggest";
   $: pageSize = Math.max(1, outlineSettings?.pageSize ?? 10);
   $: showTimeBubbles = outlineSettings?.showTimeBubbles ?? true;
   $: durationDays = Math.max(1, outlineSettings?.durationDays ?? 365);
-  $: journalHeading = outlineSettings?.journalHeading ?? DEFAULT_JOURNAL_HEADING;
   $: excludedHeadings = outlineSettings?.excludedHeadings ?? [];
+  $: feedProfileFilters = normalizeOutlineProfileFilters(outlineSettings?.feedProfileFilters ?? []);
+  $: includeRestOfTagebuch = outlineSettings?.includeRestOfTagebuch ?? false;
+  $: feedContextFilter = outlineSettings?.feedContextFilter ?? "";
+  $: sectionFiltersLabel = outlineSectionFiltersLabel(feedProfileFilters, includeRestOfTagebuch);
   $: rangeMode = outlineSettings?.rangeMode ?? "scroll";
   $: textFilterEnabled = outlineSettings?.textFilterEnabled ?? false;
   $: textFilterQuery = outlineSettings?.textFilterQuery ?? "";
@@ -125,25 +135,9 @@ import { isWikiLinkSuggestOpen } from "../wikiLinkInputSuggest";
   $: bounded = rangeMode !== "scroll";
   $: calCtx = buildCalendarCtx(noteDate, $calendarContext);
   $: dateBounds = resolveOutlineDateBounds(rangeMode, calCtx);
-  $: baselineHeadings =
-    usedHeadings.length > 0
-      ? usedHeadings
-      : isAllJournalHeadings(journalHeading)
-        ? [DEFAULT_JOURNAL_HEADING]
-        : [journalHeading];
-  $: dropdownHeadings =
-    baselineHeadings.some((h) => h.toLowerCase() === journalHeading.toLowerCase())
-      ? baselineHeadings
-      : isAllJournalHeadings(journalHeading)
-        ? baselineHeadings
-        : [journalHeading, ...baselineHeadings];
-  $: showSectionLabels = isAllJournalHeadings(journalHeading);
-  $: showTripGroups = journalHeading.trim().toLowerCase() === "reisen";
+  $: showSectionLabels = false;
+  $: showTripGroups = feedProfileFilters.includes("reisen");
   $: tripGroups = showTripGroups ? groupTimelineDaysByTrip(displayDays) : [];
-  $: headingMenuItems = [
-    ALL_JOURNAL_HEADINGS,
-    ...dropdownHeadings.filter((h) => !isAllJournalHeadings(h)),
-  ];
   $: refreshKey = $refreshTick;
   $: noteDate = $selectedDate;
   $: textSearchSignature = `${textFilterEnabled}|${textFilterQuery.trim().toLowerCase()}`;
@@ -151,14 +145,16 @@ import { isWikiLinkSuggestOpen } from "../wikiLinkInputSuggest";
     rangeMode,
     noteDate,
     $calendarContext,
-    journalHeading,
+    feedProfileFilters,
+    includeRestOfTagebuch,
+    feedContextFilter,
     refreshKey,
     textSearchSignature,
   );
 
   $: if (loadSignature !== lastLoadSignature) {
     lastLoadSignature = loadSignature;
-    void resetAndLoad();
+    void resetAndLoad(feedProfileFilters, includeRestOfTagebuch, feedContextFilter);
   }
 
   $: if (!loading) {
@@ -186,10 +182,14 @@ import { isWikiLinkSuggestOpen } from "../wikiLinkInputSuggest";
 
     const generation = loadGeneration;
     const date = new Date(y, m - 1, d);
-    const timeline = { durationDays, journalHeading, excludedHeadings };
+    const activeFilters = normalizeOutlineProfileFilters(feedProfileFilters);
+    const timeline = { durationDays, journalHeading: OUTLINE_LOAD_HEADING, excludedHeadings };
     try {
       const batch = await loadOutlineBatch(app, date, fallback, tagebuchSettings, timeline, {
         pageSize: Math.max(3, pageSize),
+        feedProfileFilters: activeFilters,
+        feedContextFilter,
+        includeRestOfTagebuch: activeFilters.length > 0 && includeRestOfTagebuch,
       });
       if (generation !== loadGeneration) return;
 
@@ -216,14 +216,17 @@ import { isWikiLinkSuggestOpen } from "../wikiLinkInputSuggest";
     mode: OutlineRangeMode,
     date: Date,
     ctx: CalendarSyncContext | null,
-    heading: string,
+    filters: FeedProfile[],
+    includeRest: boolean,
+    contextFilter: string,
     refresh: number,
     textSearch: string,
   ): string {
     const cal = buildCalendarCtx(date, ctx);
     const bounds = resolveOutlineDateBounds(mode, cal);
     const boundsPart = bounds ? `${bounds.startDateKey}:${bounds.endDateKey}` : "scroll";
-    return `${mode}|${boundsPart}|${heading}|${selectedDateKey(cal.monthCursor)}|${refresh}|${textSearch}`;
+    const filterPart = `${filters.join(",")}|${includeRest}|${contextFilter.trim().toLowerCase()}`;
+    return `${mode}|${boundsPart}|${OUTLINE_LOAD_HEADING}|${filterPart}|${selectedDateKey(cal.monthCursor)}|${refresh}|${textSearch}`;
   }
 
   function outlineLoadContext(date: Date = noteDate): CalendarSyncContext {
@@ -234,18 +237,31 @@ import { isWikiLinkSuggestOpen } from "../wikiLinkInputSuggest";
     return resolveOutlineLoadAnchor(rangeMode, outlineLoadContext(date));
   }
 
-  function outlineBatchOptions(bounds: ReturnType<typeof resolveOutlineDateBounds>) {
+  function outlineBatchOptions(
+    bounds: ReturnType<typeof resolveOutlineDateBounds>,
+    filters: FeedProfile[],
+    includeRest: boolean,
+    contextFilter: string,
+  ) {
     const active = textFilterEnabled && textFilterQuery.trim().length > 0;
+    const activeFilters = normalizeOutlineProfileFilters(filters);
     return {
       pageSize,
       bounds,
       loadAll: active && !bounds,
       maxDaysBack: active && !bounds ? durationDays : undefined,
       textQuery: active ? textFilterQuery : undefined,
+      feedProfileFilters: activeFilters,
+      feedContextFilter: contextFilter,
+      includeRestOfTagebuch: activeFilters.length > 0 && includeRest,
     };
   }
 
-  async function resetAndLoad() {
+  async function resetAndLoad(
+    filters: FeedProfile[] = feedProfileFilters,
+    includeRest: boolean = includeRestOfTagebuch,
+    contextFilter: string = feedContextFilter,
+  ) {
     editingId = null;
     const generation = ++loadGeneration;
     loading = true;
@@ -254,19 +270,12 @@ import { isWikiLinkSuggestOpen } from "../wikiLinkInputSuggest";
     const ctx = outlineLoadContext();
     const loadAnchor = outlineLoadAnchor();
     const bounds = resolveOutlineDateBounds(rangeMode, ctx);
-    const batchOpts = outlineBatchOptions(bounds);
-    const timeline = { durationDays, journalHeading, excludedHeadings };
+    const batchOpts = outlineBatchOptions(bounds, filters, includeRest, contextFilter);
+    const timeline = { durationDays, journalHeading: OUTLINE_LOAD_HEADING, excludedHeadings };
     try {
-      const [batch, headings] = await Promise.all([
-        loadOutlineBatch(app, loadAnchor, fallback, tagebuchSettings, timeline, batchOpts),
-        loadUsedJournalHeadings(app, loadAnchor, fallback, tagebuchSettings, durationDays, {
-          excludedHeadings,
-          bounds,
-        }),
-      ]);
+      const batch = await loadOutlineBatch(app, loadAnchor, fallback, tagebuchSettings, timeline, batchOpts);
       if (generation !== loadGeneration) return;
       days = batch.days;
-      usedHeadings = headings;
       hasMore = textSearchActive ? false : batch.hasMore;
     } catch (e) {
       if (generation !== loadGeneration) return;
@@ -285,11 +294,15 @@ import { isWikiLinkSuggestOpen } from "../wikiLinkInputSuggest";
 
     loadingMore = true;
     const generation = loadGeneration;
-    const timeline = { durationDays, journalHeading, excludedHeadings };
+    const activeFilters = normalizeOutlineProfileFilters(feedProfileFilters);
+    const timeline = { durationDays, journalHeading: OUTLINE_LOAD_HEADING, excludedHeadings };
     try {
       const batch = await loadOutlineBatch(app, outlineLoadAnchor(), fallback, tagebuchSettings, timeline, {
         pageSize,
         beforeDateKey: oldest,
+        feedProfileFilters: activeFilters,
+        feedContextFilter,
+        includeRestOfTagebuch: activeFilters.length > 0 && includeRestOfTagebuch,
       });
       if (generation !== loadGeneration) return;
       if (batch.days.length === 0) {
@@ -389,7 +402,7 @@ import { isWikiLinkSuggestOpen } from "../wikiLinkInputSuggest";
 
     const ok = await updateJournalLine(app, day.filePath, entry.line, entry.rawLine, trimmed);
     if (ok) {
-      await resortJournalCalloutEntries(app, day.filePath, journalHeading, dateFromDateKey(day.dateKey));
+      await resortJournalCalloutEntries(app, day.filePath, OUTLINE_LOAD_HEADING, dateFromDateKey(day.dateKey));
       store.refreshTick.update((n) => n + 1);
     }
   }
@@ -402,7 +415,7 @@ import { isWikiLinkSuggestOpen } from "../wikiLinkInputSuggest";
 
     const ok = await updateJournalLine(app, day.filePath, entry.line, entry.rawLine, next);
     if (ok) {
-      await resortJournalCalloutEntries(app, day.filePath, journalHeading, dateFromDateKey(day.dateKey));
+      await resortJournalCalloutEntries(app, day.filePath, OUTLINE_LOAD_HEADING, dateFromDateKey(day.dateKey));
       store.refreshTick.update((n) => n + 1);
     }
   }
@@ -451,27 +464,49 @@ import { isWikiLinkSuggestOpen } from "../wikiLinkInputSuggest";
     openRangeMenu();
   }
 
-  function selectHeading(heading: string) {
-    if (heading === journalHeading) return;
-    onOutlinePatch({ journalHeading: heading });
+  function toggleSectionFilter(profile: FeedProfile) {
+    const next = toggleFeedProfileFilter(feedProfileFilters, profile);
+    onOutlinePatch({
+      feedProfileFilters: next,
+      ...(next.length === 0 ? { includeRestOfTagebuch: false } : {}),
+    });
   }
 
-  function openHeadingMenu() {
-    if (headingMenuItems.length <= 1 || !headingBtn) return;
+  function toggleIncludeRestOfTagebuch() {
+    if (feedProfileFilters.length === 0) return;
+    onOutlinePatch({ includeRestOfTagebuch: !includeRestOfTagebuch });
+  }
+
+  function openSectionFilterMenu() {
+    if (!filterBtn) return;
     const menu = new Menu();
-    for (const heading of headingMenuItems) {
+    for (const profile of OUTLINE_PROFILE_FILTER_OPTIONS) {
       menu.addItem((item) => {
-        item.setTitle(heading);
-        item.setChecked(heading === journalHeading);
-        item.onClick(() => selectHeading(heading));
+        item.setTitle(feedProfileLabel(profile));
+        item.setChecked(feedProfileFilters.includes(profile));
+        item.onClick(() => {
+          toggleSectionFilter(profile);
+          void tick().then(() => openSectionFilterMenu());
+        });
       });
     }
-    const rect = headingBtn.getBoundingClientRect();
+    if (feedProfileFilters.length > 0) {
+      menu.addSeparator();
+      menu.addItem((item) => {
+        item.setTitle("Rest des Tagebuchs einblenden");
+        item.setChecked(includeRestOfTagebuch);
+        item.onClick(() => {
+          toggleIncludeRestOfTagebuch();
+          void tick().then(() => openSectionFilterMenu());
+        });
+      });
+    }
+    const rect = filterBtn.getBoundingClientRect();
     menu.showAtPosition({ x: rect.left, y: rect.bottom + 4 });
   }
 
-  function onHeadingFilterClick() {
-    openHeadingMenu();
+  function onSectionFilterClick() {
+    openSectionFilterMenu();
   }
 
   function updateRangeButton() {
@@ -483,12 +518,12 @@ import { isWikiLinkSuggestOpen } from "../wikiLinkInputSuggest";
     }
   }
 
-  function updateHeadingButton() {
-    if (!headingIconEl) return;
-    setIcon(headingIconEl, "heading");
-    if (headingBtn) {
-      headingBtn.setAttribute("aria-label", `Überschrift: ${journalHeading}`);
-      headingBtn.title = journalHeading;
+  function updateFilterButton() {
+    if (!filterIconEl) return;
+    setIcon(filterIconEl, "filter");
+    if (filterBtn) {
+      filterBtn.setAttribute("aria-label", `Filter: ${sectionFiltersLabel}`);
+      filterBtn.title = sectionFiltersLabel;
     }
   }
 
@@ -529,7 +564,7 @@ import { isWikiLinkSuggestOpen } from "../wikiLinkInputSuggest";
   afterUpdate(() => {
     bindScrollHost();
     updateRangeButton();
-    updateHeadingButton();
+    updateFilterButton();
     updateTimeToggleButton();
     updateDailyNoteButton();
     updateWeatherButton();
@@ -539,7 +574,7 @@ import { isWikiLinkSuggestOpen } from "../wikiLinkInputSuggest";
   onMount(() => {
     bindScrollHost();
     updateRangeButton();
-    updateHeadingButton();
+    updateFilterButton();
     updateTimeToggleButton();
     updateDailyNoteButton();
     updateWeatherButton();
@@ -566,14 +601,12 @@ import { isWikiLinkSuggestOpen } from "../wikiLinkInputSuggest";
         </button>
         <button
           type="button"
-          bind:this={headingBtn}
-          class="udn-headingFilter udn-headingFilter--journal"
-          class:udn-headingFilter--menu={headingMenuItems.length > 1}
-          disabled={headingMenuItems.length <= 1}
-          use:sidebarMenuAction={onHeadingFilterClick}
+          bind:this={filterBtn}
+          class="udn-headingFilter udn-headingFilter--journal udn-headingFilter--menu"
+          use:sidebarMenuAction={onSectionFilterClick}
         >
-          <span class="udn-headingFilterIcon" bind:this={headingIconEl} aria-hidden="true"></span>
-          <span class="udn-headingFilterLabel">{journalHeading}</span>
+          <span class="udn-headingFilterIcon" bind:this={filterIconEl} aria-hidden="true"></span>
+          <span class="udn-headingFilterLabel">{sectionFiltersLabel}</span>
         </button>
         <FlexTextFilter
           mode="toggle"
@@ -623,11 +656,11 @@ import { isWikiLinkSuggestOpen } from "../wikiLinkInputSuggest";
     <p class={dk.empty}>{textSearchActive ? "Suche Tagebuch…" : "Lade Tagebuch…"}</p>
   {:else if days.length === 0}
     <p class={dk.empty}>
-      Keine Einträge ({journalHeading}{rangeMode !== "scroll" ? ` · ${outlineRangeModeLabel(rangeMode)}` : ""}).
+      Keine Einträge ({sectionFiltersLabel}{rangeMode !== "scroll" ? ` · ${outlineRangeModeLabel(rangeMode)}` : ""}).
     </p>
   {:else if displayDays.length === 0}
     <p class={dk.empty}>
-      Keine Treffer für „{textFilterQuery.trim()}“ ({journalHeading}).
+      Keine Treffer für „{textFilterQuery.trim()}“ ({sectionFiltersLabel}).
     </p>
   {:else}
     <div

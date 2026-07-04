@@ -3,6 +3,7 @@
   import { get } from "svelte/store";
   import type UniversalDailyNotePlugin from "../main";
   import { DEFAULT_SETTINGS, type OutlineSettings } from "../settings";
+  import { normalizeOutlineProfileFilters } from "../notes/feedMetadata";
   import {
     dateFromDailyNoteFile,
     getUniversalCalendarContext,
@@ -46,10 +47,21 @@
   let outlinePinnedDate: Date | null = null;
 
   function patchOutline(patch: Partial<OutlineSettings>) {
-    outlineSettings = { ...outlineSettings, ...patch };
+    const next: OutlineSettings = {
+      ...plugin.settings.outline,
+      ...outlineSettings,
+      ...patch,
+    };
+    if (patch.feedProfileFilters) {
+      next.feedProfileFilters = normalizeOutlineProfileFilters(patch.feedProfileFilters);
+    }
+    if (next.feedProfileFilters.length === 0) {
+      next.includeRestOfTagebuch = false;
+    }
+    outlineSettings = next;
     plugin.settings = {
       ...plugin.settings,
-      outline: outlineSettings,
+      outline: next,
     };
     void plugin.saveSettings();
     bumpRefresh(store);
@@ -197,9 +209,11 @@
     {outlineSettings}
     onOutlinePatch={patchOutline}
     onSelectDay={selectOutlineDay}
-    onOpenComposer={(d) => {
+    onOpenComposer={(d, focus) => {
       openDailyComposer(plugin, {
         date: d,
+        focusEntryLine: focus?.line,
+        focusEntryId: focus?.entryId,
         journalHeading: outlineSettings.journalHeading,
         onSaved: (savedDate) => {
           pinOutlineDayForDate(savedDate);

@@ -1,4 +1,6 @@
 import { DEFAULT_JOURNAL_HEADING } from "../settings";
+import { formatEntryMetaComment, stripEntryMeta } from "./journalEntryMeta";
+import { journalProfileForHeading } from "./journalProfiles";
 
 /** Nick Milo / Denkarium callout types written for known ## headings. */
 const HEADING_CALLOUT_WRITE: Record<string, string> = {
@@ -6,6 +8,8 @@ const HEADING_CALLOUT_WRITE: Record<string, string> = {
   sonstiges: "notes",
   reisen: "compass",
   wandern: "mountain",
+  heizung: "fire",
+  lueftung: "wind",
   wichtig: "cone",
   gesundheit: "activity",
   arbeit: "command",
@@ -21,6 +25,8 @@ const HEADING_CALLOUT_ALIASES: Record<string, string[]> = {
   sonstiges: ["notes", "box", "sonstiges"],
   reisen: ["compass", "globe", "travel", "reisen", "reise", "notes"],
   wandern: ["mountain", "footprints", "wandern", "hike", "notes"],
+  heizung: ["fire", "flame", "heizung"],
+  lueftung: ["wind", "fan", "lueftung", "lüftung"],
   wichtig: ["cone", "warning", "wichtig"],
   gesundheit: ["activity", "gesundheit"],
   arbeit: ["command", "industry", "Industry", "arbeit"],
@@ -72,6 +78,22 @@ function headingCalloutSlug(heading: string): string {
 export function formatComposerCalloutType(heading: string): string {
   const slug = headingCalloutSlug(heading);
   return HEADING_CALLOUT_WRITE[slug] ?? DEFAULT_CALLOUT_TYPE;
+}
+
+const EXPANDED_PROFILE_CALLOUTS = new Set(["reisen", "wandern", "heizung", "lueftung"]);
+
+/** Fold marker for profile ## sections written from the composer (+ = expanded). */
+export function calloutFoldMarkerForHeading(heading: string): string {
+  const slug = headingCalloutSlug(heading.trim());
+  return EXPANDED_PROFILE_CALLOUTS.has(slug) ? "+" : "";
+}
+
+/** Managed callout title line for a ## section (type from heading, title from composer). */
+export function formatManagedCalloutTitleLine(heading: string, title: string): string {
+  const type = formatComposerCalloutType(heading);
+  const fold = calloutFoldMarkerForHeading(heading);
+  const trimmed = title.trim();
+  return fold ? `> [!${type}]${fold} ${trimmed}` : `> [!${type}] ${trimmed}`;
 }
 
 export function calloutTypesForHeading(heading: string): string[] {
@@ -158,7 +180,7 @@ export function readCalloutTitleFromLines(
       const line = lines[i] ?? "";
       if (
         isManagedCalloutStart(line, heading) ||
-        (heading.toLowerCase() === "reisen" && /^>\s*\[!/.test(line.trim()))
+        (journalProfileForHeading(heading) != null && /^>\s*\[!/.test(line.trim()))
       ) {
         const title = parseComposerCalloutTitle(line);
         if (title) return title;
@@ -287,12 +309,15 @@ export function buildComposerCalloutBlock(
 ): string[] {
   const type = formatComposerCalloutType(heading);
   const title = calloutTitle?.trim() || formatComposerCalloutTitle(heading, date, tripLabel);
-  const bullets = bulletBodies
-    .map((text) => text.trim())
-    .filter(Boolean)
-    .map((text) => `> - ${text}`);
+  const bullets: string[] = [];
+  for (const text of bulletBodies.map((t) => t.trim()).filter(Boolean)) {
+    const { body, meta } = stripEntryMeta(text);
+    if (!body) continue;
+    bullets.push(`> - ${body}`);
+    if (meta) bullets.push(`> ${formatEntryMetaComment(meta)}`);
+  }
   if (bullets.length === 0) return [];
-  return [`> [!${type}] ${title}`, ...bullets, ""];
+  return [formatManagedCalloutTitleLine(heading, title), ...bullets, ""];
 }
 
 export function upsertManagedCalloutTitle(
@@ -311,8 +336,7 @@ export function upsertManagedCalloutTitle(
   const before = lines.slice(0, range.start + 1);
   let sectionBody = lines.slice(range.start + 1, range.end);
   const after = lines.slice(range.end);
-  const type = formatComposerCalloutType(heading);
-  const titleLine = `> [!${type}] ${trimmedTitle}`;
+  const titleLine = formatManagedCalloutTitleLine(heading, trimmedTitle);
 
   const stripped: string[] = [];
   let i = 0;
@@ -334,7 +358,7 @@ export function upsertManagedCalloutTitle(
     const line = stripped[i] ?? "";
     if (
       isManagedCalloutStart(line, heading) ||
-      (heading.toLowerCase() === "reisen" && /^>\s*\[!/.test(line.trim()))
+      (journalProfileForHeading(heading) != null && /^>\s*\[!/.test(line.trim()))
     ) {
       updated.push(titleLine);
       found = true;

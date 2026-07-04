@@ -25,3 +25,17 @@ export function collectCalendarSyncIds(entryTexts: string[]): Set<string> {
   }
   return ids;
 }
+
+/** Universal Calendar markdown / invoice ids (not CalDAV appointments). */
+export function isMarkdownCalendarSyncId(id: string): boolean {
+  return id.trim().toLowerCase().startsWith("md:");
+}
+
+/** Drop Termin lines synced from vault markdown (invoices, notes) — CalDAV only. */
+export function stripMarkdownCalendarAppointmentEntries(entryTexts: string[]): string[] {
+  return entryTexts.filter((text) => {
+    const id = parseCalendarSyncId(text);
+    if (!id) return true;
+    return !isMarkdownCalendarSyncId(id);
+  });
+}

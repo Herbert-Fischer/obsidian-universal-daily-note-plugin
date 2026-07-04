@@ -3,6 +3,7 @@
   import type { TFile } from "obsidian";
   import type UniversalDailyNotePlugin from "../main";
   import { DEFAULT_SETTINGS, type OutlineSettings, type TagebuchVerweiseSettings } from "../settings";
+  import { normalizeOutlineProfileFilters } from "../notes/feedMetadata";
   import { getUniversalCalendarContext } from "../integrations/universalCalendar";
   import type { CalendarSyncContext } from "../integrations/calendarRange";
   import { getMainAreaActiveMarkdownFile } from "../tagebuchVerweise/mainPageFile";
@@ -25,10 +26,21 @@
   $: showTimeBubbles = plugin.settings.tagebuchVerweise.showTimeBubbles ?? false;
 
   function patchOutline(patch: Partial<OutlineSettings>) {
-    outlineSettings = { ...outlineSettings, ...patch };
+    const next: OutlineSettings = {
+      ...plugin.settings.outline,
+      ...outlineSettings,
+      ...patch,
+    };
+    if (patch.feedProfileFilters) {
+      next.feedProfileFilters = normalizeOutlineProfileFilters(patch.feedProfileFilters);
+    }
+    if (next.feedProfileFilters.length === 0) {
+      next.includeRestOfTagebuch = false;
+    }
+    outlineSettings = next;
     plugin.settings = {
       ...plugin.settings,
-      outline: outlineSettings,
+      outline: next,
     };
     void plugin.saveSettings();
     bumpRefresh(store);

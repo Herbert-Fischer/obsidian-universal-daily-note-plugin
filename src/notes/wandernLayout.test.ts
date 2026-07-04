@@ -6,6 +6,7 @@ import {
   DEFAULT_WANDERN_LAYOUT_TEMPLATE,
   indentMarkdownBlock,
   parseWandernMetaLine,
+  parseWandernFromSectionLines,
   renderWandernTemplate,
   wandernMetaComment,
   wandernTimelineTextFromMeta,
@@ -101,15 +102,14 @@ describe("wandernLayout", () => {
     expect(calloutPrefixBeforePlaceholder(tpl, "fotos")).toBe("> > ");
   });
 
-  it("buildPhotoCollageMarkdown joins gallery embeds on one line", () => {
+  it("buildPhotoCollageMarkdown builds gallery callout block", () => {
     const one = buildPhotoCollageMarkdown(["Calendar/a.jpg"], "> > > ");
-    expect(one).toBe("> > > ![[Calendar/a.jpg]]");
+    expect(one).toContain("[!blank-container|no-margin gallery gallery-row]");
+    expect(one).toContain("> > > ![[Calendar/a.jpg]]");
 
-    const many = buildPhotoCollageMarkdown(
-      ["![[a.jpg]]", "![[b.jpg]]", "![[c.jpg]]"],
-      "> > > ",
-    );
-    expect(many).toBe("> > > ![[a.jpg]] ![[b.jpg]] ![[c.jpg]]");
+    const many = buildPhotoCollageMarkdown(["![[a.jpg]]", "![[b.jpg]]", "![[c.jpg]]"], "> > > ");
+    expect(many).toContain("gallery-row");
+    expect(many).toContain("> > > ![[a.jpg]] ![[b.jpg]] ![[c.jpg]]");
     expect(many).not.toContain("[!grid");
   });
 
@@ -134,7 +134,8 @@ describe("wandernLayout", () => {
       },
     });
     expect(out).toContain("> [!mountain]+ Wandern: Testtour");
-    expect(out).toContain("[!blank-container|no-margin gallery]");
+    expect(out).toContain("[!blank-container|no-margin gallery");
+    expect(out).toContain("gallery-row");
     expect(out).toContain("> > > ![[Calendar/Attachments/a.jpg]] ![[Calendar/Attachments/b.jpg]] ![[Calendar/Attachments/c.jpg]]");
     expect(out).not.toContain("[!grid-card");
     expect(out).not.toContain("[!grid-item");
@@ -169,5 +170,97 @@ describe("wandernLayout", () => {
       expect(line.startsWith("> > > ")).toBe(true);
     }
     expect(out).not.toMatch(/\npath: Calendar\/Tracks/);
+  });
+
+  it("renderWandernTemplate keeps multi-column siblings at correct blockquote depth", () => {
+    const out = renderWandernTemplate({
+      titel: "Wandern: Testtour",
+      kurz: "Kurz",
+      beschreibung: "Lang",
+      track: {
+        path: "Calendar/Tracks/x.gpx",
+        name: "x.gpx",
+        distanceKm: 1,
+        durationSec: 60,
+        startLabel: null,
+        endLabel: null,
+      },
+      photos: ["Calendar/Attachments/a.jpg"],
+      date: new Date(2026, 0, 1),
+      layout: {
+        template: DEFAULT_WANDERN_LAYOUT_TEMPLATE,
+        maxPhotos: 3,
+        track3dEnabled: true,
+        track3dHeight: 400,
+        track3dElevationExaggeration: 4,
+      },
+    });
+    expect(out).not.toMatch(/\n>\n> > > \[!blank-container/);
+    expect(out).toMatch(/\n> > > \[!blank-container\|no-margin gallery gallery-row/);
+    expect(out).toMatch(/\n> > > \*\*Kurz:\*\* Kurz/);
+    expect(out).not.toMatch(/\n> >\s*$/);
+  });
+
+  it("renderWandernTemplate omits empty gallery callout", () => {
+    const out = renderWandernTemplate({
+      titel: "Wandern",
+      kurz: "Test",
+      beschreibung: "",
+      track: null,
+      photos: [],
+      date: new Date(2026, 0, 1),
+      layout: {
+        template: DEFAULT_WANDERN_LAYOUT_TEMPLATE,
+        maxPhotos: 3,
+        track3dEnabled: false,
+        track3dHeight: 400,
+        track3dElevationExaggeration: 4,
+      },
+    });
+    expect(out).not.toContain("[!blank-container");
+    expect(out).not.toContain("{{fotos}}");
+  });
+
+  it("renderWandernTemplate indents multiline beschreibung", () => {
+    const out = renderWandernTemplate({
+      titel: "Wandern",
+      kurz: "Kurz",
+      beschreibung: "Zeile eins\nZeile zwei",
+      track: null,
+      photos: [],
+      date: new Date(2026, 0, 1),
+      layout: {
+        template: "> [!mountain]+ {{titel}}\n> > {{beschreibung}}",
+        maxPhotos: 3,
+        track3dEnabled: false,
+        track3dHeight: 400,
+        track3dElevationExaggeration: 4,
+      },
+    });
+    expect(out).toContain("> > Zeile eins");
+    expect(out).toContain("> > Zeile zwei");
+    expect(out).not.toMatch(/\nZeile zwei/);
+  });
+
+  it("parseWandernFromSectionLines reads callout body without metadata", () => {
+    const parsed = parseWandernFromSectionLines(
+      [
+        "> [!mountain]+ Wandern: Bläsis Mühle",
+        ">",
+        "> > **Kurz:** Wanderung in Pfronten",
+        "> > Erste Zeile",
+        "> > Zweite Zeile",
+        "> > ```udn-track-3d",
+        "> > path: Calendar/Tracks/x.gpx",
+        "> > ```",
+        "> > ![[Calendar/Attachments/a.jpg]]",
+      ],
+      "Wandern",
+    );
+    expect(parsed?.titel).toBe("Wandern: Bläsis Mühle");
+    expect(parsed?.kurz).toBe("Wanderung in Pfronten");
+    expect(parsed?.beschreibung).toBe("Erste Zeile\nZweite Zeile");
+    expect(parsed?.track?.path).toBe("Calendar/Tracks/x.gpx");
+    expect(parsed?.photos).toEqual(["Calendar/Attachments/a.jpg"]);
   });
 });

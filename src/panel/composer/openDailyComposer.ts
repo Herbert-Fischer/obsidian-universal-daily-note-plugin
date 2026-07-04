@@ -2,8 +2,8 @@ import { Modal, Platform, type App, type TFile } from "obsidian";
 import type UniversalDailyNotePlugin from "../../main";
 import DailyComposer from "./DailyComposer.svelte";
 import { DEFAULT_SETTINGS } from "../../settings";
-import { normalizeLocalDay } from "../dateUtils";
-import { attachMobileViewport } from "./mobileViewport";
+import { normalizeLocalDay, sameLocalDay } from "../dateUtils";
+import { attachMobileViewport, attachComposerMobileKeyboard } from "./mobileViewport";
 import { normalizeActiveJournalHeading } from "../../notes/journalHeadingFilter";
 import { dateFromDailyNoteFile } from "../../integrations/universalCalendar";
 import { getMainAreaActiveMarkdownFile } from "../../tagebuchVerweise/mainPageFile";
@@ -13,6 +13,10 @@ import { attachComposerDrag, applyComposerWindowPosition } from "./composerDrag"
 export type OpenDailyComposerOptions = {
   date?: Date;
   journalHeading?: string;
+  /** Vault line number of the Tagebuch entry to expand in the composer. */
+  focusEntryLine?: number;
+  /** Stable udn-entry id to expand in the composer. */
+  focusEntryId?: string;
   onSaved?: (date: Date) => void;
   onDateChange?: (date: Date) => void;
   onHeadingChange?: (heading: string) => void;
@@ -22,6 +26,7 @@ export class DailyComposerModal extends Modal {
   private component: DailyComposer | null = null;
   private currentDate: Date;
   private detachViewport: (() => void) | null = null;
+  private detachKeyboard: (() => void) | null = null;
   private detachDrag: (() => void) | null = null;
   private readonly isMobile = Platform.isMobile;
 
@@ -35,6 +40,8 @@ export class DailyComposerModal extends Modal {
     this.onSaved = options.onSaved;
     this.onDateChange = options.onDateChange;
     this.onHeadingChange = options.onHeadingChange;
+    this.focusEntryLine = options.focusEntryLine;
+    this.focusEntryId = options.focusEntryId;
     this.initialHeading = normalizeActiveJournalHeading(
       options.journalHeading ?? plugin.settings.outline.journalHeading,
       plugin.settings.outline.excludedHeadings,
@@ -45,6 +52,8 @@ export class DailyComposerModal extends Modal {
   private onDateChange?: (date: Date) => void;
   private onHeadingChange?: (heading: string) => void;
   private initialHeading: string;
+  private focusEntryLine?: number;
+  private focusEntryId?: string;
 
   onOpen(): void {
     const { contentEl, modalEl } = this;
@@ -85,13 +94,17 @@ export class DailyComposerModal extends Modal {
         tagebuchSettings: tagebuchVerweise,
         entryPrefixes: quickCapture.entryPrefixes,
         calendarSync: this.plugin.settings.calendarSync ?? DEFAULT_SETTINGS.calendarSync,
+        calendarLinkOverrides: this.plugin.settings.calendarLinkOverrides ?? DEFAULT_SETTINGS.calendarLinkOverrides,
         composerTemplates: composerTemplates ?? DEFAULT_SETTINGS.composerTemplates,
         tracksSettings: tracks ?? DEFAULT_SETTINGS.tracks,
         wandernLayout: this.plugin.settings.wandernLayout ?? DEFAULT_SETTINGS.wandernLayout,
+        feedDetailLayout: this.plugin.settings.feedDetailLayout ?? DEFAULT_SETTINGS.feedDetailLayout,
         attachmentsFolder: quickCapture.attachmentsFolder,
         weatherLastLocation: weatherCapture.lastLocation,
         timeFormat: quickCapture.timeFormat,
         isMobile: this.isMobile,
+        initialFocusEntryLine: this.focusEntryLine ?? null,
+        initialFocusEntryId: this.focusEntryId ?? null,
         onClose: () => this.close(),
         onSaved: () => {
           this.onSaved?.(this.currentDate);
@@ -120,11 +133,22 @@ export class DailyComposerModal extends Modal {
         },
       },
     });
+
+    if (this.isMobile) {
+      window.requestAnimationFrame(() => {
+        const composerRoot = contentEl.querySelector(".udn-composer");
+        if (composerRoot instanceof HTMLElement) {
+          this.detachKeyboard = attachComposerMobileKeyboard(composerRoot, modalEl, contentEl);
+        }
+      });
+    }
   }
 
   onClose(): void {
     this.detachDrag?.();
     this.detachDrag = null;
+    this.detachKeyboard?.();
+    this.detachKeyboard = null;
     this.detachViewport?.();
     this.detachViewport = null;
     this.component?.$destroy();
@@ -155,4 +179,44 @@ export function openDailyComposer(
   const modal = new DailyComposerModal(plugin.app, plugin, options);
   modal.open();
   return modal;
+}
+
+export function isComposerModalOpen(): boolean {
+  return document.querySelector(".udn-composerModal") !== null;
+}
+
+export function scheduleAutoOpenComposerForToday(plugin: UniversalDailyNotePlugin): void {
+  const open = (): void => {
+    if (isComposerModalOpen()) return;
+    plugin.openComposerForDate(new Date());
+  };
+  window.setTimeout(open, 200);
+  window.setTimeout(open, 650);
+}
+
+export function maybeAutoOpenComposerForToday(
+  plugin: UniversalDailyNotePlugin,
+  trigger: "command" | "file-open",
+  file?: TFile,
+): void {
+  const mode = plugin.settings.composer?.autoOpen ?? DEFAULT_SETTINGS.composer.autoOpen;
+  if (mode === "never") return;
+  if (trigger === "command") {
+    if (mode !== "todayCommand") return;
+    scheduleAutoOpenComposerForToday(plugin);
+    return;
+  }
+  if (mode !== "todayNoteOpen") return;
+  if (!Platform.isMobileApp) return;
+  if (!file) return;
+  const date = dateFromDailyNoteFile(
+    file,
+    plugin.settings.dailyNoteFallback,
+    plugin.settings.tagebuchVerweise,
+  );
+  if (!date || !sameLocalDay(date, new Date())) return;
+  const todayKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  if (plugin.lastAutoComposerDateKey === todayKey) return;
+  plugin.lastAutoComposerDateKey = todayKey;
+  scheduleAutoOpenComposerForToday(plugin);
 }

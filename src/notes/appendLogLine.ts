@@ -35,8 +35,9 @@ export async function ensureDailyNoteFileForDate(
   app: App,
   date: Date,
   fallback: DailyNoteFallbackSettings,
+  extraFolder?: string,
 ): Promise<TFile> {
-  const existing = getExistingDailyNoteFile(app, date, fallback);
+  const existing = getExistingDailyNoteFile(app, date, fallback, extraFolder);
   if (existing) return existing;
 
   if (isCoreDailyNotesEnabled(app)) {

@@ -1,9 +1,9 @@
 <script lang="ts">
   import { onMount, onDestroy, afterUpdate, tick } from "svelte";
   import type { App } from "obsidian";
-  import { Menu, Notice, setIcon } from "obsidian";
+  import { Menu, Notice, setIcon, TFile } from "obsidian";
   import { dk } from "@denkarium/obsidian-lib-ui";
-  import type { DailyNoteFallbackSettings, TagebuchVerweiseSettings, CalendarSyncSettings, ComposerTemplatesSettings, TracksSettings, WandernLayoutSettings } from "../../settings";
+  import type { DailyNoteFallbackSettings, TagebuchVerweiseSettings, CalendarSyncSettings, ComposerTemplatesSettings, TracksSettings, WandernLayoutSettings, FeedDetailLayoutSettings } from "../../settings";
   import { DEFAULT_SETTINGS } from "../../settings";
   import { addLocalDays, formatTimeLocal, normalizeLocalDay } from "../dateUtils";
   import { formatDayBubbleLabel } from "../formatDayBubble";
@@ -18,6 +18,7 @@
     type ComposerChip,
     type ComposerEntry,
   } from "../../notes/dailyComposer";
+  import { persistCalendarLinkOverrides } from "../../notes/calendarLinkOverrides";
   import { openOrCreateDailyNoteForDate } from "../../notes/dailyNote";
   import { formatJournalEntryText, parseJournalEntryDisplay } from "../../notes/parseJournalEntryDisplay";
   import { openWikiLinkInMain } from "../../notes/openInMainPane";
@@ -34,7 +35,7 @@
   } from "../../notes/composerTemplates";
   import { findAllTracksInFolder, findTracksForDay, formatTrackSummary, type TrackMatch } from "../../tracks/gpxImport";
   import { trackPickOptionsForDay, type TrackPickOption } from "../../tracks/trackPickModal";
-  import { importAttachmentFile, importWandernAttachmentFile, wikiEmbedForPath } from "../../notes/attachJournalMedia";
+  import { importJournalPhoto, maxPhotosForHeading } from "../../notes/photoImport";
   import {
     applyKeyboardInset,
     estimateKeyboardInset,
@@ -42,6 +43,23 @@
     scrollInputIntoView,
   } from "./mobileViewport";
   import WandernComposerFields from "./WandernComposerFields.svelte";
+  import FeedDetailComposerFields from "./FeedDetailComposerFields.svelte";
+  import SonstigesComposerFields from "./SonstigesComposerFields.svelte";
+  import PhotoCollageField from "./PhotoCollageField.svelte";
+  import { journalProfileForHeading } from "../../notes/journalProfiles";
+  import type { FeedProfile } from "../../notes/feedMetadata";
+  import { feedProfileLabel } from "../../notes/feedMetadata";
+  import { generateEntryId } from "../../notes/journalEntryMeta";
+  import { groupFieldLabel, groupFieldPlaceholder, loadRecentGroupLabels } from "../../notes/journalEntryGroups";
+  import ProfileBubble from "../ProfileBubble.svelte";
+  import ReisenComposerFields from "./ReisenComposerFields.svelte";
+  import {
+    loadFeedDetailComposerData,
+    saveFeedDetailComposerState,
+  } from "../../notes/feedDetailComposer";
+  import { syncReisenSupplements, type ReisenSortOrder } from "../../notes/reisenComposer";
+  import { withOperationTimeout } from "../../notes/vaultProcess";
+  import { loadSonstigesComposerData, saveSonstigesComposerState } from "../../notes/sonstigesComposer";
   import {
     applyWandernBulkFields,
     loadWandernComposerData,
@@ -59,9 +77,11 @@
   export let tagebuchSettings: TagebuchVerweiseSettings;
   export let entryPrefixes: string[] = [];
   export let calendarSync: CalendarSyncSettings = DEFAULT_SETTINGS.calendarSync;
+  export let calendarLinkOverrides: Record<string, string> = DEFAULT_SETTINGS.calendarLinkOverrides;
   export let composerTemplates: ComposerTemplatesSettings = DEFAULT_SETTINGS.composerTemplates;
   export let tracksSettings: TracksSettings = DEFAULT_SETTINGS.tracks;
   export let wandernLayout: WandernLayoutSettings = DEFAULT_SETTINGS.wandernLayout;
+  export let feedDetailLayout: FeedDetailLayoutSettings = DEFAULT_SETTINGS.feedDetailLayout;
   export let attachmentsFolder = DEFAULT_SETTINGS.quickCapture.attachmentsFolder;
   export let weatherLastLocation = "";
   export let onPersistSideEffects: (patch: {
@@ -75,9 +95,14 @@
   export let onHeadingChange: (heading: string) => void = () => {};
   export let isMobile = false;
   export let onInsertWeather: () => Promise<boolean> = async () => false;
+  export let initialFocusEntryLine: number | null = null;
+  export let initialFocusEntryId: string | null = null;
+
+  const TAGEBUCH_HEADING = "Tagebuch";
+  const PROFILE_MENU_IDS: FeedProfile[] = ["reisen", "wandern", "heizung", "lueftung", "sonstiges"];
 
   let currentDate = normalizeLocalDay(date);
-  let activeHeading = initialJournalHeading.trim() || "Tagebuch";
+  let activeHeading = TAGEBUCH_HEADING;
   let sectionHeadings: string[] = [activeHeading];
   let loading = true;
   let saving = false;
@@ -101,10 +126,14 @@
   let prefixIconEl: HTMLSpanElement;
   let composerRoot: HTMLDivElement;
   let mobileDock: HTMLDivElement;
+  let mobileFoot: HTMLDivElement;
   let addInput: HTMLInputElement;
   let detachDockObserver: (() => void) | null = null;
-  let dockObserverAttached = false;
+  let observedDockEl: HTMLElement | null = null;
   let loadGeneration = 0;
+  let composerFile: TFile | null = null;
+  let reiseSortOrder: Record<string, ReisenSortOrder> = {};
+  let reiseGroupSuggestions: string[] = [];
   let weatherBusy = false;
   let templateBusy = false;
   let templateFileInput: HTMLInputElement;
@@ -120,8 +149,28 @@
   let wandernTrackPickerOpen = false;
   let wandernTrackPickerLoading = false;
   let wandernTrackOptions: TrackPickOption[] = [];
+  let feedDetailText = "";
+  let feedDetailLinks = "";
+  let feedDetailDetail = "";
+  let feedDetailPhotos: string[] = [];
+  let sonstigesDetail = "";
+  let sonstigesFeedKurz = "";
+  let listPhotos: string[] = [];
+  let pendingComposerPhoto = false;
+  let expandedEntryId: string | null = null;
+  let landscapeMobile = false;
+  let landscapeMq: MediaQueryList | null = null;
+  let groupSuggestions: string[] = [];
 
-  $: isWandernMode = activeHeading.trim().toLowerCase() === "wandern";
+  function onLandscapeChange() {
+    landscapeMobile = isMobile && (landscapeMq?.matches ?? false);
+  }
+
+  $: activeProfile = journalProfileForHeading(activeHeading);
+  $: isWandernMode = false;
+  $: isSonstigesMode = false;
+  $: isFeedDetailMode = false;
+  $: isSpecialFormMode = false;
   $: wandernPreviewMarkdown = isWandernMode
     ? renderWandernTemplate({
         titel: wandernTitel || calloutTitle,
@@ -134,8 +183,8 @@
       })
     : "";
 
-  $: chips = chipsForHeading(activeHeading, entryPrefixes);
-  $: bulkTemplates = templatesForHeading(activeHeading, composerTemplates);
+  $: chips = chipsForHeading(TAGEBUCH_HEADING, entryPrefixes);
+  $: bulkTemplates = templatesForHeading(TAGEBUCH_HEADING, composerTemplates);
   $: prefixMenuEnabled = chips.length > 0 || bulkTemplates.length > 0 || !!onInsertWeather;
   $: dateLabel = formatDayBubbleLabel(
     `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, "0")}-${String(currentDate.getDate()).padStart(2, "0")}`,
@@ -143,11 +192,17 @@
   $: weekdayShort = currentDate.toLocaleDateString("de-DE", { weekday: "short" });
 
   onMount(() => {
+    if (isMobile && typeof matchMedia !== "undefined") {
+      landscapeMq = matchMedia("(orientation: landscape)");
+      onLandscapeChange();
+      landscapeMq.addEventListener("change", onLandscapeChange);
+    }
     void reload();
     updateNavButtons();
   });
 
   onDestroy(() => {
+    landscapeMq?.removeEventListener("change", onLandscapeChange);
     detachDockObserver?.();
   });
 
@@ -159,19 +214,21 @@
     onDateChange(currentDate);
     try {
       if (calendarSync?.enabled) {
-        try {
-          const { syncCalendarAppointmentsIntoDailyNote } = await import("../../integrations/calendarAppointments");
-          await syncCalendarAppointmentsIntoDailyNote(app, {
-            date: currentDate,
-            fallback,
-            settings: calendarSync,
+        void import("../../integrations/calendarAppointments")
+          .then(({ syncCalendarAppointmentsIntoDailyNote }) =>
+            syncCalendarAppointmentsIntoDailyNote(app, {
+              date: currentDate,
+              fallback,
+              settings: calendarSync,
+              oncePerSession: true,
+            }),
+          )
+          .catch((syncErr) => {
+            console.warn("Universal Daily Note: Kalender-Sync beim Composer-Laden", syncErr);
           });
-        } catch (syncErr) {
-          console.warn("Universal Daily Note: Kalender-Sync beim Composer-Laden", syncErr);
-        }
       }
       const [state, headings] = await Promise.all([
-        loadComposerState(app, currentDate, fallback, activeHeading),
+        loadComposerState(app, currentDate, fallback, TAGEBUCH_HEADING),
         loadComposerSectionHeadings(app, currentDate, fallback, tagebuchSettings, {
           excludedHeadings,
           defaultHeading: activeHeading,
@@ -184,23 +241,16 @@
         sectionHeadings = [activeHeading, ...sectionHeadings];
       }
       filePath = state.file.path;
-      if (activeHeading.trim().toLowerCase() === "wandern") {
-        const wandern = await loadWandernComposerData(app, state.file, state.calloutTitle || "Wandern");
-        wandernTitel = wandern.titel;
-        wandernKurz = wandern.kurz;
-        wandernBeschreibung = wandern.beschreibung;
-        wandernTrack = wandern.track;
-        wandernPhotos = [...wandern.photos];
-        calloutTitle = wandern.titel;
-        entries = [];
-      } else {
-        entries = state.entries.map((e) => ({ ...e }));
-        calloutTitle = state.calloutTitle;
-      }
+      composerFile = state.file;
+      entries = state.entries.map((e) => ({ ...e }));
+      reiseSortOrder = { ...state.reisenSortOrders };
+      calloutTitle = state.calloutTitle;
+      listPhotos = [...state.photos];
       summary = state.summary;
       summaryTouched = Boolean(state.summary.trim());
       newEntryText = "";
       newEntryTime = currentTime();
+      await focusInitialEntry();
     } catch (e) {
       if (generation !== loadGeneration) return;
       loadError = "Tagesnotiz konnte nicht geladen werden.";
@@ -214,8 +264,87 @@
     return formatTimeLocal(new Date(), timeFormat);
   }
 
+  async function focusInitialEntry() {
+    if (initialFocusEntryLine == null && !initialFocusEntryId) return;
+    const target =
+      (initialFocusEntryId
+        ? entries.find((entry) => entry.entryId === initialFocusEntryId)
+        : undefined) ??
+      (initialFocusEntryLine != null
+        ? entries.find((entry) => entry.line === initialFocusEntryLine)
+        : undefined);
+    if (!target) return;
+    expandedEntryId = target.id;
+    await tick();
+    composerRoot
+      ?.querySelector<HTMLElement>(`[data-composer-entry="${target.id}"]`)
+      ?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }
+
   function markModified() {
     modified = true;
+  }
+
+  function photoImportContext(photoIndex: number) {
+    return {
+      date: currentDate,
+      calloutTitle: wandernTitel || calloutTitle || activeHeading,
+      heading: activeHeading,
+      photoIndex,
+      attachmentsFolder,
+      wandernLayout,
+      feedDetailLayout,
+    };
+  }
+
+  function currentMaxPhotos(): number {
+    return maxPhotosForHeading(activeHeading, { wandernLayout, feedDetailLayout });
+  }
+
+  function movePhotoAtIndex(photos: string[], index: number, delta: number): string[] {
+    const target = index + delta;
+    if (target < 0 || target >= photos.length) return photos;
+    const next = [...photos];
+    const [item] = next.splice(index, 1);
+    next.splice(target, 0, item!);
+    return next;
+  }
+
+  async function importComposerPhoto(selectedFile: File | null) {
+    if (!selectedFile) return;
+    const maxPhotos = currentMaxPhotos();
+    let photos: string[];
+    if (isFeedDetailMode) photos = feedDetailPhotos;
+    else if (isWandernMode) photos = wandernPhotos;
+    else photos = listPhotos;
+
+    if (photos.length >= maxPhotos) {
+      new Notice(`Maximal ${maxPhotos} Fotos.`);
+      return;
+    }
+
+    templateBusy = true;
+    try {
+      const path = await importJournalPhoto(app, selectedFile, photoImportContext(photos.length));
+      if (isFeedDetailMode) feedDetailPhotos = [...feedDetailPhotos, path];
+      else if (isWandernMode) wandernPhotos = [...wandernPhotos, path];
+      else listPhotos = [...listPhotos, path];
+      markModified();
+      new Notice("Foto hinzugefügt.");
+    } catch (e) {
+      console.error("Universal Daily Note: Composer Foto", e);
+      new Notice("Foto konnte nicht gespeichert werden.");
+    } finally {
+      templateBusy = false;
+    }
+  }
+
+  function onComposerAddPhotoClick() {
+    pendingTemplatePack = null;
+    pendingBulkOptions = null;
+    pendingWandernPhoto = false;
+    pendingComposerPhoto = true;
+    templateFileInput?.click();
   }
 
   function addChipEntry(chip: ComposerChip) {
@@ -230,8 +359,143 @@
 
   function makeNewEntry(time: string, body: string): ComposerEntry {
     const id = `new-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    const text = composerEntryText({ time, body }).trim();
-    return { id, line: -1, time, body, rawLine: `- ${text}` };
+    const entryId = generateEntryId();
+    const text = composerEntryText({ time, body, entryId }).trim();
+    return { id, line: -1, time, body, rawLine: `- ${text}`, entryId };
+  }
+
+  function updateEntry(
+    id: string,
+    patch: Partial<
+      Pick<
+        ComposerEntry,
+        "time" | "body" | "profile" | "context" | "entryId" | "calloutId" | "supplementDetail"
+      >
+    >,
+  ) {
+    entries = entries.map((e) => {
+      if (e.id !== id) return e;
+      const next = { ...e, ...patch };
+      if ((patch.profile !== undefined || patch.context !== undefined) && !next.entryId) {
+        next.entryId = generateEntryId();
+      }
+      return next;
+    });
+    markModified();
+    if (!summaryTouched) {
+      summary = suggestSummaryFromEntries(entries.map(composerEntryText));
+    }
+  }
+
+  function openEntryProfileMenu(entry: ComposerEntry, ev: MouseEvent) {
+    const menu = new Menu();
+    menu.addItem((item) => {
+      item.setTitle("Kein Profil");
+      item.setChecked(!entry.profile || entry.profile === "tagebuch");
+      item.onClick(() => {
+        updateEntry(entry.id, { profile: undefined, context: "", supplementDetail: undefined });
+        expandedEntryId = null;
+      });
+    });
+    for (const profileId of PROFILE_MENU_IDS) {
+      menu.addItem((item) => {
+        item.setTitle(feedProfileLabel(profileId));
+        item.setChecked(entry.profile === profileId);
+        item.onClick(() => {
+          updateEntry(entry.id, { profile: profileId, supplementDetail: profileId === "reisen" ? entry.supplementDetail : undefined });
+          expandedEntryId = entry.id;
+        });
+      });
+    }
+    menu.showAtMouseEvent(ev);
+  }
+
+  $: expandedEntry = expandedEntryId ? entries.find((e) => e.id === expandedEntryId) ?? null : null;
+
+  $: if (entries.some((e) => e.profile === "reisen")) {
+    void loadRecentGroupLabels(app, fallback, tagebuchSettings, "reisen").then((labels) => {
+      reiseGroupSuggestions = labels;
+    });
+  } else {
+    reiseGroupSuggestions = [];
+  }
+
+  $: if (expandedEntry?.profile && expandedEntry.profile !== "reisen") {
+    void loadRecentGroupLabels(app, fallback, tagebuchSettings, expandedEntry.profile).then((labels) => {
+      groupSuggestions = labels;
+    });
+  } else {
+    groupSuggestions = [];
+  }
+
+  function expandReisenEntry(entry: ComposerEntry) {
+    if (entry.profile === "reisen") {
+      expandedEntryId = entry.id;
+    }
+  }
+
+  function onComposerEntryRowClick(entry: ComposerEntry, ev: MouseEvent) {
+    if (entry.profile !== "reisen") return;
+    const target = ev.target as HTMLElement;
+    if (target.closest(".udn-composerEntryRemove, .udn-profileBubble")) return;
+    expandedEntryId = entry.id;
+  }
+
+  function onComposerEntryFocus(entry: ComposerEntry, ev: FocusEvent) {
+    expandReisenEntry(entry);
+    onMobileInputFocus(ev);
+  }
+
+  function onComposerEntryBodyFocus(entry: ComposerEntry, ev: FocusEvent) {
+    expandReisenEntry(entry);
+    onMobileInputFocus(ev);
+  }
+
+  $: expandedGroupLabel = groupFieldLabel(expandedEntry?.profile);
+  $: expandedGroupPlaceholder = groupFieldPlaceholder(expandedEntry?.profile);
+
+  function onEntryContextInput(entryId: string, ev: Event) {
+    updateEntry(entryId, { context: (ev.currentTarget as HTMLInputElement).value });
+  }
+
+  function onEntryReiseChange(entryId: string, value: string) {
+    updateEntry(entryId, { context: value });
+  }
+
+  function onEntrySupplementDetailChange(entryId: string, value: string) {
+    updateEntry(entryId, { supplementDetail: value });
+  }
+
+  function reiseGroupCount(reise: string): number {
+    const key = reise.trim();
+    return entries.filter((e) => e.profile === "reisen" && (e.context?.trim() ?? "") === key).length;
+  }
+
+  function showReiseGroupHeader(entry: ComposerEntry, index: number): boolean {
+    if (entry.profile !== "reisen") return false;
+    const reise = entry.context?.trim() ?? "";
+    if (reiseGroupCount(reise) < 2) return false;
+    for (let i = 0; i < index; i++) {
+      const other = entries[i];
+      if (other?.profile === "reisen" && (other.context?.trim() ?? "") === reise) return false;
+    }
+    return true;
+  }
+
+  function toggleReiseSortOrder(reise: string) {
+    const key = reise.trim();
+    const current = reiseSortOrder[key] ?? "asc";
+    reiseSortOrder = { ...reiseSortOrder, [key]: current === "asc" ? "desc" : "asc" };
+    markModified();
+  }
+
+  function reiseSortLabel(reise: string): string {
+    return (reiseSortOrder[reise.trim()] ?? "asc") === "asc" ? "Zeit ↑" : "Zeit ↓";
+  }
+
+  function onExpandedContextInput(ev: Event) {
+    if (!expandedEntry) return;
+    updateEntry(expandedEntry.id, { context: (ev.currentTarget as HTMLInputElement).value });
   }
 
   function addFreeEntry() {
@@ -249,19 +513,12 @@
     }
   }
 
-  function updateEntry(id: string, patch: Partial<Pick<ComposerEntry, "time" | "body">>) {
-    entries = entries.map((e) => (e.id === id ? { ...e, ...patch } : e));
+  function removeEntry(id: string) {
+    entries = entries.filter((e) => e.id !== id);
+    if (expandedEntryId === id) expandedEntryId = null;
     markModified();
     if (!summaryTouched) {
       summary = suggestSummaryFromEntries(entries.map(composerEntryText));
-    }
-  }
-
-  function removeEntry(id: string) {
-    entries = entries.filter((e) => e.id !== id);
-    markModified();
-    if (!summaryTouched) {
-      summary = suggestSummaryFromEntries(entries.map((e) => e.text));
     }
   }
 
@@ -477,31 +734,23 @@
     markModified();
   }
 
-  async function importWandernPhotoFile(file: File | null) {
-    if (!file) return;
-    const maxPhotos = wandernLayout.maxPhotos ?? 3;
-    if (wandernPhotos.length >= maxPhotos) {
-      new Notice(`Maximal ${maxPhotos} Fotos.`);
-      return;
-    }
-    templateBusy = true;
-    try {
-      const path = await importWandernAttachmentFile(
-        app,
-        file,
-        wandernPhotos.length,
-        wandernTitel || calloutTitle || "Wandern",
-        wandernLayout.photosFolder ?? "Calendar/Anhänge/Bilder",
-      );
-      wandernPhotos = [...wandernPhotos, path];
-      markModified();
-      new Notice("Foto hinzugefügt.");
-    } catch (e) {
-      console.error("Universal Daily Note: Wandern Foto", e);
-      new Notice("Foto konnte nicht gespeichert werden.");
-    } finally {
-      templateBusy = false;
-    }
+  function onWandernAddPhotoClick() {
+    onComposerAddPhotoClick();
+  }
+
+  function onWandernRemovePhoto(index: number) {
+    wandernPhotos = wandernPhotos.filter((_, i) => i !== index);
+    markModified();
+  }
+
+  function onWandernMovePhotoUp(index: number) {
+    wandernPhotos = movePhotoAtIndex(wandernPhotos, index, -1);
+    markModified();
+  }
+
+  function onWandernMovePhotoDown(index: number) {
+    wandernPhotos = movePhotoAtIndex(wandernPhotos, index, 1);
+    markModified();
   }
 
   async function onTemplatePhotoSelected(ev: Event) {
@@ -509,14 +758,15 @@
     const selectedFile = input.files?.item(0) ?? null;
     const pack = pendingTemplatePack;
     const opts = pendingBulkOptions;
-    const wandernDirectPhoto = pendingWandernPhoto && !pack;
+    const directPhoto = pendingComposerPhoto && !pack;
     pendingTemplatePack = null;
     pendingBulkOptions = null;
     pendingWandernPhoto = false;
+    pendingComposerPhoto = false;
 
     try {
-      if (wandernDirectPhoto) {
-        await importWandernPhotoFile(selectedFile);
+      if (directPhoto) {
+        await importComposerPhoto(selectedFile);
         return;
       }
 
@@ -524,18 +774,8 @@
 
       templateBusy = true;
       try {
-        let photoEmbed: string | undefined;
         if (selectedFile) {
-          const path = isWandernMode
-            ? await importWandernAttachmentFile(
-                app,
-                selectedFile,
-                wandernPhotos.length,
-                wandernTitel || calloutTitle || "Wandern",
-                wandernLayout.photosFolder ?? "Calendar/Anhänge/Bilder",
-              )
-            : await importAttachmentFile(app, selectedFile, currentDate, attachmentsFolder);
-          photoEmbed = wikiEmbedForPath(path);
+          await importComposerPhoto(selectedFile);
         }
         if (isWandernMode) {
           const updated = applyWandernBulkFields(
@@ -548,7 +788,6 @@
             },
             {
               track: opts.selectedTrack ?? wandernTrack,
-              photoPath: photoEmbed ? photoEmbed.replace(/^!\[\[|\]\]$/g, "") : undefined,
               maxPhotos: wandernLayout.maxPhotos ?? 3,
             },
           );
@@ -560,8 +799,7 @@
         } else {
           await executeBulkTemplate(pack, {
             onlyMissing: opts.onlyMissing,
-            includePhoto: Boolean(photoEmbed),
-            photoEmbed,
+            includePhoto: false,
             selectedTrack: opts.selectedTrack,
           });
         }
@@ -576,15 +814,37 @@
     }
   }
 
-  function onWandernAddPhotoClick() {
-    pendingTemplatePack = null;
-    pendingBulkOptions = null;
-    pendingWandernPhoto = true;
-    templateFileInput?.click();
+  function onFeedDetailAddPhotoClick() {
+    onComposerAddPhotoClick();
   }
 
-  function onWandernRemovePhoto(index: number) {
-    wandernPhotos = wandernPhotos.filter((_, i) => i !== index);
+  function onFeedDetailRemovePhoto(index: number) {
+    feedDetailPhotos = feedDetailPhotos.filter((_, i) => i !== index);
+    markModified();
+  }
+
+  function onFeedDetailMovePhotoUp(index: number) {
+    feedDetailPhotos = movePhotoAtIndex(feedDetailPhotos, index, -1);
+    markModified();
+  }
+
+  function onFeedDetailMovePhotoDown(index: number) {
+    feedDetailPhotos = movePhotoAtIndex(feedDetailPhotos, index, 1);
+    markModified();
+  }
+
+  function onListRemovePhoto(index: number) {
+    listPhotos = listPhotos.filter((_, i) => i !== index);
+    markModified();
+  }
+
+  function onListMovePhotoUp(index: number) {
+    listPhotos = movePhotoAtIndex(listPhotos, index, -1);
+    markModified();
+  }
+
+  function onListMovePhotoDown(index: number) {
+    listPhotos = movePhotoAtIndex(listPhotos, index, 1);
     markModified();
   }
 
@@ -653,6 +913,8 @@
         templateSettings: composerTemplates,
         tracksSettings,
         lastLocation: weatherLastLocation,
+        filePath,
+        linkOverrides: calendarLinkOverrides,
         onlyMissing: options.onlyMissing,
         includePhoto: options.includePhoto,
         photoEmbed: options.photoEmbed,
@@ -706,55 +968,86 @@
     return texts;
   }
 
-  async function save() {
-    if (saving) return;
-    saving = true;
+  function composerDateKey(date: Date): string {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  }
+
+  async function syncCalendarAfterSave(savedDate: Date): Promise<void> {
+    if (!calendarSync?.enabled) return;
     try {
-      const state = await loadComposerState(app, currentDate, fallback, activeHeading);
-      if (isWandernMode) {
-        await saveWandernComposerState(
-          app,
-          state.file,
-          summary,
-          currentDate,
-          {
-            titel: wandernTitel || calloutTitle || "Wandern",
-            kurz: wandernKurz,
-            beschreibung: wandernBeschreibung,
-            track: wandernTrack,
-            photos: wandernPhotos,
-          },
-          wandernLayout,
-        );
-      } else {
-        const entryTexts = collectEntryTextsForSave();
-        await saveComposerState(
-          app,
-          {
-            file: state.file,
-            journalHeading: activeHeading,
-            calloutTitle,
-            summary,
-            dateKey: state.dateKey,
-          },
-          entryTexts,
-        );
-      }
-      if (calendarSync?.enabled) {
-        const { syncCalendarAppointmentsIntoDailyNote } = await import("../../integrations/calendarAppointments");
-        await syncCalendarAppointmentsIntoDailyNote(app, {
-          date: currentDate,
-          fallback,
-          settings: calendarSync,
-        });
-      }
-      onSaved(currentDate);
-      onClose();
+      const { syncCalendarAppointmentsIntoDailyNote } = await import("../../integrations/calendarAppointments");
+      await syncCalendarAppointmentsIntoDailyNote(app, {
+        date: savedDate,
+        fallback,
+        settings: calendarSync,
+        oncePerSession: true,
+      });
+    } catch (syncErr) {
+      console.warn("Universal Daily Note: Kalender-Sync nach Speichern", syncErr);
+    }
+  }
+
+  function resolveComposerFile(): TFile {
+    if (composerFile) return composerFile;
+    const cached = app.vault.getAbstractFileByPath(filePath);
+    if (cached instanceof TFile) {
+      composerFile = cached;
+      return cached;
+    }
+    throw new Error("Daily-Note-Datei nicht gefunden.");
+  }
+
+  async function persistComposerSave(): Promise<void> {
+    const file = resolveComposerFile();
+    const dateKey = composerDateKey(currentDate);
+    const entryTexts = collectEntryTextsForSave();
+    await saveComposerState(
+      app,
+      {
+        file,
+        journalHeading: TAGEBUCH_HEADING,
+        calloutTitle,
+        summary,
+        dateKey,
+        photos: listPhotos,
+      },
+      entryTexts,
+    );
+    await syncReisenSupplements(app, file, entries, reiseSortOrder);
+    await persistCalendarLinkOverrides(app, entries);
+  }
+
+  async function save() {
+    if (saving || loading) return;
+    if (!composerFile && !filePath) {
+      new Notice("Notiz noch nicht geladen.");
+      return;
+    }
+    saving = true;
+    let saved = false;
+    const savedDate = currentDate;
+    try {
+      console.info("Universal Daily Note: Composer save start", activeHeading, filePath);
+      await withOperationTimeout(
+        persistComposerSave(),
+        12_000,
+        "Speichern dauerte länger als 12 s.",
+      );
+      console.info("Universal Daily Note: Composer save done", activeHeading, filePath);
+      saved = true;
+      modified = false;
+      onSaved(savedDate);
     } catch (e) {
       console.error("Universal Daily Note: Composer save", e);
-      loadError = "Speichern fehlgeschlagen.";
+      const message = e instanceof Error ? e.message : "";
+      loadError = message || "Speichern fehlgeschlagen.";
+      new Notice(loadError);
     } finally {
       saving = false;
+    }
+    if (saved) {
+      onClose();
+      void syncCalendarAfterSave(savedDate);
     }
   }
 
@@ -790,9 +1083,15 @@
     addFreeEntry();
   }
 
-  function onMobileInputFocus(ev: FocusEvent) {
+  function resolveFocusTarget(target: FocusEvent | HTMLElement): HTMLElement | null {
+    if (target instanceof HTMLElement) return target;
+    return (target.currentTarget as HTMLElement) ?? null;
+  }
+
+  function onMobileInputFocus(target: FocusEvent | HTMLElement) {
     if (!isMobile || !composerRoot) return;
-    const el = ev.currentTarget as HTMLElement;
+    const el = resolveFocusTarget(target);
+    if (!el) return;
     applyKeyboardInset(composerRoot, estimateKeyboardInset());
     scrollInputIntoView(el, composerRoot);
   }
@@ -839,14 +1138,21 @@
 
   afterUpdate(() => {
     updateNavButtons();
-    if (isMobile && mobileDock && composerRoot && !dockObserverAttached) {
-      detachDockObserver = observeDockHeight(mobileDock, composerRoot);
-      dockObserverAttached = true;
-    }
+    if (!isMobile || !composerRoot) return;
+    const nextDock = mobileDock ?? null;
+    if (nextDock === observedDockEl) return;
+    detachDockObserver?.();
+    observedDockEl = nextDock;
+    detachDockObserver = nextDock ? observeDockHeight(nextDock, composerRoot) : null;
   });
 </script>
 
-<div class="udn-composer" class:udn-composer--mobile={isMobile} bind:this={composerRoot}>
+<div
+  class="udn-composer"
+  class:udn-composer--mobile={isMobile}
+  class:udn-composer--mobile-landscape={landscapeMobile}
+  bind:this={composerRoot}
+>
   <input
     type="file"
     accept="image/*"
@@ -869,17 +1175,6 @@
         <div class="udn-composerFilterBubbles">
           <button
             type="button"
-            bind:this={headingBtn}
-            class="udn-headingFilter udn-composerHeadingFilter"
-            class:udn-headingFilter--menu={sectionHeadings.length > 1}
-            disabled={sectionHeadings.length <= 1}
-            on:click={onHeadingFilterClick}
-          >
-            <span class="udn-headingFilterIcon" bind:this={headingIconEl} aria-hidden="true"></span>
-            <span class="udn-headingFilterLabel">{activeHeading}</span>
-          </button>
-          <button
-            type="button"
             bind:this={prefixBtn}
             class="udn-headingFilter udn-composerPrefixFilter udn-headingFilter--menu"
             disabled={!prefixMenuEnabled}
@@ -900,17 +1195,6 @@
         <button type="button" bind:this={nowBtn} class={dk.iconRoundBtn} on:click={goToday} aria-label="Heute"></button>
       </div>
       <div class="udn-composerFilterBubbles">
-        <button
-          type="button"
-          bind:this={headingBtn}
-          class="udn-headingFilter udn-composerHeadingFilter"
-          class:udn-headingFilter--menu={sectionHeadings.length > 1}
-          disabled={sectionHeadings.length <= 1}
-          on:click={onHeadingFilterClick}
-        >
-          <span class="udn-headingFilterIcon" bind:this={headingIconEl} aria-hidden="true"></span>
-          <span class="udn-headingFilterLabel">{activeHeading}</span>
-        </button>
         <button
           type="button"
           bind:this={prefixBtn}
@@ -955,8 +1239,8 @@
   {:else if loadError}
     <p class="{dk.empty} udn-composerError">{loadError}</p>
   {:else}
-    <section class="udn-composerSection">
-      {#if isMobile}
+    <section class="udn-composerSection" class:udn-composerSplit={landscapeMobile}>
+      {#if isMobile && !landscapeMobile}
         <label class="udn-composerCalloutTitle">
           <span class="udn-composerSummaryLabel">Zusammenfassung</span>
           <input
@@ -981,63 +1265,61 @@
         </label>
       {/if}
 
-      {#if isWandernMode}
-        <WandernComposerFields
-          titel={wandernTitel || calloutTitle}
-          kurz={wandernKurz}
-          beschreibung={wandernBeschreibung}
-          track={wandernTrack}
-          photos={wandernPhotos}
-          trackPickerOpen={wandernTrackPickerOpen}
-          trackPickerLoading={wandernTrackPickerLoading}
-          trackOptions={wandernTrackOptions}
-          previewMarkdown={wandernPreviewMarkdown}
-          showPreview={wandernShowPreview}
-          maxPhotos={wandernLayout.maxPhotos ?? 3}
-          onTitelChange={(v) => {
-            wandernTitel = v;
-            calloutTitle = v;
-            markModified();
-          }}
-          onKurzChange={(v) => {
-            wandernKurz = v;
-            markModified();
-          }}
-          onBeschreibungChange={(v) => {
-            wandernBeschreibung = v;
-            markModified();
-          }}
-          onRemovePhoto={onWandernRemovePhoto}
-          onAddPhotoClick={onWandernAddPhotoClick}
-          onPickTrackClick={onWandernPickTrackClick}
-          onTrackOptionPick={onWandernTrackOptionPick}
-          onClearTrackClick={onWandernClearTrackClick}
-          onTogglePreview={() => {
-            wandernShowPreview = !wandernShowPreview;
-          }}
-          onFocus={onMobileInputFocus}
-        />
-      {:else}
+      <div class="udn-composerSplitList">
+      <PhotoCollageField
+        {app}
+        photos={listPhotos}
+        maxPhotos={currentMaxPhotos()}
+        onAddPhotoClick={onComposerAddPhotoClick}
+        onRemovePhoto={onListRemovePhoto}
+        onMovePhotoUp={onListMovePhotoUp}
+        onMovePhotoDown={onListMovePhotoDown}
+      />
       <ul class="udn-composerEntries">
-        {#each entries as entry (entry.id)}
-          <li class="udn-outlineEntry udn-composerEntry">
+        {#each entries as entry, entryIndex (entry.id)}
+          {#if showReiseGroupHeader(entry, entryIndex)}
+            {@const reiseName = entry.context?.trim() || "Reise"}
+            <li class="udn-composerReiseGroupHead">
+              <span class="udn-composerReiseGroupLabel">Reise: {reiseName}</span>
+              <button
+                type="button"
+                class={dk.btn}
+                on:click={() => toggleReiseSortOrder(reiseName)}
+              >
+                {reiseSortLabel(reiseName)}
+              </button>
+            </li>
+          {/if}
+          <li
+            class="udn-outlineEntry udn-composerEntry"
+            class:udn-composerEntry--expanded={expandedEntryId === entry.id}
+            class:udn-composerEntry--reisen={entry.profile === "reisen"}
+            data-composer-entry={entry.id}
+            on:click={(ev) => onComposerEntryRowClick(entry, ev)}
+          >
             <input
               type="text"
               class="{dk.input} udn-timeBubble udn-timeBubbleInput"
               value={entry.time}
               placeholder="HH:mm"
-              inputmode="numeric"
               aria-label="Zeit"
               on:input={(ev) => onEntryTimeInput(entry.id, ev)}
-              on:focus={onMobileInputFocus}
+              on:focus={(ev) => onComposerEntryFocus(entry, ev)}
+            />
+            <ProfileBubble
+              profile={entry.profile}
+              title={entry.profile ? feedProfileLabel(entry.profile) : "Profil zuweisen"}
+              onClick={(ev) => openEntryProfileMenu(entry, ev)}
             />
             <JournalBodyInput
               {app}
               value={entry.body}
               className="udn-timelineEntryEdit udn-composerEntryInput"
               sourcePath={filePath}
+              feedProfile={entry.profile}
+              linkBubbles={Boolean(entry.calendarId) || /\[\[[^\]|]+\]\]/.test(entry.body)}
               onInput={(body) => onEntryBodyInput(entry.id, body)}
-              onFocus={onMobileInputFocus}
+              onFocus={(ev) => onComposerEntryBodyFocus(entry, ev)}
               onOpenWikiLink={openComposerWikiLink}
             />
             <button
@@ -1046,6 +1328,40 @@
               aria-label="Eintrag entfernen"
               on:click={() => removeEntry(entry.id)}
             >×</button>
+            {#if expandedEntryId === entry.id && entry.profile === "reisen" && !landscapeMobile}
+              <div class="udn-composerEntryExpand udn-composerEntryExpand--reisen">
+                <ReisenComposerFields
+                  reise={entry.context ?? ""}
+                  detail={entry.supplementDetail ?? ""}
+                  reiseOptions={reiseGroupSuggestions}
+                  onReiseChange={(value) => onEntryReiseChange(entry.id, value)}
+                  onDetailChange={(value) => onEntrySupplementDetailChange(entry.id, value)}
+                  onFocus={onMobileInputFocus}
+                />
+              </div>
+            {:else if expandedEntryId === entry.id && entry.profile && !landscapeMobile}
+              <div class="udn-composerEntryExpand">
+                <label class="udn-composerExpandField">
+                  <span class="udn-composerSummaryLabel">{groupFieldLabel(entry.profile)}</span>
+                  <input
+                    type="text"
+                    class="{dk.input} udn-composerSummaryInput"
+                    list={entry.profile ? `udn-group-${entry.profile}-${entry.id}` : undefined}
+                    value={entry.context ?? ""}
+                    placeholder={groupFieldPlaceholder(entry.profile)}
+                    on:input={(ev) => onEntryContextInput(entry.id, ev)}
+                    on:focus={onMobileInputFocus}
+                  />
+                  {#if entry.profile}
+                    <datalist id="udn-group-{entry.profile}-{entry.id}">
+                      {#each groupSuggestions as label (label)}
+                        <option value={label}></option>
+                      {/each}
+                    </datalist>
+                  {/if}
+                </label>
+              </div>
+            {/if}
           </li>
         {/each}
         {#if entries.length === 0}
@@ -1062,7 +1378,6 @@
             class="{dk.input} udn-timeBubble udn-timeBubbleInput"
             bind:value={newEntryTime}
             placeholder="HH:mm"
-            inputmode="numeric"
             aria-label="Zeit für neuen Eintrag"
             on:focus={onMobileInputFocus}
           />
@@ -1078,11 +1393,46 @@
           <button type="button" class={dk.btn} on:click={addFreeEntry} disabled={!newEntryText.trim()}>+</button>
         </div>
       {/if}
+      </div>
+
+      {#if landscapeMobile && expandedEntry?.profile === "reisen"}
+        <div class="udn-composerSplitDetail">
+          <p class="udn-composerSplitDetailTitle">{feedProfileLabel(expandedEntry.profile)}</p>
+          <ReisenComposerFields
+            reise={expandedEntry.context ?? ""}
+            detail={expandedEntry.supplementDetail ?? ""}
+            reiseOptions={reiseGroupSuggestions}
+            onReiseChange={(value) => onEntryReiseChange(expandedEntry.id, value)}
+            onDetailChange={(value) => onEntrySupplementDetailChange(expandedEntry.id, value)}
+            onFocus={onMobileInputFocus}
+          />
+        </div>
+      {:else if landscapeMobile && expandedEntry?.profile}
+        <div class="udn-composerSplitDetail">
+          <p class="udn-composerSplitDetailTitle">{feedProfileLabel(expandedEntry.profile)}</p>
+          <label class="udn-composerExpandField">
+            <span class="udn-composerSummaryLabel">{expandedGroupLabel}</span>
+            <input
+              type="text"
+              class="{dk.input} udn-composerSummaryInput"
+              list="udn-group-landscape"
+              value={expandedEntry.context ?? ""}
+              placeholder={expandedGroupPlaceholder}
+              on:input={onExpandedContextInput}
+              on:focus={onMobileInputFocus}
+            />
+            <datalist id="udn-group-landscape">
+              {#each groupSuggestions as label (label)}
+                <option value={label}></option>
+              {/each}
+            </datalist>
+          </label>
+        </div>
       {/if}
     </section>
   {/if}
 
-  {#if !loading && !loadError && isMobile && !isWandernMode}
+  {#if !loading && !loadError && isMobile}
     <div class="udn-composerMobileDock" bind:this={mobileDock}>
       <div class="udn-composerAddRow udn-composerAddRow--pinned">
         <input
@@ -1090,7 +1440,6 @@
           class="{dk.input} udn-timeBubble udn-timeBubbleInput"
           bind:value={newEntryTime}
           placeholder="HH:mm"
-          inputmode="numeric"
           aria-label="Zeit für neuen Eintrag"
           on:focus={onMobileInputFocus}
         />
@@ -1123,13 +1472,15 @@
     </div>
   {/if}
 
-  {#if !loading && !loadError && isMobile && isWandernMode}
-    <footer class="udn-composerFoot udn-composerFoot--mobile udn-composerFoot--wandern">
-      <button type="button" class={dk.btn} on:click={openInEditor} disabled={loading}>Notiz</button>
-      <button type="button" class={dk.btnPrimary} on:click={save} disabled={loading || saving}>
-        {saving ? "…" : "Speichern"}
-      </button>
-    </footer>
+  {#if !loading && !loadError && isMobile && isSpecialFormMode}
+    <div class="udn-composerMobileFoot" bind:this={mobileFoot}>
+      <footer class="udn-composerFoot udn-composerFoot--mobile udn-composerFoot--wandern">
+        <button type="button" class={dk.btn} on:click={openInEditor} disabled={loading}>Notiz</button>
+        <button type="button" class={dk.btnPrimary} on:click={save} disabled={loading || saving}>
+          {saving ? "…" : "Speichern"}
+        </button>
+      </footer>
+    </div>
   {/if}
 
   {#if !isMobile}

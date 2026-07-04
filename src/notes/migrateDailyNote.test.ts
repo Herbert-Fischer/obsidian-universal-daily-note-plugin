@@ -78,7 +78,7 @@ Zusammenfassung:
 `;
     const out = migrateDailyNoteContent(input, "2026-06-15")!;
     expect(out).toContain("## Reisen");
-    expect(out).toContain("[!compass] Reisen [Mamas 90ter Geburtstag]");
+    expect(out).toContain("[!compass]+ Reisen [Mamas 90ter Geburtstag]");
     expect(out).toContain("> - [[Boxi]]tour Tag 6.3: **Gersfeld**");
     expect(out).not.toContain("## Sonstiges");
   });

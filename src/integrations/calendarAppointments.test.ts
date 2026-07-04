@@ -9,6 +9,7 @@ import {
   collectCalendarSyncIds,
   parseCalendarSyncId,
   stripCalendarSyncMarker,
+  stripMarkdownCalendarAppointmentEntries,
   withCalendarSyncMarker,
 } from "./calendarSyncMarker";
 
@@ -46,7 +47,7 @@ describe("calendar appointment journal lines", () => {
     ).toBe(false);
   });
 
-  it("excludes markdown vault files by default", () => {
+  it("never syncs markdown vault files as Termin lines", () => {
     expect(
       isSyncableCalendarItem(
         {
@@ -63,16 +64,17 @@ describe("calendar appointment journal lines", () => {
     expect(
       isSyncableCalendarItem(
         {
-          id: "md-1",
+          id: "md:Finanzen/Rechnungen/foo.md:rechnungsdatum",
           source: "markdown",
-          title: "Projekt",
-          start: new Date(2026, 5, 22, 14, 0, 0, 0),
+          title: "Rechnung",
+          start: new Date(2026, 5, 22, 9, 0, 0, 0),
           allDay: false,
-          filePath: "Efforts/Projects/Projekt.md",
+          filePath: "Finanzen/Rechnungen/foo.md",
+          raw: { usedProperty: "rechnungsdatum" },
         },
         { ...DEFAULT_SYNC_SETTINGS, includeMarkdownNotes: true },
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("parses and strips sync markers", () => {
@@ -117,6 +119,47 @@ describe("calendar appointment journal lines", () => {
     expect(merged).toHaveLength(2);
     expect(merged[1]).toContain("evt-2");
     expect(merged.some((l) => l.includes("evt-3"))).toBe(false);
+  });
+
+  it("uses stored link override for new sync entries", () => {
+    const line = formatCalendarAppointmentEntry(
+      {
+        id: "evt-9",
+        source: "caldav_event",
+        title: "[[Lindengut]] mit [[Mona]]",
+        start: new Date(2026, 6, 3, 13, 30, 0, 0),
+        allDay: false,
+      },
+      undefined,
+      "",
+      { "evt-9": "[[Biohotel Lindengut|Lindengut]] mit [[Mona Buchmann|Mona]]" },
+    );
+    expect(line).toContain("Biohotel Lindengut");
+    expect(line).toContain("<!-- udn-cal:evt-9 -->");
+  });
+
+  it("removes stale markdown invoice Termin lines on merge", () => {
+    const existing = [
+      "09:00 Termin: Rechnung [[Finanzen/foo]] <!-- udn-cal:md:Finanzen/Rechnungen/foo.md:rechnungsdatum -->",
+      "10:30 Krebsnachsorgetermin Erbach",
+    ];
+    const merged = mergeCalendarAppointmentTexts(
+      { plugins: { plugins: { "universal-calendar": { store: { getItemsForDay: () => [] } } } } } as never,
+      new Date(2026, 5, 2),
+      existing,
+      { settings: DEFAULT_SYNC_SETTINGS },
+    );
+    expect(merged).toEqual(["10:30 Krebsnachsorgetermin Erbach"]);
+  });
+
+  it("strips markdown calendar ids", () => {
+    const lines = [
+      "09:00 Termin: Arzt <!-- udn-cal:caldav:event:abc -->",
+      "09:00 Termin: Rechnung <!-- udn-cal:md:Finanzen/foo.md:rechnungsdatum -->",
+    ];
+    expect(stripMarkdownCalendarAppointmentEntries(lines)).toEqual([
+      "09:00 Termin: Arzt <!-- udn-cal:caldav:event:abc -->",
+    ]);
   });
 
   it("filters all-day and markdown in getCalendarItemsForDay", () => {

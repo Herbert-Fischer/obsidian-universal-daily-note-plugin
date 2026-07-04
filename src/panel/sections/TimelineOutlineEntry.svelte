@@ -5,7 +5,12 @@
   import { panelTapAction } from "../panelTapAction";
   import { parseJournalEntryDisplay } from "../../notes/parseJournalEntryDisplay";
   import { stripCalendarSyncMarker } from "../../integrations/calendarSyncMarker";
-  import { parseWikiLinks } from "../../notes/parseWikiLinks";
+  import { stripJournalLineForDisplay } from "../../notes/journalEntryMeta";
+  import { bodyHasWikiLinks } from "../../notes/feedEntryDisplay";
+  import { effectiveFeedProfile } from "../../notes/feedMetadata";
+  import { feedProfileLabel } from "../../notes/feedMetadata";
+  import FeedLinkBubbleBody from "../FeedLinkBubbleBody.svelte";
+  import ProfileBubble from "../ProfileBubble.svelte";
   import { wikiLinkSuggest, isWikiLinkSuggestOpen } from "../wikiLinkInputSuggest";
   import type { TimelineDay, TimelineEntry } from "../../notes/dailyNoteTimeline";
 
@@ -23,10 +28,14 @@
   export let onEditKeydown: (day: TimelineDay, entry: TimelineEntry, ev: KeyboardEvent) => void = () => {};
   export let onOpenWikiLink: (dest: string, sourcePath: string) => void = () => {};
   export let onSelectDay: (day: TimelineDay) => void = () => {};
+  export let onOpenComposerEntry: (day: TimelineDay, entry: TimelineEntry) => void = () => {};
 
-  $: display = parseJournalEntryDisplay(entry.text);
+  $: display = parseJournalEntryDisplay(stripJournalLineForDisplay(entry.text));
   $: displayBody = stripCalendarSyncMarker(display.body);
   $: storedTime = display.time ?? "";
+  $: hasWikiLinks = bodyHasWikiLinks(displayBody);
+  $: effectiveProfile = effectiveFeedProfile(entry.feedProfile, entry.feedContext);
+  $: showProfileBubble = effectiveProfile !== "tagebuch";
 
   let timeDraft = "";
   let timeEditing = false;
@@ -79,59 +88,64 @@
 <div
   class="udn-outlineEntry"
   class:udn-outlineEntry--editing={editing}
+  class:udn-outlineEntry--hasLinks={hasWikiLinks}
   use:panelTapAction={onEntryTap}
 >
-  {#if showTimeBubbles}
+  <div class="udn-outlineEntryMain">
+    {#if showTimeBubbles}
+      {#if editing}
+        <input
+          type="text"
+          class="{dk.input} udn-timeBubble udn-timeBubbleInput"
+          bind:value={editTime}
+          placeholder="HH:mm"
+          aria-label="Zeit"
+          on:keydown={onTimeKeydown}
+        />
+      {:else}
+        <input
+          type="text"
+          class="{dk.input} udn-timeBubble udn-timeBubbleInput"
+          bind:value={timeDraft}
+          placeholder="HH:mm"
+          aria-label="Zeit"
+          on:focus={onTimeFocus}
+          on:blur={onTimeBlur}
+          on:keydown={onTimeKeydown}
+        />
+      {/if}
+    {/if}
+    {#if showProfileBubble}
+      <ProfileBubble
+        profile={effectiveProfile}
+        title={`${feedProfileLabel(effectiveProfile)} — im Composer bearbeiten`}
+        onClick={(ev) => {
+          ev.stopPropagation();
+          onOpenComposerEntry(day, entry);
+        }}
+      />
+    {/if}
     {#if editing}
       <input
         type="text"
-        class="{dk.input} udn-timeBubble udn-timeBubbleInput"
-        bind:value={editTime}
-        placeholder="HH:mm"
-        inputmode="numeric"
-        aria-label="Zeit"
-        on:keydown={onTimeKeydown}
+        class="{dk.input} udn-timelineEntryEdit"
+        bind:value={editBody}
+        bind:this={editInput}
+        use:wikiLinkSuggest={{ app, sourcePath: day.filePath, onValueChange: applyWikiLinkValue }}
+        on:blur={onEditBlur}
+        on:keydown={(ev) => onEditKeydown(day, entry, ev)}
       />
     {:else}
-      <input
-        type="text"
-        class="{dk.input} udn-timeBubble udn-timeBubbleInput"
-        bind:value={timeDraft}
-        placeholder="HH:mm"
-        inputmode="numeric"
-        aria-label="Zeit"
-        on:focus={onTimeFocus}
-        on:blur={onTimeBlur}
-        on:keydown={onTimeKeydown}
+      <FeedLinkBubbleBody
+        {app}
+        text={displayBody}
+        feedProfile={entry.feedProfile}
+        feedContext={entry.feedContext ?? ""}
+        sourcePath={day.filePath}
+        title="Doppelklick zum Bearbeiten"
+        onOpenWikiLink={onOpenWikiLink}
+        onDblclick={() => onStartEdit(day, entry)}
       />
     {/if}
-  {/if}
-  {#if editing}
-    <input
-      type="text"
-      class="{dk.input} udn-timelineEntryEdit"
-      bind:value={editBody}
-      bind:this={editInput}
-      use:wikiLinkSuggest={{ app, sourcePath: day.filePath, onValueChange: applyWikiLinkValue }}
-      on:blur={onEditBlur}
-      on:keydown={(ev) => onEditKeydown(day, entry, ev)}
-    />
-  {:else}
-    <!-- svelte-ignore a11y-no-static-element-interactions -->
-    <span
-      class="udn-timelineEntryBody"
-      title="Doppelklick zum Bearbeiten"
-      on:dblclick={() => onStartEdit(day, entry)}
-    >
-      {#each parseWikiLinks(displayBody) as seg, i (i + seg.kind + (seg.kind === "link" ? seg.dest : seg.value))}
-        {#if seg.kind === "link"}
-          <a
-            href="#"
-            class="internal-link"
-            use:sidebarPointerAction={() => onOpenWikiLink(seg.dest, day.filePath)}
-          >{seg.label}</a>
-        {:else}{seg.value}{/if}
-      {/each}
-    </span>
-  {/if}
+  </div>
 </div>

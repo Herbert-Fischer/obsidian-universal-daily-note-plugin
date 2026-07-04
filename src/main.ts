@@ -1,6 +1,10 @@
 import { Plugin, Platform, TFile, Notice, type Menu } from "obsidian";
 import { DEFAULT_SETTINGS, DEFAULT_SECTIONS_COLLAPSED, type SectionId, type UniversalDailyNoteSettings } from "./settings";
 import { normalizeActiveJournalHeading } from "./notes/journalHeadingFilter";
+import type { FeedProfile } from "./notes/feedMetadata";
+import { normalizeOutlineProfileFilters } from "./notes/feedMetadata";
+import { feedProfileForSectionHeading } from "./notes/journalEntryGroups";
+import { DEFAULT_JOURNAL_HEADING } from "./settings";
 import { UniversalDailyNoteSettingTab } from "./settingsTab";
 import { openOrCreateDailyNoteForDate } from "./notes/dailyNote";
 import { ensureDailyNoteFileForDate } from "./notes/appendLogLine";
@@ -12,6 +16,8 @@ import { activateVerweisePanel } from "./views/activateVerweisePanel";
 import { COMPOSER_ICON, COMPOSER_LABEL } from "./panel/composer/composerUi";
 import {
   openDailyComposer,
+  maybeAutoOpenComposerForToday,
+  scheduleAutoOpenComposerForToday,
   resolveComposerDateFromFile as resolveComposerDateFromActiveFile,
 } from "./panel/composer/openDailyComposer";
 import { dateFromDailyNoteFile } from "./integrations/universalCalendar";
@@ -20,6 +26,8 @@ import { syncCalendarAppointmentsIntoDailyNote } from "./integrations/calendarAp
 import { cleanupReisenCalendarSyncForRecentDays } from "./integrations/cleanupReisenCalendarSync";
 import { WEATHER_ICON, WEATHER_LABEL } from "./weather/weatherUi";
 import { registerTrack3dProcessor } from "./tracks/track3dView";
+import { registerPhotoGalleryLightbox } from "./photos/photoLightbox";
+import { registerJournalMetaPostProcessor } from "./notes/journalMetaPostProcessor";
 
 function migrateCollapsed(raw: Partial<Record<string, boolean>> | undefined): Record<SectionId, boolean> {
   const merged = { ...DEFAULT_SECTIONS_COLLAPSED, ...raw };
@@ -37,14 +45,34 @@ function migrateOutline(
     ? base.excludedHeadings
     : DEFAULT_SETTINGS.outline.excludedHeadings;
   const rangeMode = base.rangeMode ?? DEFAULT_SETTINGS.outline.rangeMode;
+  const journalHeading = normalizeActiveJournalHeading(base.journalHeading, excluded);
+  const feedProfileFilters = migrateFeedProfileFilters(base, journalHeading);
+
   return {
     ...base,
     excludedHeadings: excluded,
     rangeMode,
     textFilterEnabled: base.textFilterEnabled ?? false,
     textFilterQuery: base.textFilterQuery ?? "",
-    journalHeading: normalizeActiveJournalHeading(base.journalHeading, excluded),
+    feedProfileFilters,
+    includeRestOfTagebuch: base.includeRestOfTagebuch ?? false,
+    feedContextFilter: base.feedContextFilter ?? "",
+    journalHeading: DEFAULT_JOURNAL_HEADING,
   };
+}
+
+function migrateFeedProfileFilters(
+  base: Partial<UniversalDailyNoteSettings>["outline"],
+  journalHeading: string,
+): FeedProfile[] {
+  if (Array.isArray(base?.feedProfileFilters) && base.feedProfileFilters.length > 0) {
+    return normalizeOutlineProfileFilters(base.feedProfileFilters);
+  }
+  const fromHeading = feedProfileForSectionHeading(journalHeading);
+  if (fromHeading) return [fromHeading];
+  const legacy = base?.feedProfileFilter;
+  if (legacy && legacy !== "alle" && legacy !== "tagebuch") return [legacy];
+  return [];
 }
 
 function mergeSettings(raw: Partial<UniversalDailyNoteSettings> | null): UniversalDailyNoteSettings {
@@ -56,9 +84,12 @@ function mergeSettings(raw: Partial<UniversalDailyNoteSettings> | null): Univers
     tagebuchVerweise: { ...DEFAULT_SETTINGS.tagebuchVerweise, ...loaded.tagebuchVerweise },
     quickCapture: { ...DEFAULT_SETTINGS.quickCapture, ...loaded.quickCapture },
     calendarSync: { ...DEFAULT_SETTINGS.calendarSync, ...loaded.calendarSync },
+    calendarLinkOverrides: { ...DEFAULT_SETTINGS.calendarLinkOverrides, ...loaded.calendarLinkOverrides },
     weatherCapture: { ...DEFAULT_SETTINGS.weatherCapture, ...loaded.weatherCapture },
     composerTemplates: { ...DEFAULT_SETTINGS.composerTemplates, ...loaded.composerTemplates },
+    feedDetailLayout: { ...DEFAULT_SETTINGS.feedDetailLayout, ...loaded.feedDetailLayout },
     composerWindow: { ...DEFAULT_SETTINGS.composerWindow, ...loaded.composerWindow },
+    composer: { ...DEFAULT_SETTINGS.composer, ...loaded.composer },
     wandernLayout: { ...DEFAULT_SETTINGS.wandernLayout, ...loaded.wandernLayout },
     tracks: { ...DEFAULT_SETTINGS.tracks, ...loaded.tracks },
     analytics: { ...DEFAULT_SETTINGS.analytics, ...loaded.analytics },
@@ -71,11 +102,15 @@ function mergeSettings(raw: Partial<UniversalDailyNoteSettings> | null): Univers
 
 export default class UniversalDailyNotePlugin extends Plugin {
   settings!: UniversalDailyNoteSettings;
+  /** Guard: auto-open composer at most once per calendar day (todayNoteOpen mode). */
+  lastAutoComposerDateKey: string | null = null;
 
   async onload() {
     await this.loadSettings();
 
     registerTrack3dProcessor(this);
+    registerPhotoGalleryLightbox(this);
+    registerJournalMetaPostProcessor(this);
 
     this.registerView(VIEW_TYPE_DAILY_PANEL, (leaf) => new DailyPanelView(leaf, this));
     this.registerView(VIEW_TYPE_VERWEISE, (leaf) => new VerweisePanelView(leaf, this));
@@ -87,6 +122,12 @@ export default class UniversalDailyNotePlugin extends Plugin {
     this.addRibbonIcon("link-2", "Tagebuch-Verweise", async () => {
       await activateVerweisePanel(this.app);
     });
+
+    if (Platform.isMobile) {
+      this.addRibbonIcon(COMPOSER_ICON, COMPOSER_LABEL, () => {
+        openDailyComposer(this, { date: new Date() });
+      });
+    }
 
     this.addCommand({
       id: "open-daily-note-outline",
@@ -137,6 +178,17 @@ export default class UniversalDailyNotePlugin extends Plugin {
           openDailyComposer(this, { date: new Date() });
         },
       });
+
+      this.addCommand({
+        id: "open-today-daily-note-composer",
+        name: "Heutige Notiz im Composer öffnen",
+        icon: COMPOSER_ICON,
+        mobileOnly: true,
+        callback: async () => {
+          await openOrCreateDailyNoteForDate(this.app, new Date(), this.settings.dailyNoteFallback);
+          scheduleAutoOpenComposerForToday(this);
+        },
+      });
     }
 
     const addComposerMenuItem = (menu: Menu, file: TFile): void => {
@@ -166,6 +218,24 @@ export default class UniversalDailyNotePlugin extends Plugin {
     this.registerEvent(
       this.app.workspace.on("file-menu", (menu, file) => {
         if (file instanceof TFile) addComposerMenuItem(menu, file);
+      }),
+    );
+
+    this.registerEvent(
+      this.app.workspace.on("file-open", (file) => {
+        if (file instanceof TFile) {
+          maybeAutoOpenComposerForToday(this, "file-open", file);
+        }
+      }),
+    );
+
+    this.registerEvent(
+      this.app.workspace.on("active-leaf-change", (leaf) => {
+        if (!leaf) return;
+        const file = "file" in leaf.view ? leaf.view.file : null;
+        if (file instanceof TFile) {
+          maybeAutoOpenComposerForToday(this, "file-open", file);
+        }
       }),
     );
 
@@ -246,6 +316,7 @@ export default class UniversalDailyNotePlugin extends Plugin {
       name: "Heutige Daily Note öffnen oder erstellen",
       callback: async () => {
         await openOrCreateDailyNoteForDate(this.app, new Date(), this.settings.dailyNoteFallback);
+        maybeAutoOpenComposerForToday(this, "command");
       },
     });
 

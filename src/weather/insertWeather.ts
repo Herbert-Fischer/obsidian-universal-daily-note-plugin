@@ -157,6 +157,7 @@ export async function insertWeatherIntoDailyNote(
         calloutTitle,
         summary: state.summary,
         dateKey: state.dateKey,
+        photos: state.photos,
       },
       entryTexts,
     );

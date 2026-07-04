@@ -23,7 +23,7 @@ describe("Reisen trip callout titles", () => {
       undefined,
       "Mamas 90ter Geburtstag",
     );
-    expect(block[0]).toBe("> [!compass] Reisen [Mamas 90ter Geburtstag]");
+    expect(block[0]).toBe("> [!compass]+ Reisen [Mamas 90ter Geburtstag]");
   });
 
   it("uses explicit callout title override", () => {
@@ -34,7 +34,7 @@ describe("Reisen trip callout titles", () => {
       null,
       "Mamas 90ter Geburtstag",
     );
-    expect(block[0]).toBe("> [!compass] Mamas 90ter Geburtstag");
+    expect(block[0]).toBe("> [!compass]+ Mamas 90ter Geburtstag");
   });
 
   it("ignores multiple destination brackets", () => {

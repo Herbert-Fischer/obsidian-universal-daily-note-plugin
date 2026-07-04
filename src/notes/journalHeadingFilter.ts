@@ -1,4 +1,5 @@
 import { DEFAULT_EXCLUDED_JOURNAL_HEADINGS, DEFAULT_JOURNAL_HEADING } from "../settings";
+import { FEED_PROFILE_SECTION_LABELS } from "./journalProfiles";
 
 /** Show journal lines from every ## section (except excluded). */
 export const ALL_JOURNAL_HEADINGS = "Alle";
@@ -50,4 +51,13 @@ export function normalizeActiveJournalHeading(
   if (isAllJournalHeadings(trimmed)) return ALL_JOURNAL_HEADINGS;
   if (isExcludedJournalHeading(trimmed, excluded)) return defaultHeading;
   return trimmed;
+}
+
+/** Outline/Verweise filter: always offer profile ## sections (Heizung, Lüftung, …). */
+export function mergeOutlineFilterHeadings(
+  headings: string[],
+  excluded: string[] = DEFAULT_EXCLUDED_JOURNAL_HEADINGS,
+  defaultHeading: string = DEFAULT_JOURNAL_HEADING,
+): string[] {
+  return finalizeJournalHeadings([...headings, ...FEED_PROFILE_SECTION_LABELS], excluded, defaultHeading);
 }

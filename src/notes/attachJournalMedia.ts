@@ -165,8 +165,10 @@ export async function normalizeWandernPhotoPath(
 
   const file = app.vault.getAbstractFileByPath(path);
   if (!file || !("extension" in file)) return path;
-  if (app.vault.getAbstractFileByPath(destPath)) return path;
+  if (app.vault.getAbstractFileByPath(destPath)) return destPath;
 
+  const parent = destPath.replace(/\/[^/]+$/, "");
+  await ensureFolder(app, parent);
   await app.vault.rename(file as import("obsidian").TFile, destPath);
   return destPath;
 }

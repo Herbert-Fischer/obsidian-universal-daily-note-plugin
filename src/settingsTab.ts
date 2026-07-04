@@ -92,6 +92,18 @@ export class UniversalDailyNoteSettingTab extends PluginSettingTab {
         }),
       );
 
+    new Setting(containerEl)
+      .setName("Gruppenfilter")
+      .setDesc(
+        "Optional: Einträge nach Gruppenname filtern (Reise, Wanderung, Vorfall …). Abschnitte (Tagebuch, Reisen, …) wählst du in der Outline-Toolbar.",
+      )
+      .addText((t) =>
+        t.setValue(ol.feedContextFilter ?? "").onChange(async (value) => {
+          ol.feedContextFilter = value.trim();
+          await this.plugin.saveSettings();
+        }),
+      );
+
     const wx = this.plugin.settings.weatherCapture;
 
     containerEl.createEl("h3", { text: "Wetter & Ort" });
@@ -136,16 +148,6 @@ export class UniversalDailyNoteSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Vault-Notizen aus Kalender")
-      .setDesc("Markdown-Dateien aus Universal Calendar (nach Datum/Erstellung) als Termin übernehmen.")
-      .addToggle((t) =>
-        t.setValue(cal.includeMarkdownNotes ?? false).onChange(async (value) => {
-          cal.includeMarkdownNotes = value;
-          await this.plugin.saveSettings();
-        }),
-      );
-
-    new Setting(containerEl)
       .setName("CalDAV-Aufgaben (VTODO)")
       .setDesc("Auch CalDAV-Todos als Termin-Zeile übernehmen (nur mit konkreter Uhrzeit).")
       .addToggle((t) =>
@@ -157,7 +159,7 @@ export class UniversalDailyNoteSettingTab extends PluginSettingTab {
 
     containerEl.createEl("p", {
       cls: "setting-item-description",
-      text: "Ganztages-Termine werden nicht übernommen — nur Einträge mit konkreter Startzeit.",
+      text: "Nur CalDAV-Termine mit konkreter Startzeit — keine Vault-Rechnungen oder Markdown-Notizen aus dem Kalender.",
     });
 
     const tpl = this.plugin.settings.composerTemplates ?? {
@@ -166,6 +168,34 @@ export class UniversalDailyNoteSettingTab extends PluginSettingTab {
       wandernBulkEnabled: true,
       lastTripLabel: "",
     };
+
+    const composer = this.plugin.settings.composer ?? { autoOpen: "todayCommand" };
+
+    containerEl.createEl("h3", { text: "Tages-Composer" });
+
+    new Setting(containerEl)
+      .setName("Composer automatisch öffnen")
+      .setDesc(
+        "Mobil: Composer beim Öffnen der heutigen Daily Note oder nur über den Befehl „Heutige Daily Note öffnen“.",
+      )
+      .addDropdown((d) =>
+        d
+          .addOptions({
+            never: "Nie",
+            todayCommand: "Beim Befehl „Heutige Daily Note öffnen“",
+            todayNoteOpen: "Beim Öffnen der heutigen Daily Note",
+          })
+          .setValue(composer.autoOpen)
+          .onChange(async (value) => {
+            composer.autoOpen = (value as typeof composer.autoOpen) || "todayCommand";
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    containerEl.createEl("p", {
+      cls: "setting-item-description",
+      text: "Mobil: Ribbon-Icon „Tages-Composer“, Befehl „Heutige Notiz im Composer öffnen“ oder Tastenkürzel. Home-Screen: obsidian://udn-composer?date=YYYY-MM-DD",
+    });
 
     containerEl.createEl("h3", { text: "Composer-Vorlagen" });
 
@@ -195,6 +225,62 @@ export class UniversalDailyNoteSettingTab extends PluginSettingTab {
       .addToggle((t) =>
         t.setValue(tpl.wandernBulkEnabled).onChange(async (value) => {
           tpl.wandernBulkEnabled = value;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Typischer Heizungseintrag")
+      .setDesc("Bulk-Vorlage für ## Heizung: Kurz, Detail, optional Foto.")
+      .addToggle((t) =>
+        t.setValue(tpl.heizungBulkEnabled ?? true).onChange(async (value) => {
+          tpl.heizungBulkEnabled = value;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Typischer Lüftungseintrag")
+      .setDesc("Bulk-Vorlage für ## Lüftung: Kurz, Detail, optional Foto.")
+      .addToggle((t) =>
+        t.setValue(tpl.lueftungBulkEnabled ?? true).onChange(async (value) => {
+          tpl.lueftungBulkEnabled = value;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    const feedDetail = this.plugin.settings.feedDetailLayout ?? {
+      heizungPhotosFolder: "Atlas/Immobilien/EFH Hettenhausen/Anhänge/Heizung/Probleme",
+      lueftungPhotosFolder: "Atlas/Immobilien/EFH Hettenhausen/Anhänge/Lueftung/Wartungsprotokoll Fotos",
+      maxPhotos: 6,
+    };
+
+    containerEl.createEl("h3", { text: "Heizung & Lüftung (Feed + Detail)" });
+
+    new Setting(containerEl)
+      .setName("Heizung Fotos-Ordner")
+      .addText((t) =>
+        t.setValue(feedDetail.heizungPhotosFolder).onChange(async (value) => {
+          feedDetail.heizungPhotosFolder = value.trim() || feedDetail.heizungPhotosFolder;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Lüftung Fotos-Ordner")
+      .setDesc("Jahres-Unterordner wird automatisch angehängt (z. B. …/2026).")
+      .addText((t) =>
+        t.setValue(feedDetail.lueftungPhotosFolder).onChange(async (value) => {
+          feedDetail.lueftungPhotosFolder = value.trim() || feedDetail.lueftungPhotosFolder;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Max. Fotos (Heizung/Lüftung)")
+      .addText((t) =>
+        t.setValue(String(feedDetail.maxPhotos ?? 6)).onChange(async (value) => {
+          feedDetail.maxPhotos = Math.max(1, Number.parseInt(value, 10) || 6);
           await this.plugin.saveSettings();
         }),
       );

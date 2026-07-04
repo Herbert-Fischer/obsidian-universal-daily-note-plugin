@@ -15,14 +15,21 @@
   import { findTagebuchVerweise, type TagebuchVerweisEntry } from "../../tagebuchVerweise/tagebuchVerweise";
   import { formatTargetPageLabel } from "../../tagebuchVerweise/mainPageFile";
   import { openPathInMainPane, openWikiLinkInMain } from "../../notes/openInMainPane";
-  import { parseJournalLinks } from "../../notes/parseJournalLinks";
-  import { parseJournalEntryDisplay } from "../../notes/parseJournalEntryDisplay";
+import { parseJournalLinks } from "../../notes/parseJournalLinks";
+import { parseJournalEntryDisplay } from "../../notes/parseJournalEntryDisplay";
+import { stripJournalLineForDisplay } from "../../notes/journalEntryMeta";
+  import { feedLinkBubbleClass } from "../../notes/feedEntryDisplay";
+  import { journalProfileForHeading } from "../../notes/journalProfiles";
   import { entryHueFromIndex, formatDayBubbleLabel } from "../formatDayBubble";
   import type { PanelStore } from "../panelStore";
   import type { CalendarSyncContext, OutlineRangeMode } from "../../integrations/calendarRange";
   import { outlineRangeModeLabel, resolveOutlineDateBounds } from "../../integrations/calendarRange";
   import { filterLinesByText } from "../../notes/entryTextFilter";
-  import { ALL_JOURNAL_HEADINGS, isAllJournalHeadings } from "../../notes/journalHeadingFilter";
+  import {
+    ALL_JOURNAL_HEADINGS,
+    isAllJournalHeadings,
+    mergeOutlineFilterHeadings,
+  } from "../../notes/journalHeadingFilter";
   import { readDailyNoteSummary } from "../../notes/dailyNoteSummary";
   import FlexTextFilter from "./FlexTextFilter.svelte";
 
@@ -75,12 +82,14 @@
   $: durationDays = Math.max(1, outlineSettings?.durationDays ?? 365);
   $: calCtx = buildCalendarCtx(noteDate, $calendarContext);
   $: dateBounds = resolveOutlineDateBounds(rangeMode, calCtx);
-  $: baselineHeadings =
+  $: baselineHeadings = mergeOutlineFilterHeadings(
     usedHeadings.length > 0
       ? usedHeadings
       : isAllJournalHeadings(journalHeading)
         ? [DEFAULT_JOURNAL_HEADING]
-        : [journalHeading];
+        : [journalHeading],
+    excludedHeadings,
+  );
   $: dropdownHeadings =
     baselineHeadings.some((h) => h.toLowerCase() === journalHeading.toLowerCase())
       ? baselineHeadings
@@ -401,7 +410,8 @@
           </div>
           <div class="udn-timelineDayEntries">
             {#each day.entries as entry (day.filePath + entry.sourceLine + entry.line)}
-              {@const display = parseJournalEntryDisplay(entry.line)}
+              {@const display = parseJournalEntryDisplay(stripJournalLineForDisplay(entry.line))}
+              {@const feedProfile = journalProfileForHeading(entry.section ?? "")?.id}
               <div class="udn-outlineEntry">
                 {#if showTimeBubbles && display.time}
                   <span class="udn-timeBubble">{display.time}</span>
@@ -414,7 +424,7 @@
                     {#if seg.kind === "wiki"}
                       <a
                         href="#"
-                        class="internal-link"
+                        class="internal-link udn-feedLinkBubble {feedLinkBubbleClass(seg.dest, feedProfile)}"
                         use:sidebarPointerAction={() => openWikiLink(seg.dest, entry.dailyNotePath)}
                       >{seg.label}</a>
                     {:else if seg.kind === "url"}

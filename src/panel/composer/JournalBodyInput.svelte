@@ -1,8 +1,9 @@
 <script lang="ts">
   import { tick } from "svelte";
   import type { App } from "obsidian";
-  import { dk, sidebarPointerAction } from "@denkarium/obsidian-lib-ui";
-  import { parseWikiLinks } from "../../notes/parseWikiLinks";
+  import { dk } from "@denkarium/obsidian-lib-ui";
+  import type { FeedProfile } from "../../notes/feedMetadata";
+  import FeedLinkBubbleBody from "../FeedLinkBubbleBody.svelte";
   import { isWikiLinkSuggestOpen, wikiLinkSuggest } from "../wikiLinkInputSuggest";
 
   export let app: App;
@@ -11,6 +12,8 @@
   export let placeholder = "";
   export let ariaLabel = "Eintrag";
   export let sourcePath = "";
+  export let feedProfile: FeedProfile | undefined = undefined;
+  export let linkBubbles = false;
   export let onInput: (value: string) => void = () => {};
   export let onFocus: (ev: FocusEvent) => void = () => {};
   export let onKeydown: (ev: KeyboardEvent) => void = () => {};
@@ -22,7 +25,7 @@
   let applyingLink = false;
 
   $: hasWikiLinks = /\[\[[^\]|]+\]\]/.test(value);
-  $: showInput = editing || !hasWikiLinks;
+  $: showInput = editing || !linkBubbles || !hasWikiLinks;
   $: if (!applyingLink && value !== draft && document.activeElement !== inputEl) {
     draft = value;
   }
@@ -76,6 +79,18 @@
     on:keydown={onKeydown}
     on:blur={onBlurEdit}
   />
+{:else if linkBubbles}
+  <!-- svelte-ignore a11y-no-static-element-interactions -->
+  <span title="Klicken zum Bearbeiten" on:click={startEdit}>
+    <FeedLinkBubbleBody
+      {app}
+      text={value}
+      {feedProfile}
+      {sourcePath}
+      className={className}
+      onOpenWikiLink={onOpenWikiLink}
+    />
+  </span>
 {:else}
   <!-- svelte-ignore a11y-no-static-element-interactions -->
   <span
@@ -83,14 +98,12 @@
     title="Klicken zum Bearbeiten"
     on:click={startEdit}
   >
-    {#each parseWikiLinks(value) as seg, i (i + seg.kind + (seg.kind === "link" ? seg.dest : seg.value))}
-      {#if seg.kind === "link"}
-        <a
-          href="#"
-          class="internal-link"
-          use:sidebarPointerAction={() => onOpenWikiLink(seg.dest, sourcePath)}
-        >{seg.label}</a>
-      {:else}{seg.value}{/if}
-    {/each}
+    <FeedLinkBubbleBody
+      {app}
+      text={value}
+      {feedProfile}
+      {sourcePath}
+      onOpenWikiLink={onOpenWikiLink}
+    />
   </span>
 {/if}
