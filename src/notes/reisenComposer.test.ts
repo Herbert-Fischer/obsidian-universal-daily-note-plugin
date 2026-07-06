@@ -138,4 +138,50 @@ describe("reisenComposer", () => {
     expect(disk).not.toContain("orphan");
     expect(disk).not.toContain("Verwaist");
   });
+
+  it("includes wandern entries with reise assignment in ## Reisen", () => {
+    const body = renderReisenSectionBody([
+      {
+        entryId: "knvh",
+        time: "09:45",
+        body: "Wandern: Bläsis Mühle",
+        context: "Wandern: Bläsis Mühle",
+        profile: "wandern",
+        reiseAssignment: "Mamas 90ter Geburtstag",
+        supplementDetail: "Rundweg mit Aussicht",
+      },
+    ]);
+    const joined = body.join("\n");
+    expect(joined).toContain("Bläsis Mühle");
+    expect(joined).toContain('"reise":"Mamas 90ter Geburtstag"');
+    expect(joined).toContain('"entryId":"knvh"');
+    expect(joined).toContain("Rundweg mit Aussicht");
+  });
+
+  it("merges reise assignment into wandern composer entries", () => {
+    const loaded = parseReisenSupplementsFromLines([
+      "## Reisen",
+      "",
+      "> [!compass]+ Wandern: Bläsis Mühle",
+      "> Kurz",
+      '<!-- udn-reisen: {"entryId":"knvh","reise":"Mamas 90ter","detail":"Kurz"} -->',
+    ]);
+    const merged = mergeReisenSupplementsIntoEntries(
+      [
+        {
+          id: "line-1",
+          line: 1,
+          time: "09:45",
+          body: "Wandern: Bläsis Mühle",
+          rawLine: "",
+          entryId: "knvh",
+          profile: "wandern",
+          context: "Wandern: Bläsis Mühle",
+        },
+      ],
+      loaded,
+    );
+    expect(merged[0]?.reiseAssignment).toBe("Mamas 90ter");
+    expect(merged[0]?.supplementDetail).toBeUndefined();
+  });
 });

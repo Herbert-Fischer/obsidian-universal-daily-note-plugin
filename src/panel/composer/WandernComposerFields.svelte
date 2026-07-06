@@ -17,6 +17,9 @@
   export let previewMarkdown = "";
   export let showPreview = false;
   export let maxPhotos = 3;
+  export let reise = "";
+  export let reiseOptions: string[] = [];
+  export let onReiseChange: (v: string) => void = () => {};
   export let onBeschreibungChange: (v: string) => void = () => {};
   export let onTitelChange: (v: string) => void = () => {};
   export let onRemovePhoto: (index: number) => void = () => {};
@@ -44,9 +47,75 @@
   function focusTarget(ev: Event): void {
     onFocus(ev.currentTarget as HTMLElement);
   }
+
+  const NEW_REISE_VALUE = "__new__";
+  let customReise = "";
+  let selectValue = "";
+  let pendingNewReise = false;
+
+  $: {
+    const trimmed = reise.trim();
+    if (pendingNewReise || (trimmed && !reiseOptions.some((o) => o === trimmed))) {
+      selectValue = NEW_REISE_VALUE;
+      if (trimmed) customReise = trimmed;
+    } else if (trimmed) {
+      selectValue = trimmed;
+      pendingNewReise = false;
+    } else if (!pendingNewReise) {
+      selectValue = "";
+    }
+  }
+
+  function onSelectChange(ev: Event) {
+    const value = (ev.currentTarget as HTMLSelectElement).value;
+    if (value === NEW_REISE_VALUE) {
+      pendingNewReise = true;
+      selectValue = NEW_REISE_VALUE;
+      onReiseChange(customReise.trim());
+      return;
+    }
+    pendingNewReise = false;
+    selectValue = value;
+    onReiseChange(value);
+  }
+
+  function onCustomReiseInput(ev: Event) {
+    customReise = (ev.currentTarget as HTMLInputElement).value;
+    onReiseChange(customReise.trim());
+  }
 </script>
 
 <div class="udn-wandernForm">
+  <div class="udn-reisenReiseRow udn-wandernReiseRow">
+    <span class="udn-reisenReiseLabel">Reise (optional)</span>
+    <div class="udn-reisenReiseFields">
+      <select
+        class="{dk.input} udn-reisenReiseSelect"
+        value={selectValue}
+        on:change={onSelectChange}
+        on:focus={focusTarget}
+        aria-label="Reise zuordnen"
+      >
+        <option value="">— keine Reise —</option>
+        {#each reiseOptions as option (option)}
+          <option value={option}>{option}</option>
+        {/each}
+        <option value={NEW_REISE_VALUE}>Neue Reise…</option>
+      </select>
+      {#if selectValue === NEW_REISE_VALUE}
+        <input
+          type="text"
+          class="{dk.input} udn-reisenReiseSelect"
+          value={customReise}
+          placeholder="z. B. Mamas 90ter Geburtstag"
+          on:input={onCustomReiseInput}
+          on:focus={focusTarget}
+          aria-label="Neue Reise"
+        />
+      {/if}
+    </div>
+  </div>
+
   <label class="udn-composerSummary">
     <span class="udn-composerSummaryLabel">Titel / Callout</span>
     <input

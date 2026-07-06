@@ -302,6 +302,9 @@
     ) {
       needs.add(expanded.profile);
     }
+    if (expanded?.profile === "wandern") {
+      needs.add("reisen");
+    }
 
     reiseGroupSuggestions = needs.has("reisen") ? await ensureGroupLabels("reisen") : [];
     wartungGroupSuggestions = needs.has("lueftung") ? await ensureGroupLabels("lueftung") : [];
@@ -726,7 +729,7 @@
     patch: Partial<
       Pick<
         ComposerEntry,
-        "time" | "body" | "profile" | "context" | "entryId" | "calloutId" | "supplementDetail" | "supplementPhotos" | "supplementKurz" | "supplementTrackPath"
+        "time" | "body" | "profile" | "context" | "entryId" | "calloutId" | "supplementDetail" | "supplementPhotos" | "supplementKurz" | "supplementTrackPath" | "reiseAssignment"
       >
     >,
   ) {
@@ -756,6 +759,7 @@
         updateEntry(entry.id, {
           profile: undefined,
           context: "",
+          reiseAssignment: undefined,
           supplementDetail: undefined,
           supplementPhotos: undefined,
           supplementKurz: undefined,
@@ -769,13 +773,24 @@
         item.setTitle(feedProfileLabel(profileId));
         item.setChecked(entry.profile === profileId);
         item.onClick(() => {
-          updateEntry(entry.id, {
+          const next: Partial<ComposerEntry> = {
             profile: profileId,
-            supplementDetail: entryUsesSupplementFields(profileId) || profileId === "wandern" ? entry.supplementDetail : undefined,
-            supplementPhotos: profileId === "lueftung" || profileId === "heizung" || profileId === "wandern" ? entry.supplementPhotos : undefined,
+            supplementDetail:
+              entryUsesSupplementFields(profileId) || profileId === "wandern" ? entry.supplementDetail : undefined,
+            supplementPhotos:
+              profileId === "lueftung" || profileId === "heizung" || profileId === "wandern"
+                ? entry.supplementPhotos
+                : undefined,
             supplementKurz: profileId === "wandern" ? entry.supplementKurz : undefined,
             supplementTrackPath: profileId === "wandern" ? entry.supplementTrackPath : undefined,
-          });
+            reiseAssignment: profileId === "wandern" ? entry.reiseAssignment : undefined,
+          };
+          if (profileId === "reisen" && entry.profile === "wandern" && entry.reiseAssignment?.trim()) {
+            next.context = entry.reiseAssignment.trim();
+          } else if (profileId === "wandern" && entry.profile === "reisen" && entry.context?.trim()) {
+            next.reiseAssignment = entry.context.trim();
+          }
+          updateEntry(entry.id, next);
           expandedEntryId = entry.id;
         });
       });
@@ -834,6 +849,10 @@
 
   function onEntrySupplementDetailChange(entryId: string, value: string) {
     updateEntry(entryId, { supplementDetail: value });
+  }
+
+  function onEntryWandernReiseChange(entryId: string, value: string) {
+    updateEntry(entryId, { reiseAssignment: value });
   }
 
   function onEntryLueftungPhotosChange(entryId: string, photos: string[]) {
@@ -2063,6 +2082,8 @@
                 <WandernComposerFields
                   {app}
                   titel={entry.context ?? wandernCalloutTitle(entry)}
+                  reise={entry.reiseAssignment ?? ""}
+                  reiseOptions={reiseGroupSuggestions}
                   beschreibung={entry.supplementDetail ?? ""}
                   track={trackMatchFromPath(entry.supplementTrackPath)}
                   photos={entry.supplementPhotos ?? []}
@@ -2073,6 +2094,7 @@
                   previewMarkdown={wandernPreviewForEntry(entry)}
                   showPreview={false}
                   onTitelChange={(value) => onEntryWandernTitelChange(entry.id, value)}
+                  onReiseChange={(value) => onEntryWandernReiseChange(entry.id, value)}
                   onBeschreibungChange={(value) => onEntrySupplementDetailChange(entry.id, value)}
                   onPickTrackClick={() => void openWandernTrackPicker(entry.id)}
                   onTrackOptionPick={(option) => {
@@ -2235,6 +2257,8 @@
           <WandernComposerFields
             {app}
             titel={expandedEntry.context ?? wandernCalloutTitle(expandedEntry)}
+            reise={expandedEntry.reiseAssignment ?? ""}
+            reiseOptions={reiseGroupSuggestions}
             beschreibung={expandedEntry.supplementDetail ?? ""}
             track={trackMatchFromPath(expandedEntry.supplementTrackPath)}
             photos={expandedEntry.supplementPhotos ?? []}
@@ -2245,6 +2269,7 @@
             previewMarkdown={wandernPreviewForEntry(expandedEntry)}
             showPreview={false}
             onTitelChange={(value) => onEntryWandernTitelChange(expandedEntry.id, value)}
+            onReiseChange={(value) => onEntryWandernReiseChange(expandedEntry.id, value)}
             onBeschreibungChange={(value) => onEntrySupplementDetailChange(expandedEntry.id, value)}
             onPickTrackClick={() => void openWandernTrackPicker(expandedEntry.id)}
             onTrackOptionPick={(option) => {

@@ -7,6 +7,8 @@ export type JournalEntryMeta = {
   id: string;
   profile?: FeedProfile;
   context?: string;
+  /** Optional Reise-Zuordnung bei Profil wandern (zusätzlich zur Wanderung in context). */
+  reise?: string;
   callout?: string;
 };
 
@@ -49,6 +51,7 @@ function parseMetaJson(json: string): JournalEntryMeta | null {
       id,
       ...(profile && profile !== "tagebuch" ? { profile } : {}),
       ...(parsed.context?.trim() ? { context: parsed.context.trim() } : {}),
+      ...(parsed.reise?.trim() ? { reise: parsed.reise.trim() } : {}),
       ...(parsed.callout?.trim() ? { callout: parsed.callout.trim() } : {}),
     };
   } catch {
@@ -96,6 +99,7 @@ export function formatEntryMetaComment(meta: JournalEntryMeta): string {
   const payload: Record<string, string> = { id: meta.id };
   if (meta.profile && meta.profile !== "tagebuch") payload.profile = meta.profile;
   if (meta.context?.trim()) payload.context = meta.context.trim();
+  if (meta.reise?.trim()) payload.reise = meta.reise.trim();
   if (meta.callout?.trim()) payload.callout = meta.callout.trim();
   return `${ENTRY_META_PREFIX}${JSON.stringify(payload)} -->`;
 }
@@ -105,7 +109,7 @@ export function appendEntryMeta(text: string, meta: JournalEntryMeta | null): st
   const { body } = stripEntryMeta(text);
   if (!meta?.id) return body;
   const hasProfile = meta.profile && meta.profile !== "tagebuch";
-  if (!hasProfile && !meta.context?.trim() && !meta.callout?.trim()) return body;
+  if (!hasProfile && !meta.context?.trim() && !meta.reise?.trim() && !meta.callout?.trim()) return body;
   return `${body} ${formatEntryMetaComment(meta)}`.trim();
 }
 
@@ -114,15 +118,18 @@ export function entryMetaFromProfile(
   context: string | undefined,
   existingId?: string,
   callout?: string,
+  reise?: string,
 ): JournalEntryMeta | null {
   const id = existingId?.trim() || generateEntryId();
   const ctx = context?.trim() ?? "";
+  const trip = reise?.trim() ?? "";
   const prof = profile && profile !== "tagebuch" ? profile : undefined;
-  if (!prof && !ctx && !callout?.trim()) return null;
+  if (!prof && !ctx && !trip && !callout?.trim()) return null;
   return {
     id,
     ...(prof ? { profile: prof } : {}),
     ...(ctx ? { context: ctx } : {}),
+    ...(prof === "wandern" && trip ? { reise: trip } : {}),
     ...(callout?.trim() ? { callout: callout.trim() } : {}),
   };
 }

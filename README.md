@@ -60,6 +60,23 @@ Plugin-spezifisch: `obsidian-daily-notes-interface`.
 
 Im **Tages-Composer** (Vorlage-Menü) hängen die Angebote vom aktiven Abschnitt ab. **Profil-Integration:** Reisen, Heizung, Lüftung, Gedanken und Wandern als expandierbare Felder am Tagebuch-Eintrag; **Sonstiges** als eigener Composer-Abschnitt (Heading „Sonstiges“).
 
+### Wandern mit optionaler Reise-Zuordnung (ab 1.2.6)
+
+Ein Tagebuch-Eintrag mit Profil **Wandern** hat zwei unabhängige Gruppenfelder:
+
+| Feld | Bedeutung | Ziel-Abschnitt |
+|------|-----------|----------------|
+| **Wanderung** (`context` in `udn-entry`) | Name der Tour (Callout-Titel) | `## Wandern` (Mountain-Callout, GPX, Fotos) |
+| **Reise (optional)** (`reise` in `udn-entry`) | Zuordnung zu einer Reise | zusätzlich `## Reisen` (Compass-Callout) |
+
+Die **Beschreibung** der Wanderung erscheint in `## Wandern` und — bei gesetzter Reise — auch als Erläuterung unter `## Reisen` (für das [[Reise-Tagebuch]]-Dataview).
+
+Beispiel Meta am Bullet:
+
+```markdown
+- 09:45 Wandern: Bläsis Mühle <!-- udn-entry:{"id":"knvh","profile":"wandern","context":"Wandern: Bläsis Mühle","reise":"Mamas 90ter Geburtstag","callout":"knvh"} -->
+```
+
 | Abschnitt | Bulk-Vorlage | Einzel-Vorlagen |
 |-----------|--------------|-----------------|
 | **Tagebuch** | Typischer Tag (Wetter, Aufstehen, Mittagessen, Spaziergang, Kalender) | Aufstehen, Mahlzeiten, Termin, … |
@@ -89,6 +106,21 @@ Live-Abruf von Garmin Connect oder Google Maps ist im Plugin nicht möglich. Sta
 Der Dateiname muss das Datum `YYYY-MM-DD` enthalten. Bei **Typischer Reisetag** wird der Track in die Etappe-Zeile übernommen; bei **Typische Wanderung** in die Track-Zeile (Distanz, Dauer, Wiki-Link). Kartenansicht: Community-Plugin [Map View](https://github.com/esm7/obsidian-map-view).
 
 Einstellungen: **Track-Ordner** unter Plugin-Einstellungen.
+
+## API für Integrationen (ab 1.2.6)
+
+Andere Plugins und Dataview-Views können den Composer mit Eintrags-Fokus öffnen:
+
+```javascript
+const plug = app.plugins.plugins["universal-daily-note"];
+plug.openComposerForDate(new Date(2026, 5, 14), {
+  focusEntryId: "knvh",       // stabile udn-entry-id (optional)
+  focusEntryLine: 42,         // Vault-Zeilennummer (optional)
+  onSaved: (date) => { /* … */ },
+});
+```
+
+`focusEntryId` hat Vorrang vor `focusEntryLine`. Wird u. a. vom **Reise-Tagebuch**-Dataview genutzt (Klick auf Zeit oder Titel eines Eintrags).
 
 
 Siehe **[`.devcontainer/README.md`](.devcontainer/README.md)**. Repo-Mount: **`/workspace/universal-daily-note-plugin`**.

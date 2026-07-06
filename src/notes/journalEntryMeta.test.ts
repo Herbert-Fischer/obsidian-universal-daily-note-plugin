@@ -27,6 +27,20 @@ describe("journalEntryMeta", () => {
     expect(formatEntryMetaComment({ id: "x1" })).toBe('<!-- udn-entry:{"id":"x1"} -->');
   });
 
+  it("roundtrips wandern entry with optional reise assignment", () => {
+    const line =
+      '09:45 Wandern: Test <!-- udn-entry:{"id":"knvh","profile":"wandern","context":"Wandern: Test","reise":"Sommer 2026"} -->';
+    const { body, meta } = stripEntryMeta(line);
+    expect(body).toBe("09:45 Wandern: Test");
+    expect(meta).toEqual({
+      id: "knvh",
+      profile: "wandern",
+      context: "Wandern: Test",
+      reise: "Sommer 2026",
+    });
+    expect(appendEntryMeta(body, meta!)).toBe(line);
+  });
+
   it("returns null for invalid comment", () => {
     expect(parseEntryMetaComment("no meta here")).toBeNull();
   });

@@ -79,6 +79,8 @@ export type ComposerEntry = {
   supplementKurz?: string;
   /** GPX-Pfad für ## Wandern (Profil wandern). */
   supplementTrackPath?: string;
+  /** Optionale Reise-Zuordnung bei Profil wandern (erscheint zusätzlich unter ## Reisen). */
+  reiseAssignment?: string;
 };
 
 export type ComposerState = {
@@ -191,6 +193,8 @@ function entryToComposer(entry: TimelineEntry): ComposerEntry {
         : undefined;
   const context = meta?.context?.trim() || entry.feedContext?.trim() || undefined;
   const entryId = meta?.id || entry.entryId || (profile || context ? generateEntryId() : undefined);
+  const reiseAssignment =
+    profile === "wandern" ? meta?.reise?.trim() || undefined : undefined;
   return {
     id: calendarId ? `cal-${calendarId}` : `line-${entry.line}`,
     line: entry.line,
@@ -201,6 +205,7 @@ function entryToComposer(entry: TimelineEntry): ComposerEntry {
     entryId,
     profile,
     context,
+    reiseAssignment,
     calloutId: meta?.callout || entry.calloutId,
   };
 }
@@ -257,7 +262,18 @@ export async function resortJournalCalloutEntries(
 export function composerEntryText(
   entry: Pick<
     ComposerEntry,
-    "time" | "body" | "calendarId" | "entryId" | "profile" | "context" | "calloutId" | "supplementDetail" | "supplementPhotos" | "supplementKurz" | "supplementTrackPath"
+    | "time"
+    | "body"
+    | "calendarId"
+    | "entryId"
+    | "profile"
+    | "context"
+    | "calloutId"
+    | "supplementDetail"
+    | "supplementPhotos"
+    | "supplementKurz"
+    | "supplementTrackPath"
+    | "reiseAssignment"
   >,
 ): string {
   let body = entry.body.trim();
@@ -274,16 +290,29 @@ export function composerEntryText(
     (entry.supplementDetail?.trim() ||
       entry.supplementKurz?.trim() ||
       entry.supplementTrackPath?.trim() ||
-      (entry.supplementPhotos?.length ?? 0) > 0) &&
+      (entry.supplementPhotos?.length ?? 0) > 0 ||
+      (entry.profile === "wandern" && entry.reiseAssignment?.trim())) &&
     entry.entryId
       ? entry.entryId
       : entry.calloutId;
-  const meta = entryMetaFromProfile(entry.profile, entry.context, entry.entryId, calloutId);
+  const meta = entryMetaFromProfile(
+    entry.profile,
+    entry.context,
+    entry.entryId,
+    calloutId,
+    entry.reiseAssignment,
+  );
   return appendEntryMeta(line, meta);
 }
 
 export function composerEntryMeta(entry: ComposerEntry): JournalEntryMeta | null {
-  return entryMetaFromProfile(entry.profile, entry.context, entry.entryId, entry.calloutId);
+  return entryMetaFromProfile(
+    entry.profile,
+    entry.context,
+    entry.entryId,
+    entry.calloutId,
+    entry.reiseAssignment,
+  );
 }
 
 function supplementEntryDedupeKey(entry: ComposerEntry): string | null {

@@ -11,6 +11,7 @@ import {
 import { journalEntrySortMinutes, parseJournalEntryDisplay } from "./parseJournalEntryDisplay";
 import { detailToCalloutProseLines, stripCalloutPrefixRaw } from "./calloutProse";
 import { processVaultFile } from "./vaultProcess";
+import { wandernCalloutTitle, type WandernSyncEntry } from "./wandernComposer";
 
 export const REISEN_HEADING = "Reisen";
 export const REISEN_META_PREFIX = "<!-- udn-reisen:";
@@ -32,8 +33,63 @@ export type ReisenSupplementsLoadResult = {
 
 export type ReisenSyncEntry = Pick<
   ComposerEntry,
-  "entryId" | "time" | "body" | "context" | "profile" | "supplementDetail"
+  "entryId" | "time" | "body" | "context" | "profile" | "supplementDetail" | "supplementKurz" | "reiseAssignment"
 >;
+
+export function entryQualifiesForReisenSection(entry: Pick<ComposerEntry, "profile" | "reiseAssignment" | "entryId">): boolean {
+  if (!entry.entryId?.trim()) return false;
+  if (entry.profile === "reisen") return true;
+  return entry.profile === "wandern" && Boolean(entry.reiseAssignment?.trim());
+}
+
+function reiseGroupKey(entry: ReisenSyncEntry): string {
+  if (entry.profile === "wandern") return entry.reiseAssignment?.trim() ?? "";
+  return entry.context?.trim() ?? "";
+}
+
+export function reisenSectionEntryTitle(entry: ReisenSyncEntry): string {
+  if (entry.profile === "wandern") {
+    return wandernCalloutTitle({
+      entryId: entry.entryId,
+      time: entry.time,
+      body: entry.body,
+      context: entry.context,
+      profile: entry.profile,
+    } as WandernSyncEntry);
+  }
+  return reisenCalloutTitle(entry);
+}
+
+function reisenSectionEntryDetail(entry: ReisenSyncEntry): string {
+  if (entry.profile === "wandern") {
+    return entry.supplementDetail?.trim() || entry.supplementKurz?.trim() || "";
+  }
+  return entry.supplementDetail ?? "";
+}
+
+function toReisenSyncEntry(entry: ComposerEntry): ReisenSyncEntry | null {
+  if (!entryQualifiesForReisenSection(entry)) return null;
+  if (entry.profile === "wandern") {
+    return {
+      entryId: entry.entryId,
+      time: entry.time,
+      body: entry.body,
+      context: entry.context,
+      profile: entry.profile,
+      supplementDetail: entry.supplementDetail,
+      supplementKurz: entry.supplementKurz,
+      reiseAssignment: entry.reiseAssignment?.trim(),
+    };
+  }
+  return {
+    entryId: entry.entryId,
+    time: entry.time,
+    body: entry.body,
+    context: entry.context,
+    profile: entry.profile,
+    supplementDetail: entry.supplementDetail,
+  };
+}
 
 export function reisenMetaComment(meta: ReisenMeta): string {
   return `${REISEN_META_PREFIX} ${JSON.stringify(meta)} -->`;
@@ -147,12 +203,12 @@ export function renderReisenSectionBody(
   entries: ReisenSyncEntry[],
   sortModes: Record<string, ReisenSortOrder> = {},
 ): string[] {
-  const reisenEntries = entries.filter((e) => e.profile === "reisen" && e.entryId?.trim());
+  const reisenEntries = entries.filter((e) => e.entryId?.trim());
   if (reisenEntries.length === 0) return [];
 
   const byReise = new Map<string, ReisenSyncEntry[]>();
   for (const entry of reisenEntries) {
-    const reise = entry.context?.trim() ?? "";
+    const reise = reiseGroupKey(entry);
     const list = byReise.get(reise) ?? [];
     list.push(entry);
     byReise.set(reise, list);
@@ -173,13 +229,13 @@ export function renderReisenSectionBody(
       out.push(reisenSortComment(reise, order));
     }
     for (const entry of sortReisenEntries(group, order)) {
-      const title = reisenCalloutTitle(entry);
-      const detail = entry.supplementDetail ?? "";
+      const title = reisenSectionEntryTitle(entry);
+      const detail = reisenSectionEntryDetail(entry);
       out.push(...buildReisenCalloutBlock(title, detail).split("\n"));
       out.push(
         reisenMetaComment({
           entryId: entry.entryId!,
-          reise: entry.context?.trim() ?? reise,
+          reise: reiseGroupKey(entry),
           detail,
         }),
       );
@@ -302,15 +358,8 @@ export async function syncReisenSupplements(
   sortModes: Record<string, ReisenSortOrder> = {},
 ): Promise<boolean> {
   const syncEntries: ReisenSyncEntry[] = entries
-    .filter((e) => e.profile === "reisen" && e.entryId?.trim())
-    .map((e) => ({
-      entryId: e.entryId,
-      time: e.time,
-      body: e.body,
-      context: e.context,
-      profile: e.profile,
-      supplementDetail: e.supplementDetail,
-    }));
+    .map((e) => toReisenSyncEntry(e))
+    .filter((e): e is ReisenSyncEntry => e != null);
 
   const bodyLines = renderReisenSectionBody(syncEntries, sortModes);
 
@@ -332,15 +381,29 @@ export function mergeReisenSupplementsIntoEntries(
   loaded: ReisenSupplementsLoadResult,
 ): ComposerEntry[] {
   return entries.map((entry) => {
-    if (entry.profile !== "reisen" || !entry.entryId) return entry;
+    if (!entry.entryId) return entry;
     const sup = loaded.supplements.get(entry.entryId);
     if (!sup) return entry;
-    const hasCallout = loaded.entryIdsWithCallout.has(entry.entryId);
-    return {
-      ...entry,
-      supplementDetail: sup.detail,
-      context: entry.context?.trim() || sup.reise || entry.context,
-      calloutId: hasCallout ? entry.entryId : entry.calloutId,
-    };
+
+    if (entry.profile === "reisen") {
+      const hasCallout = loaded.entryIdsWithCallout.has(entry.entryId);
+      return {
+        ...entry,
+        supplementDetail: sup.detail,
+        context: entry.context?.trim() || sup.reise || entry.context,
+        calloutId: hasCallout ? entry.entryId : entry.calloutId,
+      };
+    }
+
+    if (entry.profile === "wandern") {
+      const hasCallout = loaded.entryIdsWithCallout.has(entry.entryId);
+      return {
+        ...entry,
+        reiseAssignment: entry.reiseAssignment?.trim() || sup.reise || entry.reiseAssignment,
+        calloutId: hasCallout ? entry.entryId : entry.calloutId,
+      };
+    }
+
+    return entry;
   });
 }

@@ -380,10 +380,15 @@ export default class UniversalDailyNotePlugin extends Plugin {
   }
 
   /** Called by Universal Calendar and other integrations. */
-  openComposerForDate(date: Date, options?: { onSaved?: (date: Date) => void }): void {
+  openComposerForDate(
+    date: Date,
+    options?: { onSaved?: (date: Date) => void; focusEntryId?: string; focusEntryLine?: number },
+  ): void {
     openDailyComposer(this, {
       date,
       journalHeading: this.settings.outline.journalHeading,
+      focusEntryId: options?.focusEntryId,
+      focusEntryLine: options?.focusEntryLine,
       onSaved: (savedDate) => {
         options?.onSaved?.(savedDate);
         for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_DAILY_PANEL)) {
