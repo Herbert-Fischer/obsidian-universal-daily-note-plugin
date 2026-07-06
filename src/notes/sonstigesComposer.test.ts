@@ -15,6 +15,14 @@ describe("sonstigesComposer", () => {
     expect(block).not.toContain("> - ");
   });
 
+  it("parses meta comment inside callout prefix", () => {
+    const meta = parseSonstigesMetaLine(
+      '> <!-- udn-sonstiges: {"titel":"Lilien","detail":"Text","feedTime":"23:04","feedKurz":"Lilien"} -->',
+    );
+    expect(meta?.titel).toBe("Lilien");
+    expect(meta?.feedTime).toBe("23:04");
+  });
+
   it("parses meta comment", () => {
     const meta = parseSonstigesMetaLine(
       '<!-- udn-sonstiges: {"titel":"Test","detail":"Text","feedTime":"23:04","feedKurz":"Test"} -->',

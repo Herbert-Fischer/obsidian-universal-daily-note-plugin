@@ -10,6 +10,19 @@ export type VaultLinkIndex = {
   byAlias: Map<string, TFile[]>;
 };
 
+let cachedVaultLinkIndex: { app: App; index: VaultLinkIndex } | null = null;
+
+export function invalidateVaultLinkIndexCache(): void {
+  cachedVaultLinkIndex = null;
+}
+
+export function getVaultLinkIndex(app: App): VaultLinkIndex {
+  if (cachedVaultLinkIndex?.app === app) return cachedVaultLinkIndex.index;
+  const index = buildVaultLinkIndex(app);
+  cachedVaultLinkIndex = { app, index };
+  return index;
+}
+
 export function buildVaultLinkIndex(app: App): VaultLinkIndex {
   const byBasename = new Map<string, TFile[]>();
   const byAlias = new Map<string, TFile[]>();
@@ -54,7 +67,7 @@ function aliasMatchesQuery(alias: string, pageKey: string): boolean {
 function basenameMatchesQuery(basename: string, pageKey: string): boolean {
   const b = basename.trim().toLowerCase();
   if (!b || !pageKey) return false;
-  return b === pageKey || b.endsWith(` ${pageKey}`) || b.includes(pageKey);
+  return b === pageKey || b.endsWith(` ${pageKey}`);
 }
 
 function collectCandidates(app: App, page: string, sourcePath: string, index: VaultLinkIndex): TFile[] {
@@ -77,16 +90,30 @@ function collectCandidates(app: App, page: string, sourcePath: string, index: Va
   return [...new Map(candidates.map((f) => [f.path, f])).values()];
 }
 
-function pickBestCandidate(candidates: TFile[]): TFile | null {
-  if (candidates.length === 0) return null;
-  const sorted = [...candidates].sort((a, b) => {
+function sortCandidatesByPriority(candidates: TFile[]): TFile[] {
+  return [...candidates].sort((a, b) => {
     const score = fileLinkPriority(b.path) - fileLinkPriority(a.path);
     if (score !== 0) return score;
-    return b.path.length - a.path.length;
+    return a.path.length - b.path.length;
   });
+}
 
-  const nonStub = sorted.find((f) => !isLikelyStubPath(f.path));
-  return nonStub ?? sorted[0] ?? null;
+function pickBestCandidate(candidates: TFile[], pageKey = ""): TFile | null {
+  if (candidates.length === 0) return null;
+  const key = pageKey.trim().toLowerCase();
+  const sorted = sortCandidatesByPriority(candidates);
+  const nonStub = sorted.filter((f) => !isLikelyStubPath(f.path));
+
+  if (key) {
+    const exactBasename = candidates.filter((f) => f.basename.toLowerCase() === key);
+    const nonStubExact = sortCandidatesByPriority(exactBasename.filter((f) => !isLikelyStubPath(f.path)));
+    if (nonStubExact[0]) return nonStubExact[0];
+    if (nonStub[0]) return nonStub[0];
+    const stubExact = sortCandidatesByPriority(exactBasename);
+    if (stubExact[0]) return stubExact[0];
+  }
+
+  return nonStub[0] ?? sorted[0] ?? null;
 }
 
 /** Prefer unique basename (Obsidian: `[[Mona Buchmann|Mona]]`); else vault path without `.md`. */
@@ -108,7 +135,7 @@ export function resolveWikiLinkMarkdown(
   const pageTrim = page.trim();
   const label = explicitAlias?.trim() || pageTrim;
   const candidates = collectCandidates(app, pageTrim, sourcePath, index);
-  const best = pickBestCandidate(candidates);
+  const best = pickBestCandidate(candidates, pageTrim);
 
   if (!best) {
     if (heading?.trim()) {
@@ -117,6 +144,14 @@ export function resolveWikiLinkMarkdown(
         : `[[${pageTrim}#${heading.trim()}]]`;
     }
     return explicitAlias?.trim() ? `[[${pageTrim}|${label}]]` : `[[${page}]]`;
+  }
+
+  if (!explicitAlias?.trim()) {
+    const direct = app.metadataCache.getFirstLinkpathDest(pageTrim, sourcePath);
+    if (direct instanceof TFile && direct.path === best.path) {
+      if (heading?.trim()) return `[[${pageTrim}#${heading.trim()}]]`;
+      return `[[${pageTrim}]]`;
+    }
   }
 
   const linkPath = canonicalLinkPath(best, index);
@@ -250,18 +285,7 @@ export function isUnresolvedWikiLink(app: App, dest: string, sourcePath = ""): b
   const hashIdx = dest.indexOf("#");
   const page = (hashIdx >= 0 ? dest.slice(0, hashIdx) : dest).trim();
   if (!page) return true;
-
-  const index = buildVaultLinkIndex(app);
-  const candidates = collectCandidates(app, page, sourcePath, index);
-  const best = pickBestCandidate(candidates);
-  if (!best) return true;
-
-  const canonical = canonicalLinkPath(best, index);
-  const direct = app.metadataCache.getFirstLinkpathDest(page, sourcePath);
-  if (!(direct instanceof TFile)) return true;
-  if (isLikelyStubPath(direct.path) && direct.path !== best.path) return true;
-  if (page.toLowerCase() !== canonical.toLowerCase() && !dest.includes("|")) return true;
-  return false;
+  return !(app.metadataCache.getFirstLinkpathDest(page, sourcePath) instanceof TFile);
 }
 
 const TERM_PREFIX = /^termin:\s*/i;
@@ -284,11 +308,12 @@ export function resolveJournalBodyWikiLinks(app: App, body: string, sourcePath =
 
 /** Upgrade wiki links in stored journal entry lines (incl. existing calendar rows). */
 export function upgradeJournalEntryTextsLinks(app: App, entryTexts: string[], sourcePath = ""): string[] {
+  const index = getVaultLinkIndex(app);
   return entryTexts.map((text) => {
     const entryMeta = parseEntryMetaComment(text);
     const { time, body } = parseJournalEntryDisplay(text);
     const strippedBody = stripEntryMeta(stripCalendarSyncMarker(body)).body;
-    const resolvedBody = resolveJournalBodyWikiLinks(app, strippedBody, sourcePath);
+    const resolvedBody = resolveJournalBodyWikiLinks(app, strippedBody, sourcePath, index);
     if (resolvedBody === strippedBody) return text;
     const calId = parseCalendarSyncId(text);
     const nextBody = calId ? withCalendarSyncMarker(resolvedBody, calId) : resolvedBody;

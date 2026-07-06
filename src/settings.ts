@@ -208,8 +208,8 @@ export const DEFAULT_SETTINGS: UniversalDailyNoteSettings = {
     lastTripLabel: "",
   },
   feedDetailLayout: {
-    heizungPhotosFolder: "Atlas/Immobilien/EFH Hettenhausen/Anhänge/Heizung/Probleme",
-    lueftungPhotosFolder: "Atlas/Immobilien/EFH Hettenhausen/Anhänge/Lueftung/Wartungsprotokoll Fotos",
+    heizungPhotosFolder: "Calendar/Anhänge/Bilder",
+    lueftungPhotosFolder: "Calendar/Anhänge/Bilder",
     maxPhotos: 6,
   },
   composerWindow: {

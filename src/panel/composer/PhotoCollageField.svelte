@@ -8,7 +8,10 @@
   export let app: App;
   export let photos: string[] = [];
   export let maxPhotos = 6;
+  export let label = "";
+  export let showVaultPicker = false;
   export let onAddPhotoClick: () => void = () => {};
+  export let onAddVaultPhotoClick: () => void = () => {};
   export let onRemovePhoto: (index: number) => void = () => {};
   export let onMovePhotoUp: (index: number) => void = () => {};
   export let onMovePhotoDown: (index: number) => void = () => {};
@@ -34,10 +37,22 @@
 
 <div class="udn-photoCollageField">
   <div class="udn-wandernPhotosHead">
-    <span class="udn-composerSummaryLabel">Fotos ({photos.length}/{maxPhotos})</span>
-    <button type="button" class={dk.btnSm} disabled={photos.length >= maxPhotos} on:click={onAddPhotoClick}>
-      Foto hinzufügen
-    </button>
+    <span class="udn-composerSummaryLabel">{label || `Fotos (${photos.length}/${maxPhotos})`}</span>
+    <div class="udn-wandernPhotosHeadActions">
+      <button type="button" class={dk.btnSm} disabled={photos.length >= maxPhotos} on:click={onAddPhotoClick}>
+        Fotos hinzufügen
+      </button>
+      {#if showVaultPicker}
+        <button
+          type="button"
+          class={dk.btnSm}
+          disabled={photos.length >= maxPhotos}
+          on:click={onAddVaultPhotoClick}
+        >
+          Aus Vault
+        </button>
+      {/if}
+    </div>
   </div>
 
   {#if photos.length === 0}

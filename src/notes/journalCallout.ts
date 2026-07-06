@@ -1,5 +1,5 @@
 import { DEFAULT_JOURNAL_HEADING } from "../settings";
-import { formatEntryMetaComment, stripEntryMeta } from "./journalEntryMeta";
+import { appendEntryMeta, stripEntryMeta } from "./journalEntryMeta";
 import { journalProfileForHeading } from "./journalProfiles";
 
 /** Nick Milo / Denkarium callout types written for known ## headings. */
@@ -10,6 +10,7 @@ const HEADING_CALLOUT_WRITE: Record<string, string> = {
   wandern: "mountain",
   heizung: "fire",
   lueftung: "wind",
+  gedanken: "lightbulb",
   wichtig: "cone",
   gesundheit: "activity",
   arbeit: "command",
@@ -27,6 +28,7 @@ const HEADING_CALLOUT_ALIASES: Record<string, string[]> = {
   wandern: ["mountain", "footprints", "wandern", "hike", "notes"],
   heizung: ["fire", "flame", "heizung"],
   lueftung: ["wind", "fan", "lueftung", "lüftung"],
+  gedanken: ["lightbulb", "bulb", "idea", "gedanken"],
   wichtig: ["cone", "warning", "wichtig"],
   gesundheit: ["activity", "gesundheit"],
   arbeit: ["command", "industry", "Industry", "arbeit"],
@@ -80,7 +82,7 @@ export function formatComposerCalloutType(heading: string): string {
   return HEADING_CALLOUT_WRITE[slug] ?? DEFAULT_CALLOUT_TYPE;
 }
 
-const EXPANDED_PROFILE_CALLOUTS = new Set(["reisen", "wandern", "heizung", "lueftung"]);
+const EXPANDED_PROFILE_CALLOUTS = new Set(["reisen", "wandern", "heizung", "lueftung", "gedanken"]);
 
 /** Fold marker for profile ## sections written from the composer (+ = expanded). */
 export function calloutFoldMarkerForHeading(heading: string): string {
@@ -313,8 +315,8 @@ export function buildComposerCalloutBlock(
   for (const text of bulletBodies.map((t) => t.trim()).filter(Boolean)) {
     const { body, meta } = stripEntryMeta(text);
     if (!body) continue;
-    bullets.push(`> - ${body}`);
-    if (meta) bullets.push(`> ${formatEntryMetaComment(meta)}`);
+    const bulletBody = meta ? appendEntryMeta(body, meta) : body;
+    bullets.push(`> - ${bulletBody}`);
   }
   if (bullets.length === 0) return [];
   return [formatManagedCalloutTitleLine(heading, title), ...bullets, ""];

@@ -23,6 +23,8 @@ import {
   resolveComposerCalloutTitle,
 } from "./journalCallout";
 import { ensureSectionHeading, findInsertIndex } from "./appendLogLine";
+import { stripLeadingTimeFromKurz } from "./appendTagebuchFeedLine";
+import { splitFeedEntrySuffix } from "./feedEntryDisplay";
 import { parseFeedMetadataComment } from "./feedMetadata";
 import { formatJournalEntryText, journalEntrySortMinutes, parseJournalEntryDisplay, sortJournalEntryTexts } from "./parseJournalEntryDisplay";
 import {
@@ -47,10 +49,16 @@ import {
   entryMetaFromProfile,
   generateEntryId,
   isEntryMetaCommentLine,
+  parseEntryMetaComment,
   stripEntryMeta,
+  stripJournalLineForDisplay,
   type JournalEntryMeta,
 } from "./journalEntryMeta";
 import { loadReisenSupplements, mergeReisenSupplementsIntoEntries, type ReisenSortOrder } from "./reisenComposer";
+import { loadHeizungSupplements, mergeHeizungSupplementsIntoEntries } from "./heizungComposer";
+import { loadLueftungSupplements, mergeLueftungSupplementsIntoEntries } from "./lueftungComposer";
+import { loadGedankenSupplements, mergeGedankenSupplementsIntoEntries } from "./gedankenComposer";
+import { loadWandernSupplements, mergeWandernSupplementsIntoEntries } from "./wandernComposer";
 
 export type ComposerEntry = {
   id: string;
@@ -65,6 +73,12 @@ export type ComposerEntry = {
   calloutId?: string;
   /** Fließtext im Profil-Supplement-Callout (z. B. ## Reisen). */
   supplementDetail?: string;
+  /** Bilder im Profil-Supplement-Callout (z. B. ## Lüftung). */
+  supplementPhotos?: string[];
+  /** Kurztext für ## Wandern (Profil wandern). */
+  supplementKurz?: string;
+  /** GPX-Pfad für ## Wandern (Profil wandern). */
+  supplementTrackPath?: string;
 };
 
 export type ComposerState = {
@@ -125,6 +139,22 @@ export const LUEFTUNG_COMPOSER_CHIPS: ComposerChip[] = [
   { label: "Wartung", template: "Wartung:", defaultTime: "11:00" },
   { label: "Störung", template: "Störung:", defaultTime: "12:00" },
   { label: "Foto", template: "Foto:", defaultTime: "12:30" },
+];
+
+export const GEDANKEN_COMPOSER_CHIPS: ComposerChip[] = [
+  { label: "Einfall", template: "Einfall:", defaultTime: "09:00" },
+  { label: "Beobachtung", template: "Beobachtung:", defaultTime: "12:00" },
+  { label: "Frage", template: "Frage:", defaultTime: "14:00" },
+  { label: "Später prüfen", template: "Später prüfen:", defaultTime: "16:00" },
+  { label: "Notiz", template: "Notiz:", defaultTime: "18:00" },
+];
+
+export const SONSTIGES_COMPOSER_CHIPS: ComposerChip[] = [
+  { label: "Notiz", template: "Notiz:", defaultTime: "12:00" },
+  { label: "Geschenk", template: "Geschenk:", defaultTime: "14:00" },
+  { label: "Besuch", template: "Besuch:", defaultTime: "15:00" },
+  { label: "Erledigt", template: "Erledigt:", defaultTime: "16:00" },
+  { label: "Später", template: "Später:", defaultTime: "18:00" },
 ];
 
 export const GENERIC_COMPOSER_CHIPS: ComposerChip[] = [
@@ -227,7 +257,7 @@ export async function resortJournalCalloutEntries(
 export function composerEntryText(
   entry: Pick<
     ComposerEntry,
-    "time" | "body" | "calendarId" | "entryId" | "profile" | "context" | "calloutId" | "supplementDetail"
+    "time" | "body" | "calendarId" | "entryId" | "profile" | "context" | "calloutId" | "supplementDetail" | "supplementPhotos" | "supplementKurz" | "supplementTrackPath"
   >,
 ): string {
   let body = entry.body.trim();
@@ -236,7 +266,16 @@ export function composerEntryText(
   }
   const line = formatJournalEntryText(entry.time, body);
   const calloutId =
-    entry.profile === "reisen" && entry.supplementDetail?.trim() && entry.entryId
+    (entry.profile === "reisen" ||
+      entry.profile === "lueftung" ||
+      entry.profile === "heizung" ||
+      entry.profile === "gedanken" ||
+      entry.profile === "wandern") &&
+    (entry.supplementDetail?.trim() ||
+      entry.supplementKurz?.trim() ||
+      entry.supplementTrackPath?.trim() ||
+      (entry.supplementPhotos?.length ?? 0) > 0) &&
+    entry.entryId
       ? entry.entryId
       : entry.calloutId;
   const meta = entryMetaFromProfile(entry.profile, entry.context, entry.entryId, calloutId);
@@ -247,6 +286,72 @@ export function composerEntryMeta(entry: ComposerEntry): JournalEntryMeta | null
   return entryMetaFromProfile(entry.profile, entry.context, entry.entryId, entry.calloutId);
 }
 
+function supplementEntryDedupeKey(entry: ComposerEntry): string | null {
+  if (!entry.profile || entry.profile === "tagebuch") return null;
+  const { lead } = splitFeedEntrySuffix(stripJournalLineForDisplay(entry.body));
+  const bodyKey = stripLeadingTimeFromKurz(lead).trim().toLowerCase();
+  if (entry.profile === "wandern") {
+    const ctxKey = wandernTitleFromText(entry.context ?? "").trim().toLowerCase();
+    const titleKey = ctxKey.length > bodyKey.length ? ctxKey : bodyKey;
+    return `wandern::${titleKey}`;
+  }
+  const ctx = (entry.context ?? "").trim().toLowerCase();
+  return `${entry.profile}::${bodyKey}::${ctx}`;
+}
+
+function wandernTitleFromText(text: string): string {
+  const { lead } = splitFeedEntrySuffix(stripJournalLineForDisplay(text));
+  return stripLeadingTimeFromKurz(lead).trim();
+}
+
+function supplementEntryRichness(entry: ComposerEntry): number {
+  let score = 0;
+  if (entry.calloutId) score += 8;
+  if (entry.supplementDetail?.trim()) score += 4;
+  if (entry.supplementTrackPath?.trim()) score += 3;
+  if ((entry.supplementPhotos?.length ?? 0) > 0) score += 2;
+  if (entry.supplementKurz?.trim()) score += 1;
+  if (entry.entryId) score += 1;
+  if (parseEntryMetaComment(composerEntryText(entry))) score += 2;
+  return score;
+}
+
+/** Merge duplicate supplement-profile rows (e.g. feed suffix copy + original bullet). */
+export function dedupeSupplementProfileEntries(entries: ComposerEntry[]): ComposerEntry[] {
+  const result: ComposerEntry[] = [];
+  const indexByKey = new Map<string, number>();
+
+  for (const entry of entries) {
+    const key = supplementEntryDedupeKey(entry);
+    if (!key) {
+      result.push(entry);
+      continue;
+    }
+    const idx = indexByKey.get(key);
+    if (idx == null) {
+      indexByKey.set(key, result.length);
+      result.push(entry);
+      continue;
+    }
+    const prev = result[idx]!;
+    if (supplementEntryRichness(entry) <= supplementEntryRichness(prev)) continue;
+    result[idx] = {
+      ...prev,
+      ...entry,
+      id: prev.id,
+      line: prev.line,
+      entryId: entry.entryId || prev.entryId,
+      calloutId: entry.calloutId || prev.calloutId,
+      supplementDetail: entry.supplementDetail || prev.supplementDetail,
+      supplementKurz: entry.supplementKurz || prev.supplementKurz,
+      supplementTrackPath: entry.supplementTrackPath || prev.supplementTrackPath,
+      supplementPhotos:
+        (entry.supplementPhotos?.length ?? 0) > 0 ? entry.supplementPhotos : prev.supplementPhotos,
+    };
+  }
+
+  return result;
+}
 
 export function formatComposerEntryLine(text: string): string {
   const trimmed = text.trim();
@@ -282,6 +387,8 @@ export function chipsForHeading(heading: string, prefixes: string[]): ComposerCh
   if (h === "wandern") return chipsFromPrefixes(prefixes, WANDERN_COMPOSER_CHIPS);
   if (h === "heizung") return chipsFromPrefixes(prefixes, HEIZUNG_COMPOSER_CHIPS);
   if (h === "lüftung" || h === "lueftung") return chipsFromPrefixes(prefixes, LUEFTUNG_COMPOSER_CHIPS);
+  if (h === "gedanken") return chipsFromPrefixes(prefixes, GEDANKEN_COMPOSER_CHIPS);
+  if (h === "sonstiges") return chipsFromPrefixes(prefixes, SONSTIGES_COMPOSER_CHIPS);
   return chipsFromPrefixes(prefixes, GENERIC_COMPOSER_CHIPS);
 }
 
@@ -417,6 +524,10 @@ export function rewriteJournalBullets(
       i++;
       continue;
     }
+    if (trimmed.startsWith("<!-- udn-lueftung-entry:") || trimmed.startsWith("<!-- udn-heizung-entry:") || trimmed.startsWith("<!-- udn-wandern-entry:")) {
+      i++;
+      continue;
+    }
     if (isEntryMetaCommentLine(line)) {
       i++;
       continue;
@@ -504,6 +615,15 @@ export async function loadComposerState(
   entries = sortComposerEntries(entries);
   const reisenLoaded = await loadReisenSupplements(app, file);
   entries = mergeReisenSupplementsIntoEntries(entries, reisenLoaded);
+  const lueftungLoaded = await loadLueftungSupplements(app, file);
+  entries = mergeLueftungSupplementsIntoEntries(entries, lueftungLoaded);
+  const heizungLoaded = await loadHeizungSupplements(app, file);
+  entries = mergeHeizungSupplementsIntoEntries(entries, heizungLoaded);
+  const gedankenLoaded = await loadGedankenSupplements(app, file);
+  entries = mergeGedankenSupplementsIntoEntries(entries, gedankenLoaded);
+  const wandernLoaded = await loadWandernSupplements(app, file);
+  entries = mergeWandernSupplementsIntoEntries(entries, wandernLoaded);
+  entries = dedupeSupplementProfileEntries(entries);
   const priorTexts = entries.map(composerEntryText);
   entries = entries.map((entry) => {
     const body = resolveJournalBodyWikiLinks(app, entry.body, file.path);
@@ -519,7 +639,8 @@ export async function loadComposerState(
   })();
   const photoMeta = parsePhotoCollageMetaFromLines(sectionLines);
   const parsedCollage = parsePhotoCollageFromLines(sectionLines, 0, sectionLines.length);
-  const photos = mergePhotoSources(parsedCollage, photoMeta).photos;
+  const hasSupplementPhotoEntries = entries.some((e) => e.profile === "lueftung" || e.profile === "heizung");
+  const photos = hasSupplementPhotoEntries ? [] : mergePhotoSources(parsedCollage, photoMeta).photos;
 
   if (linksUpgraded) {
     await saveComposerState(

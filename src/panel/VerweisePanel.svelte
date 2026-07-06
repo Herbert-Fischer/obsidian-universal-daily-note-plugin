@@ -98,7 +98,15 @@
       refreshActiveFile();
       syncFromCalendar();
     };
-    const onDataChange = () => bumpRefresh(store);
+    let refreshDebounce: ReturnType<typeof setTimeout> | null = null;
+    const scheduleRefresh = () => {
+      if (refreshDebounce) clearTimeout(refreshDebounce);
+      refreshDebounce = setTimeout(() => {
+        refreshDebounce = null;
+        bumpRefresh(store);
+      }, 350);
+    };
+    const onDataChange = () => scheduleRefresh();
 
     const workspaceRef = app.workspace.on("active-leaf-change", onLeafChange);
     const layoutRef = app.workspace.on("layout-change", syncFromCalendar);
@@ -110,6 +118,7 @@
     ];
 
     return () => {
+      if (refreshDebounce) clearTimeout(refreshDebounce);
       app.workspace.offref(workspaceRef);
       app.workspace.offref(layoutRef);
       app.metadataCache.offref(metaRef);

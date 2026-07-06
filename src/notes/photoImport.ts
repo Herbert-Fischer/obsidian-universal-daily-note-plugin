@@ -1,16 +1,12 @@
 import type { App } from "obsidian";
-import { normalizePath } from "obsidian";
 import type { FeedDetailLayoutSettings, WandernLayoutSettings } from "../settings";
 import {
-  buildAttachmentVaultPath,
-  buildWandernAttachmentVaultPath,
+  DEFAULT_DAILY_PHOTOS_FOLDER,
   importAttachmentFile,
-  importWandernAttachmentFile,
+  importDailyNotePhotoFile,
 } from "./attachJournalMedia";
-import { importFeedDetailPhotoFile } from "./feedDetailComposer";
 import type { JournalProfileDef } from "./journalProfiles";
-import { journalProfileForHeading } from "./journalProfiles";
-import { lueftungPhotosFolderForYear } from "./journalProfiles";
+import { journalProfileById, journalProfileForHeading } from "./journalProfiles";
 
 export type PhotoImportContext = {
   date: Date;
@@ -20,98 +16,63 @@ export type PhotoImportContext = {
   attachmentsFolder?: string;
   wandernLayout?: WandernLayoutSettings;
   feedDetailLayout?: FeedDetailLayoutSettings;
+  /** Per-entry Lüftung callout title for attachment subfolder. */
+  lueftungEntryTitle?: string;
+  /** Per-entry Heizung callout title for attachment subfolder. */
+  heizungEntryTitle?: string;
+  /** Per-entry Wandern callout title for attachment subfolder. */
+  wandernEntryTitle?: string;
 };
 
 function profileForContext(ctx: PhotoImportContext): JournalProfileDef | null {
   return journalProfileForHeading(ctx.heading);
 }
 
-function photosFolderForProfile(
-  profile: JournalProfileDef,
-  ctx: PhotoImportContext,
-): string {
-  if (profile.id === "wandern") {
-    return ctx.wandernLayout?.photosFolder?.trim() || profile.photosFolder;
+function dailyPhotosFolder(ctx: PhotoImportContext): string {
+  if (ctx.lueftungEntryTitle?.trim()) {
+    return journalProfileById("lueftung")?.photosFolder.trim() || DEFAULT_DAILY_PHOTOS_FOLDER;
   }
-  if (profile.id === "heizung") {
-    return ctx.feedDetailLayout?.heizungPhotosFolder.trim() || profile.photosFolder;
+  if (ctx.heizungEntryTitle?.trim()) {
+    return journalProfileById("heizung")?.photosFolder.trim() || DEFAULT_DAILY_PHOTOS_FOLDER;
   }
-  if (profile.id === "lueftung") {
-    const base = ctx.feedDetailLayout?.lueftungPhotosFolder.trim() || profile.photosFolder;
-    return lueftungPhotosFolderForYear(base, ctx.date.getFullYear());
+  if (ctx.wandernEntryTitle?.trim()) {
+    return journalProfileById("wandern")?.photosFolder.trim() || DEFAULT_DAILY_PHOTOS_FOLDER;
   }
-  return ctx.attachmentsFolder?.trim() || "Attachments";
-}
-
-async function ensureFolder(app: App, folderPath: string): Promise<void> {
-  const parts = folderPath.split("/").filter(Boolean);
-  let current = "";
-  for (const part of parts) {
-    current = current ? `${current}/${part}` : part;
-    if (!app.vault.getAbstractFileByPath(current)) {
-      await app.vault.createFolder(current);
-    }
+  const profile = profileForContext(ctx);
+  if (profile?.id === "lueftung" || profile?.id === "heizung" || profile?.id === "reisen") {
+    return profile.photosFolder.trim() || DEFAULT_DAILY_PHOTOS_FOLDER;
   }
-}
-
-async function importListPhotoFile(
-  app: App,
-  file: File,
-  ctx: PhotoImportContext,
-): Promise<string> {
-  const folder = photosFolderForProfile(
-    journalProfileForHeading(ctx.heading) ?? {
-      id: "tagebuch",
-      label: ctx.heading,
-      kind: "list",
-      hubLink: "",
-      feedSuffix: "",
-      photosFolder: ctx.attachmentsFolder ?? "Attachments",
-      maxPhotos: 6,
-    },
-    ctx,
+  return (
+    ctx.wandernLayout?.photosFolder?.trim() ||
+    ctx.feedDetailLayout?.heizungPhotosFolder.trim() ||
+    DEFAULT_DAILY_PHOTOS_FOLDER
   );
-  let destPath = buildAttachmentVaultPath(ctx.date, folder, file.name);
-  const parent = destPath.replace(/\/[^/]+$/, "");
-  await ensureFolder(app, parent);
-  if (app.vault.getAbstractFileByPath(destPath)) {
-    const dot = destPath.lastIndexOf(".");
-    const stem = dot >= 0 ? destPath.slice(0, dot) : destPath;
-    const ext = dot >= 0 ? destPath.slice(dot) : "";
-    destPath = `${stem}-${Math.random().toString(36).slice(2, 4)}${ext}`;
-  }
-  const data = await file.arrayBuffer();
-  await app.vault.createBinary(destPath, data);
-  return normalizePath(destPath);
+}
+
+function calloutTitleForImport(ctx: PhotoImportContext): string {
+  return (
+    ctx.lueftungEntryTitle?.trim() ||
+    ctx.heizungEntryTitle?.trim() ||
+    ctx.wandernEntryTitle?.trim() ||
+    ctx.calloutTitle.trim() ||
+    ctx.heading.trim() ||
+    "Tagebuch"
+  );
 }
 
 /** Unified photo import for all composer modes. */
 export async function importJournalPhoto(app: App, file: File, ctx: PhotoImportContext): Promise<string> {
   const profile = profileForContext(ctx);
 
-  if (profile?.id === "wandern") {
-    return importWandernAttachmentFile(
+  if (profile?.id === "wandern" || profile?.id === "lueftung" || profile?.id === "heizung" || profile?.kind === "list" || !profile) {
+    return importDailyNotePhotoFile(
       app,
       file,
-      ctx.photoIndex,
-      ctx.calloutTitle.trim() || "Wandern",
-      ctx.wandernLayout?.photosFolder ?? profile.photosFolder,
-    );
-  }
-
-  if (profile && (profile.id === "heizung" || profile.id === "lueftung") && ctx.feedDetailLayout) {
-    return importFeedDetailPhotoFile(
-      app,
-      file,
-      ctx.photoIndex,
       ctx.date,
-      profile,
-      ctx.feedDetailLayout,
+      ctx.photoIndex,
+      calloutTitleForImport(ctx),
+      dailyPhotosFolder(ctx),
     );
-  }
-
-  if (profile?.kind === "list" || !profile) {
-    return importListPhotoFile(app, file, ctx);
   }
 
   return importAttachmentFile(app, file, ctx.date, ctx.attachmentsFolder ?? "Attachments");

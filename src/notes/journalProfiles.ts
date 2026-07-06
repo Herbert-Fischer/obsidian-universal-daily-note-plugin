@@ -16,21 +16,30 @@ export type JournalProfileDef = {
 
 export const JOURNAL_PROFILES: JournalProfileDef[] = [
   {
+    id: "gedanken",
+    label: "Gedanken",
+    kind: "list",
+    hubLink: "Gedanken-Inbox",
+    feedSuffix: "([[Gedanken-Inbox]])",
+    photosFolder: "Calendar/Anhänge/Bilder",
+    maxPhotos: 0,
+  },
+  {
     id: "heizung",
     label: "Heizung",
-    kind: "detail",
+    kind: "list",
     hubLink: "Heizungs-Tagebuch",
     feedSuffix: "([[EFH Hettenhausen]]) ([[Heizung]]) ([[Heizungs-Tagebuch]]) ([[Operation Warmduscher]])",
-    photosFolder: "Atlas/Immobilien/EFH Hettenhausen/Anhänge/Heizung/Probleme",
+    photosFolder: "Calendar/Anhänge/Bilder",
     maxPhotos: 6,
   },
   {
     id: "lueftung",
     label: "Lüftung",
-    kind: "detail",
+    kind: "list",
     hubLink: "Lüftungs-Tagebuch",
     feedSuffix: "([[EFH Hettenhausen]] · [[Lüftungs-Tagebuch]])",
-    photosFolder: "Atlas/Immobilien/EFH Hettenhausen/Anhänge/Lueftung/Wartungsprotokoll Fotos",
+    photosFolder: "Calendar/Anhänge/Bilder",
     maxPhotos: 6,
   },
   {
@@ -50,6 +59,15 @@ export const JOURNAL_PROFILES: JournalProfileDef[] = [
     feedSuffix: "([[Wandern-Tagebuch]])",
     photosFolder: "Calendar/Anhänge/Bilder",
     maxPhotos: 3,
+  },
+  {
+    id: "sonstiges",
+    label: "Sonstiges",
+    kind: "detail",
+    hubLink: "",
+    feedSuffix: "",
+    photosFolder: "Calendar/Anhänge/Bilder",
+    maxPhotos: 0,
   },
 ];
 

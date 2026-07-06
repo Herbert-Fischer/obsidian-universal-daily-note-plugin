@@ -134,6 +134,33 @@ describe("resolveWikiLinks", () => {
     expect(out[0]).not.toMatch(/Termin:.*\[\[Lindengut\]\]/);
   });
 
+  it("keeps short link for exact basename when a longer note also contains the query", () => {
+    const app = mockApp(
+      [
+        { path: "Atlas/Immobilien/EFH Hettenhausen/EFH Hettenhausen.md", basename: "EFH Hettenhausen" },
+        {
+          path: "Atlas/Technologien/PV und Messstelle EFH Hettenhausen.md",
+          basename: "PV und Messstelle EFH Hettenhausen",
+        },
+      ],
+      { "efh hettenhausen": "Atlas/Immobilien/EFH Hettenhausen/EFH Hettenhausen.md" },
+    );
+    const index = buildVaultLinkIndex(app);
+    const resolved = resolveWikiLinkMarkdown(
+      app,
+      "EFH Hettenhausen",
+      undefined,
+      undefined,
+      "Calendar/Notes/2026-07-04.md",
+      index,
+    );
+    expect(resolved).toBe("[[EFH Hettenhausen]]");
+    expect(
+      resolveWikiLinksInText(app, "Filter [[EFH Hettenhausen]]", "Calendar/Notes/2026-07-04.md", index),
+    ).toBe("Filter [[EFH Hettenhausen]]");
+    expect(isUnresolvedWikiLink(app, "EFH Hettenhausen", "Calendar/Notes/2026-07-04.md")).toBe(false);
+  });
+
   it("preserves udn-entry metadata when upgrading links", () => {
     const app = mockApp(
       [

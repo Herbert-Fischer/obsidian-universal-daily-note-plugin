@@ -32,6 +32,7 @@ describe("journalHeadingFilter", () => {
   it("mergeOutlineFilterHeadings always includes profile sections", () => {
     expect(mergeOutlineFilterHeadings(["Tagebuch", "Sonstiges"])).toEqual([
       "Tagebuch",
+      "Gedanken",
       "Heizung",
       "Lüftung",
       "Reisen",

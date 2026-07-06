@@ -36,7 +36,7 @@ describe("journalCallout", () => {
     ]);
   });
 
-  it("writes udn-entry metadata on a separate callout line", () => {
+  it("writes udn-entry metadata inline on the bullet line", () => {
     const block = buildComposerCalloutBlock(
       "Tagebuch",
       [
@@ -46,8 +46,7 @@ describe("journalCallout", () => {
     );
     expect(block).toEqual([
       "> [!tagebuch-ref] 01.06.2026",
-      "> - 13:06 Fahrt",
-      '> <!-- udn-entry:{"id":"3m2g","profile":"reisen","context":"Erbach"} -->',
+      '> - 13:06 Fahrt <!-- udn-entry:{"id":"3m2g","profile":"reisen","context":"Erbach"} -->',
       "",
     ]);
   });

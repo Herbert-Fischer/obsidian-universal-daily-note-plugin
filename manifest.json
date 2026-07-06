@@ -1,7 +1,7 @@
 {
   "id": "universal-daily-note",
   "name": "Universal Daily Note",
-  "version": "1.2.1",
+  "version": "1.2.5",
   "minAppVersion": "1.6.0",
   "description": "Daily note management for Obsidian (Denkarium conventions).",
   "author": "hfx",

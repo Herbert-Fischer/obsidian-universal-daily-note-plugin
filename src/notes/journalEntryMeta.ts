@@ -15,6 +15,7 @@ const PROFILE_LETTERS: Partial<Record<FeedProfile, string>> = {
   wandern: "W",
   heizung: "H",
   lueftung: "L",
+  gedanken: "G",
   sonstiges: "S",
 };
 

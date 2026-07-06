@@ -169,7 +169,7 @@ describe("wandernLayout", () => {
       if (line.trim().length === 0) continue;
       expect(line.startsWith("> > > ")).toBe(true);
     }
-    expect(out).not.toMatch(/\npath: Calendar\/Tracks/);
+    expect(out).not.toMatch(/\n> > > > /);
   });
 
   it("renderWandernTemplate keeps multi-column siblings at correct blockquote depth", () => {
@@ -197,7 +197,8 @@ describe("wandernLayout", () => {
     });
     expect(out).not.toMatch(/\n>\n> > > \[!blank-container/);
     expect(out).toMatch(/\n> > > \[!blank-container\|no-margin gallery gallery-row/);
-    expect(out).toMatch(/\n> > > \*\*Kurz:\*\* Kurz/);
+    expect(out).toMatch(/\n> > > Lang/);
+    expect(out).not.toMatch(/\n> > > \*\*Kurz:\*\*/);
     expect(out).not.toMatch(/\n> >\s*$/);
   });
 

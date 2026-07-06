@@ -20,13 +20,32 @@ import {
   resolveOutlineFeedFilters,
   type FeedProfile,
 } from "./feedMetadata";
+import { isRecentComposerSave } from "./composerSaveTrace";
 import { readDailyNoteSummary } from "./dailyNoteSummary";
 import { stripLeadingTimeFromKurz, findTagebuchFeedLine } from "./appendTagebuchFeedLine";
 import { parseJournalEntryDisplay } from "./parseJournalEntryDisplay";
 import { buildReisenFeedKurz, buildWandernFeedKurz, feedDetailTimelineTextFromMeta, parseFeedDetailMetaFromLines, parseFeedDetailMetaLine } from "./feedDetailComposer";
 import { parseSonstigesMetaFromLines, parseSonstigesMetaLine, SONSTIGES_HEADING } from "./sonstigesComposer";
 import { collectReisenEntryIds, parseReisenMetaLine, parseReisenSortLine, reisenSupplementMatchesByTitle } from "./reisenComposer";
+import {
+  collectHeizungEntryIds,
+  heizungContextByEntryId,
+  heizungSupplementMatchesByTitle,
+  parseHeizungMetaLine,
+} from "./heizungComposer";
+import {
+  collectLueftungEntryIds,
+  lueftungContextByEntryId,
+  lueftungSupplementMatchesByTitle,
+  parseLueftungMetaLine,
+} from "./lueftungComposer";
 import { journalProfileById, journalProfileForHeading } from "./journalProfiles";
+import {
+  collectWandernEntryIds,
+  parseWandernEntryMetaLine,
+  wandernContextByEntryId,
+  wandernSupplementMatchesByTitle,
+} from "./wandernComposer";
 import { parseWandernMetaFromLines, parseWandernMetaLine, wandernTimelineTextFromMeta } from "./wandernLayout";
 import {
   isLegacyMisplacedSonstigesTripCallout,
@@ -51,6 +70,29 @@ function tryWandernTimelineEntry(
   lineIndex: number,
   section: string,
 ): TimelineEntry | null {
+  const entryMeta = parseWandernEntryMetaLine(line.trim());
+  if (entryMeta) {
+    const text = wandernTimelineTextFromMeta({
+      kurz: entryMeta.kurz,
+      beschreibung: entryMeta.beschreibung,
+      track: entryMeta.track,
+      trackPath: entryMeta.trackPath,
+      fotos: entryMeta.fotos ?? [],
+      titel: entryMeta.titel,
+    });
+    if (!text) return null;
+    return {
+      line: lineIndex,
+      text,
+      rawLine: line,
+      section,
+      feedProfile: "wandern",
+      entryId: entryMeta.entryId,
+      hasCallout: true,
+      calloutId: entryMeta.entryId,
+      ...(entryMeta.titel.trim().toLowerCase() !== "wandern" ? { feedContext: entryMeta.titel.trim() } : {}),
+    };
+  }
   const meta = parseWandernMetaLine(line.trim());
   if (!meta) return null;
   const text = wandernTimelineTextFromMeta(meta);
@@ -902,9 +944,28 @@ function mergeSyntheticTagebuchFeedEntries(lines: string[], entries: TimelineEnt
   addDetail("lueftung", "Lüftung");
 
   if (!has("wandern")) {
+    const wandernIds = collectWandernEntryIds(lines);
     const range = extractSectionRange(lines, "Wandern");
     const profile = journalProfileById("wandern");
-    if (range && profile) {
+    if (profile && range && wandernIds.size > 0) {
+      let titel = "";
+      for (let i = range.start + 1; i < range.end; i++) {
+        const meta = parseWandernEntryMetaLine(lines[i] ?? "");
+        if (meta?.titel.trim()) {
+          titel = meta.titel.trim();
+          break;
+        }
+      }
+      const kurz = stripLeadingTimeFromKurz(buildWandernFeedKurz("", titel || "Wandern"));
+      const text = `${kurz} ${profile.feedSuffix}`.trim();
+      next.push({
+        line: range.start + 1,
+        text,
+        rawLine: `- ${text}`,
+        feedProfile: "wandern",
+        ...(titel.trim() !== "Wandern" ? { feedContext: titel.trim() } : {}),
+      });
+    } else if (range && profile) {
       const meta = parseWandernMetaFromLines(lines.slice(range.start + 1, range.end));
       if (meta) {
         const kurz = stripLeadingTimeFromKurz(buildWandernFeedKurz(meta.kurz, meta.titel || "Wandern"));
@@ -933,6 +994,56 @@ function mergeSyntheticTagebuchFeedEntries(lines: string[], entries: TimelineEnt
           ...(entry.feedContext ? { feedContext: entry.feedContext } : {}),
         });
       }
+    }
+  }
+
+  if (!has("lueftung")) {
+    const lueftungIds = collectLueftungEntryIds(lines);
+    const profile = journalProfileById("lueftung");
+    const range = extractSectionRange(lines, "Lüftung");
+    if (profile && range && lueftungIds.size > 0) {
+      let wartung = "";
+      for (let i = range.start + 1; i < range.end; i++) {
+        const meta = parseLueftungMetaLine(lines[i] ?? "");
+        if (meta?.wartung.trim()) {
+          wartung = meta.wartung.trim();
+          break;
+        }
+      }
+      const kurz = stripLeadingTimeFromKurz(wartung || "Lüftung");
+      const text = `${kurz} ${profile.feedSuffix}`.trim();
+      next.push({
+        line: range.start + 1,
+        text,
+        rawLine: `- ${text}`,
+        feedProfile: "lueftung",
+        ...(wartung ? { feedContext: wartung } : {}),
+      });
+    }
+  }
+
+  if (!has("heizung")) {
+    const heizungIds = collectHeizungEntryIds(lines);
+    const profile = journalProfileById("heizung");
+    const range = extractSectionRange(lines, "Heizung");
+    if (profile && range && heizungIds.size > 0) {
+      let vorfall = "";
+      for (let i = range.start + 1; i < range.end; i++) {
+        const meta = parseHeizungMetaLine(lines[i] ?? "");
+        if (meta?.vorfall.trim()) {
+          vorfall = meta.vorfall.trim();
+          break;
+        }
+      }
+      const kurz = stripLeadingTimeFromKurz(vorfall || "Heizung");
+      const text = `${kurz} ${profile.feedSuffix}`.trim();
+      next.push({
+        line: range.start + 1,
+        text,
+        rawLine: `- ${text}`,
+        feedProfile: "heizung",
+        ...(vorfall ? { feedContext: vorfall } : {}),
+      });
     }
   }
 
@@ -996,9 +1107,117 @@ export function resolveDayHeadline(
 export function loadTagebuchTimelineEntries(lines: string[]): TimelineEntry[] {
   let entries = extractJournalLines(lines, DEFAULT_JOURNAL_HEADING);
   entries = overlayReisenTimelineEntries(lines, entries);
+  entries = overlayLueftungTimelineEntries(lines, entries);
+  entries = overlayHeizungTimelineEntries(lines, entries);
+  entries = overlayWandernTimelineEntries(lines, entries);
   entries = mergeSyntheticTagebuchFeedEntries(lines, entries);
   entries = dedupeFeedProfileEntries(entries);
   return entries;
+}
+
+function overlayLueftungTimelineEntries(lines: string[], entries: TimelineEntry[]): TimelineEntry[] {
+  const lueftungIds = collectLueftungEntryIds(lines);
+  if (lueftungIds.size === 0 && !extractSectionRange(lines, "Lüftung")) return entries;
+  const lueftungContext = lueftungContextByEntryId(lines);
+  const lueftungByTitle = lueftungSupplementMatchesByTitle(lines);
+  return entries.map((entry) => {
+    if (entry.entryId && lueftungIds.has(entry.entryId)) {
+      return {
+        ...entry,
+        feedProfile: "lueftung",
+        feedContext: entry.feedContext?.trim() || lueftungContext.get(entry.entryId),
+        hasCallout: true,
+        calloutId: entry.entryId,
+      };
+    }
+    if (effectiveFeedProfile(entry.feedProfile, entry.feedContext) === "lueftung") {
+      return entry;
+    }
+    const { body } = parseJournalEntryDisplay(entry.text);
+    const titleKey = stripLeadingTimeFromKurz(body).trim().toLowerCase();
+    const byTitle = titleKey ? lueftungByTitle.get(titleKey) : undefined;
+    if (byTitle) {
+      return {
+        ...entry,
+        feedProfile: "lueftung",
+        entryId: byTitle.entryId,
+        feedContext: entry.feedContext?.trim() || byTitle.wartung || lueftungContext.get(byTitle.entryId),
+        hasCallout: true,
+        calloutId: byTitle.entryId,
+      };
+    }
+    return entry;
+  });
+}
+
+function overlayHeizungTimelineEntries(lines: string[], entries: TimelineEntry[]): TimelineEntry[] {
+  const heizungIds = collectHeizungEntryIds(lines);
+  if (heizungIds.size === 0 && !extractSectionRange(lines, "Heizung")) return entries;
+  const heizungContext = heizungContextByEntryId(lines);
+  const heizungByTitle = heizungSupplementMatchesByTitle(lines);
+  return entries.map((entry) => {
+    if (entry.entryId && heizungIds.has(entry.entryId)) {
+      return {
+        ...entry,
+        feedProfile: "heizung",
+        feedContext: entry.feedContext?.trim() || heizungContext.get(entry.entryId),
+        hasCallout: true,
+        calloutId: entry.entryId,
+      };
+    }
+    if (effectiveFeedProfile(entry.feedProfile, entry.feedContext) === "heizung") {
+      return entry;
+    }
+    const { body } = parseJournalEntryDisplay(entry.text);
+    const titleKey = stripLeadingTimeFromKurz(body).trim().toLowerCase();
+    const byTitle = titleKey ? heizungByTitle.get(titleKey) : undefined;
+    if (byTitle) {
+      return {
+        ...entry,
+        feedProfile: "heizung",
+        entryId: byTitle.entryId,
+        feedContext: entry.feedContext?.trim() || byTitle.vorfall || heizungContext.get(byTitle.entryId),
+        hasCallout: true,
+        calloutId: byTitle.entryId,
+      };
+    }
+    return entry;
+  });
+}
+
+function overlayWandernTimelineEntries(lines: string[], entries: TimelineEntry[]): TimelineEntry[] {
+  const wandernIds = collectWandernEntryIds(lines);
+  if (wandernIds.size === 0 && !extractSectionRange(lines, "Wandern")) return entries;
+  const wandernContext = wandernContextByEntryId(lines);
+  const wandernByTitle = wandernSupplementMatchesByTitle(lines);
+  return entries.map((entry) => {
+    if (entry.entryId && wandernIds.has(entry.entryId)) {
+      return {
+        ...entry,
+        feedProfile: "wandern",
+        feedContext: entry.feedContext?.trim() || wandernContext.get(entry.entryId),
+        hasCallout: true,
+        calloutId: entry.entryId,
+      };
+    }
+    if (effectiveFeedProfile(entry.feedProfile, entry.feedContext) === "wandern") {
+      return entry;
+    }
+    const { body } = parseJournalEntryDisplay(entry.text);
+    const titleKey = stripLeadingTimeFromKurz(body).trim().toLowerCase();
+    const byTitle = titleKey ? wandernByTitle.get(titleKey) : undefined;
+    if (byTitle) {
+      return {
+        ...entry,
+        feedProfile: "wandern",
+        entryId: byTitle.entryId,
+        feedContext: entry.feedContext?.trim() || byTitle.titel || wandernContext.get(byTitle.entryId),
+        hasCallout: true,
+        calloutId: byTitle.entryId,
+      };
+    }
+    return entry;
+  });
 }
 
 function overlayReisenTimelineEntries(lines: string[], entries: TimelineEntry[]): TimelineEntry[] {
@@ -1059,6 +1278,8 @@ async function trySyncCalendarForOutlineDay(app: App, dateKey: string): Promise<
 
   const [y, m, d] = dateKey.split("-").map(Number);
   if (!y || !m || !d) return 0;
+
+  if (isRecentComposerSave(dateKey)) return 0;
 
   try {
     const dailyNotesFolder =
@@ -1124,6 +1345,13 @@ async function loadDayFromFile(
     if (entries.length === 0) {
       entries = loadTagebuchTimelineEntries(lines).filter((entry) =>
         entryMatchesFeedProfileFilters(entry.feedProfile, entry.feedContext, ["reisen"]),
+      );
+    }
+  } else if (headingLower === "lüftung" || headingLower === "lueftung") {
+    entries = extractJournalLines(lines, "Lüftung");
+    if (entries.length === 0) {
+      entries = loadTagebuchTimelineEntries(lines).filter((entry) =>
+        entryMatchesFeedProfileFilters(entry.feedProfile, entry.feedContext, ["lueftung"]),
       );
     }
   } else {

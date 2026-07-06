@@ -411,6 +411,7 @@
   min-width: 0;
   max-width: 100%;
   box-sizing: border-box;
+  cursor: pointer;
 }
 
 .udn-outlineEntry:hover {
@@ -420,6 +421,10 @@
     transparent
   );
   border-radius: 3px;
+}
+
+.udn-outlineEntry .udn-timeBubbleInput {
+  cursor: text;
 }
 
 .udn-timelineList .udn-timeBubble,
@@ -520,6 +525,40 @@
   cursor: default;
 }
 
+.udn-inlineMarkdown {
+  display: inline;
+  min-width: 0;
+}
+
+.udn-timelineEntryBody strong {
+  font-weight: var(--font-bold, 700);
+}
+
+.udn-timelineEntryBody em {
+  font-style: italic;
+}
+
+.udn-timelineEntryBody del {
+  text-decoration: line-through;
+  opacity: 0.85;
+}
+
+.udn-timelineEntryBody code {
+  font-family: var(--font-monospace);
+  font-size: 0.92em;
+  padding: 0.05em 0.3em;
+  border-radius: var(--radius-s, 3px);
+  background: var(--code-background);
+  color: var(--code-normal);
+}
+
+.udn-timelineEntryBody mark {
+  background: var(--text-highlight-bg, rgba(255, 208, 0, 0.35));
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 0.05em;
+}
+
 .udn-timelineEntryBody--feed {
   display: flex;
   flex-wrap: wrap;
@@ -581,6 +620,12 @@
   border-color: rgba(22, 163, 74, 0.35);
   background: rgba(22, 163, 74, 0.1);
   color: rgb(21, 128, 61);
+}
+
+.udn-feedLinkBubble--gedanken {
+  border-color: rgba(234, 179, 8, 0.35);
+  background: rgba(234, 179, 8, 0.1);
+  color: rgb(161, 98, 7);
 }
 
 .udn-feedLinkBubble--sonstiges {
@@ -651,32 +696,51 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.udn-wandernPhotosHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.udn-wandernPhotosHeadActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: flex-end;
 }
 
 .udn-photoStrip {
-  --udn-photo-row-height: 140px;
+  --udn-photo-row-height: 120px;
+  --udn-photo-thumb-width: min(42vw, 168px);
   display: flex;
   flex-direction: row;
-  flex-wrap: nowrap;
-  align-items: stretch;
+  flex-wrap: wrap;
+  align-items: flex-start;
   gap: 8px;
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  max-height: calc(var(--udn-photo-row-height) * 2.6 + 3rem);
   padding: 6px;
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s, 4px);
   background: var(--background-secondary);
-  scroll-snap-type: x proximity;
-  -webkit-overflow-scrolling: touch;
 }
 
 .udn-photoStripItem {
-  flex: 0 0 auto;
+  flex: 0 0 var(--udn-photo-thumb-width);
+  width: var(--udn-photo-thumb-width);
+  max-width: 100%;
   display: flex;
   flex-direction: column;
   gap: 4px;
   margin: 0;
-  scroll-snap-align: start;
 }
 
 .udn-photoStripImageBtn {
@@ -688,15 +752,20 @@
   cursor: zoom-in;
   overflow: hidden;
   line-height: 0;
+  width: 100%;
+  height: var(--udn-photo-row-height);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .udn-photoStripImageBtn img {
   display: block;
-  height: var(--udn-photo-row-height);
+  max-width: 100%;
+  max-height: 100%;
   width: auto;
-  min-width: calc(var(--udn-photo-row-height) * 0.75);
-  max-width: calc(var(--udn-photo-row-height) * 1.6);
-  object-fit: cover;
+  height: auto;
+  object-fit: contain;
 }
 
 .udn-photoStripActions {
@@ -862,8 +931,15 @@ input.udn-timeBubbleInput {
 
 .udn-composerEntries .udn-timelineEntryBody,
 .udn-composerEntry .udn-composerEntryInput {
-  flex: 1;
+  flex: 1 1 0;
   min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.udn-composerEntry .udn-composerEntryInput,
+.udn-composerEntry .udn-timelineEntryEdit {
+  width: 100%;
 }
 
 .udn-composerEntries .udn-timelineEntryBody .internal-link,
@@ -1101,13 +1177,6 @@ body.is-mobile .udn-verweise .udn-outlineEntry .udn-timelineEntryBody {
   gap: 6px;
 }
 
-.udn-wandernPhotosHead {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
 .udn-wandernPhotoRow {
   display: flex;
   align-items: center;
@@ -1298,11 +1367,20 @@ body.is-mobile .udn-verweise .udn-outlineEntry .udn-timelineEntryBody {
 .udn-composerSection {
   flex: 1 1 auto;
   min-height: 0;
+  min-width: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 8px 12px;
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.udn-composerSplitList {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  max-width: 100%;
 }
 
 .udn-composerSectionHead {
@@ -1739,15 +1817,23 @@ body.is-mobile .udn-composer--mobile .udn-composerEntry .udn-timeBubbleInput {
   padding: 0 4px;
 }
 
-body.is-mobile .udn-composer--mobile .udn-composerEntry .udn-composerEntryInput,
-body.is-mobile .udn-composer--mobile .udn-composerEntry .udn-timelineEntryEdit,
 body.is-mobile .udn-composer--mobile .udn-composerEntry .udn-timelineEntryBody {
   flex: 1 1 0;
   min-width: 0;
+  max-width: 100%;
   font-size: var(--dk-font-body);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+body.is-mobile .udn-composer--mobile .udn-composerEntry .udn-composerEntryInput,
+body.is-mobile .udn-composer--mobile .udn-composerEntry .udn-timelineEntryEdit {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 100%;
+  width: 100%;
+  font-size: var(--dk-font-body);
 }
 
 body.is-mobile .udn-composer--mobile .udn-composerEntryRemove {
@@ -1899,6 +1985,14 @@ body.is-mobile .udn-composerFoot--mobile .dk-btnPrimary {
   color: rgb(91, 33, 182);
 }
 
+.udn-profileBubble.udn-feedLinkBubble--gedanken,
+.udn-profileFilterChip.udn-feedLinkBubble--gedanken,
+.udn-sectionFilterChip.udn-feedLinkBubble--gedanken {
+  border-color: rgba(234, 179, 8, 0.35);
+  background: rgba(234, 179, 8, 0.1);
+  color: rgb(161, 98, 7);
+}
+
 .udn-profileBubble.udn-feedLinkBubble--heizung:hover,
 .udn-profileFilterChip.udn-feedLinkBubble--heizung:hover,
 .udn-sectionFilterChip.udn-feedLinkBubble--heizung:hover {
@@ -1929,6 +2023,14 @@ body.is-mobile .udn-composerFoot--mobile .dk-btnPrimary {
   border-color: rgba(22, 163, 74, 0.5);
   background: rgba(22, 163, 74, 0.16);
   color: rgb(21, 128, 61);
+}
+
+.udn-profileBubble.udn-feedLinkBubble--gedanken:hover,
+.udn-profileFilterChip.udn-feedLinkBubble--gedanken:hover,
+.udn-sectionFilterChip.udn-feedLinkBubble--gedanken:hover {
+  border-color: rgba(234, 179, 8, 0.5);
+  background: rgba(234, 179, 8, 0.16);
+  color: rgb(161, 98, 7);
 }
 
 .udn-profileBubble.udn-feedLinkBubble--sonstiges:hover,
@@ -2013,16 +2115,25 @@ body.is-mobile .udn-composerFoot--mobile .dk-btnPrimary {
 
 .udn-composerEntryExpand {
   flex: 1 1 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   padding-left: calc(var(--udn-time-bubble-width, 5em) + 1.35em + 12px);
 }
 
-.udn-composerEntry--reisen .udn-timelineEntryBody,
-.udn-composerEntry--reisen .udn-composerEntryInput {
-  cursor: pointer;
+.udn-composerEntryExpand--reisen,
+.udn-composerEntryExpand--lueftung,
+.udn-composerEntryExpand--heizung {
+  padding-left: 0;
 }
 
-.udn-composerEntryExpand--reisen {
-  padding-left: 0;
+.udn-composerEntry--reisen .udn-timelineEntryBody,
+.udn-composerEntry--reisen .udn-composerEntryInput,
+.udn-composerEntry--lueftung .udn-timelineEntryBody,
+.udn-composerEntry--lueftung .udn-composerEntryInput,
+.udn-composerEntry--heizung .udn-timelineEntryBody,
+.udn-composerEntry--heizung .udn-composerEntryInput {
+  cursor: pointer;
 }
 
 .udn-reisenForm {
@@ -2030,6 +2141,9 @@ body.is-mobile .udn-composerFoot--mobile .dk-btnPrimary {
   flex-direction: column;
   gap: 8px;
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .udn-reisenReiseRow {
@@ -2062,7 +2176,9 @@ body.is-mobile .udn-composerFoot--mobile .dk-btnPrimary {
 
 .udn-reisenDetailInput {
   width: 100%;
-  min-height: 5em;
+  max-width: 100%;
+  min-height: 4.5em;
+  max-height: min(28vh, 10rem);
   margin: 0;
   padding: 8px 10px;
   box-sizing: border-box;
@@ -2074,6 +2190,10 @@ body.is-mobile .udn-composerFoot--mobile .dk-btnPrimary {
   line-height: var(--dk-line-tight);
   color: var(--text-normal);
   resize: vertical;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .udn-reisenDetailInput::placeholder {
@@ -2083,6 +2203,41 @@ body.is-mobile .udn-composerFoot--mobile .dk-btnPrimary {
 .udn-reisenDetailInput:focus {
   outline: none;
   border-color: var(--interactive-accent);
+}
+
+.udn-markdownDetailField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.udn-markdownDetailToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.udn-markdownDetailPreviewToggle {
+  margin-left: auto;
+}
+
+.udn-markdownDetailInput {
+  font-family: var(--font-monospace, ui-monospace, monospace);
+  font-size: var(--font-ui-smaller);
+  line-height: 1.45;
+}
+
+.udn-markdownDetailPreview {
+  min-height: 4.5em;
+  max-height: min(28vh, 10rem);
+  overflow: auto;
+  padding: 8px 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--background-primary);
 }
 
 .udn-composerReiseGroupHead {
@@ -2157,7 +2312,12 @@ body.is-mobile .udn-composerSection.udn-composerSplit {
 body.is-mobile .udn-composerSplitList {
   flex: 1 1 45%;
   min-width: 0;
+  max-width: 100%;
   overflow: auto;
+}
+
+body.is-mobile .udn-photoStrip {
+  --udn-photo-thumb-width: min(38vw, 140px);
 }
 
 body.is-mobile .udn-composerSplitDetail {

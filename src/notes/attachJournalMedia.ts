@@ -1,11 +1,13 @@
 import type { App } from "obsidian";
 import { normalizePath } from "obsidian";
 
+export const DEFAULT_DAILY_PHOTOS_FOLDER = "Calendar/Anhänge/Bilder";
+
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
 }
 
-function dateKey(d: Date): string {
+export function dateKey(d: Date): string {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 
@@ -27,17 +29,18 @@ function sanitizeBaseName(name: string): string {
   );
 }
 
-/** Folder name under Calendar/Anhänge/Bilder/ from the mountain callout title. */
+/** Sanitized callout title stem for filenames (e.g. Wandern_Bläsis_Mühle). */
 export function folderFromCalloutTitel(titel: string): string {
-  const raw = titel.trim() || "Wandern";
+  const raw = titel.trim() || "Tagebuch";
+  const withoutWiki = raw.replace(/\[\[[^\]]+\]\]/g, "").trim();
   return (
-    raw
+    withoutWiki
       .replace(/[\\:*?"<>|]/g, "")
       .replace(/\s*[·:\-–—]\s*/g, "_")
       .replace(/\s+/g, "_")
       .replace(/_+/g, "_")
       .replace(/^_|_$/g, "")
-      .slice(0, 64) || "Wandern"
+      .slice(0, 64) || "Tagebuch"
   );
 }
 
@@ -46,19 +49,44 @@ export function slugFromWandernTitel(titel: string): string {
   return sanitizeBaseName(folderFromCalloutTitel(titel));
 }
 
+/** Daily-note photos: Calendar/Anhänge/Bilder/<yyyy-mm-dd>/<Callout-Titel>_01.ext */
+export function buildDailyNotePhotoVaultPath(
+  date: Date,
+  photoIndex: number,
+  titel: string,
+  originalName: string,
+  photosFolder = DEFAULT_DAILY_PHOTOS_FOLDER,
+): string {
+  const base = photosFolder.trim().replace(/^\/+|\/+$/g, "") || DEFAULT_DAILY_PHOTOS_FOLDER;
+  const stem = folderFromCalloutTitel(titel);
+  const extMatch = /\.([a-zA-Z0-9]{1,8})$/.exec(originalName);
+  const ext = extMatch ? extMatch[1]!.toLowerCase() : "jpg";
+  const num = String(photoIndex + 1).padStart(2, "0");
+  const fileName = `${stem}_${num}.${ext}`;
+  return normalizePath(`${base}/${dateKey(date)}/${fileName}`);
+}
+
+/** @deprecated Use buildDailyNotePhotoVaultPath */
 export function buildWandernAttachmentVaultPath(
   photoIndex: number,
   originalName: string,
   titel: string,
-  photosFolder = "Calendar/Anhänge/Bilder",
+  photosFolder = DEFAULT_DAILY_PHOTOS_FOLDER,
+  date: Date = new Date(),
 ): string {
-  const base = photosFolder.trim().replace(/^\/+|\/+$/g, "") || "Calendar/Anhänge/Bilder";
-  const folderName = folderFromCalloutTitel(titel);
-  const extMatch = /\.([a-zA-Z0-9]{1,8})$/.exec(originalName);
-  const ext = extMatch ? extMatch[1]!.toLowerCase() : "jpg";
-  const num = String(photoIndex + 1).padStart(2, "0");
-  const fileName = `${num}.${ext}`;
-  return normalizePath(`${base}/${folderName}/${fileName}`);
+  return buildDailyNotePhotoVaultPath(date, photoIndex, titel, originalName, photosFolder);
+}
+
+/** @deprecated Use buildDailyNotePhotoVaultPath */
+export function buildLueftungAttachmentVaultPath(
+  photoIndex: number,
+  originalName: string,
+  titel: string,
+  photosFolder: string,
+  _year: number,
+  date?: Date,
+): string {
+  return buildDailyNotePhotoVaultPath(date ?? new Date(), photoIndex, titel, originalName, photosFolder);
 }
 
 /** GPX file name from callout title (matches existing Anhänge/GPX naming). */
@@ -81,6 +109,7 @@ export function buildWandernTrackVaultPath(
   return normalizePath(`${base}/${gpxFileNameFromCalloutTitel(titel)}`);
 }
 
+/** Legacy quick-capture attachments (not daily-note gallery photos). */
 export function buildAttachmentVaultPath(
   date: Date,
   attachmentsFolder: string,
@@ -105,6 +134,23 @@ async function ensureFolder(app: App, folderPath: string): Promise<void> {
   }
 }
 
+async function importBinaryToPath(app: App, file: File, destPath: string): Promise<string> {
+  let nextPath = destPath;
+  const folder = nextPath.replace(/\/[^/]+$/, "");
+  await ensureFolder(app, folder);
+
+  if (app.vault.getAbstractFileByPath(nextPath)) {
+    const dot = nextPath.lastIndexOf(".");
+    const stem = dot >= 0 ? nextPath.slice(0, dot) : nextPath;
+    const ext = dot >= 0 ? nextPath.slice(dot) : "";
+    nextPath = `${stem}-${Math.random().toString(36).slice(2, 4)}${ext}`;
+  }
+
+  const data = await file.arrayBuffer();
+  await app.vault.createBinary(nextPath, data);
+  return nextPath;
+}
+
 /** Copy a browser File into the vault and return its path. */
 export async function importAttachmentFile(
   app: App,
@@ -112,55 +158,66 @@ export async function importAttachmentFile(
   date: Date,
   attachmentsFolder: string,
 ): Promise<string> {
-  let destPath = buildAttachmentVaultPath(date, attachmentsFolder, file.name);
-  const folder = destPath.replace(/\/[^/]+$/, "");
-  await ensureFolder(app, folder);
-
-  if (app.vault.getAbstractFileByPath(destPath)) {
-    const dot = destPath.lastIndexOf(".");
-    const stem = dot >= 0 ? destPath.slice(0, dot) : destPath;
-    const ext = dot >= 0 ? destPath.slice(dot) : "";
-    destPath = `${stem}-${Math.random().toString(36).slice(2, 6)}${ext}`;
-  }
-
-  const data = await file.arrayBuffer();
-  await app.vault.createBinary(destPath, data);
-  return destPath;
+  return importBinaryToPath(app, file, buildAttachmentVaultPath(date, attachmentsFolder, file.name));
 }
 
-/** Wandern photos: Calendar/Anhänge/Bilder/<Callout-Titel>/01.jpg */
-export async function importWandernAttachmentFile(
+export async function importDailyNotePhotoFile(
   app: App,
   file: File,
+  date: Date,
   photoIndex: number,
   titel: string,
-  photosFolder: string,
+  photosFolder = DEFAULT_DAILY_PHOTOS_FOLDER,
 ): Promise<string> {
-  let destPath = buildWandernAttachmentVaultPath(photoIndex, file.name, titel, photosFolder);
-  const folder = destPath.replace(/\/[^/]+$/, "");
-  await ensureFolder(app, folder);
-
-  if (app.vault.getAbstractFileByPath(destPath)) {
-    const dot = destPath.lastIndexOf(".");
-    const stem = dot >= 0 ? destPath.slice(0, dot) : destPath;
-    const ext = dot >= 0 ? destPath.slice(dot) : "";
-    destPath = `${stem}-${Math.random().toString(36).slice(2, 4)}${ext}`;
-  }
-
-  const data = await file.arrayBuffer();
-  await app.vault.createBinary(destPath, data);
-  return destPath;
+  const destPath = buildDailyNotePhotoVaultPath(date, photoIndex, titel, file.name, photosFolder);
+  return importBinaryToPath(app, file, destPath);
 }
 
-export async function normalizeWandernPhotoPath(
+export function isCanonicalDailyNotePhotoPath(path: string): boolean {
+  const norm = stripPhotoEmbed(path).replace(/\\/g, "/");
+  if (!norm.startsWith(`${DEFAULT_DAILY_PHOTOS_FOLDER}/`)) return false;
+  const rest = norm.slice(`${DEFAULT_DAILY_PHOTOS_FOLDER}/`.length);
+  const slash = rest.indexOf("/");
+  if (slash < 0) return false;
+  const dateFolder = rest.slice(0, slash);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateFolder)) return false;
+  const fileName = rest.slice(slash + 1);
+  return /_\d{2}\.[a-z0-9]+$/i.test(fileName);
+}
+
+function stripPhotoEmbed(path: string): string {
+  return path.replace(/^!\[\[|\]\]$/g, "").trim();
+}
+
+export function isMisplacedDailyNotePhotoPath(path: string): boolean {
+  const norm = stripPhotoEmbed(path).replace(/\\/g, "/");
+  if (!norm) return false;
+  if (isCanonicalDailyNotePhotoPath(norm)) return false;
+  const baseName = norm.split("/").pop() ?? "";
+  if (/[\[\]]/.test(baseName)) return true;
+  if (norm.startsWith("+/")) return true;
+  if (norm.startsWith("Calendar/Attachments/")) return true;
+  if (/^Atlas\/Immobilien\/[^/]+\/Anhänge\/(Lueftung|Lüftung|Heizung)\//i.test(norm)) return true;
+  if (norm.startsWith(`${DEFAULT_DAILY_PHOTOS_FOLDER}/`)) {
+    const rest = norm.slice(`${DEFAULT_DAILY_PHOTOS_FOLDER}/`.length);
+    const slash = rest.indexOf("/");
+    if (slash < 0) return true;
+    const folder = rest.slice(0, slash);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(folder)) return true;
+  }
+  return false;
+}
+
+export async function normalizeDailyNotePhotoPath(
   app: App,
   path: string,
   photoIndex: number,
+  date: Date,
   titel: string,
-  photosFolder: string,
+  photosFolder = DEFAULT_DAILY_PHOTOS_FOLDER,
 ): Promise<string> {
   const name = path.split("/").pop() ?? "";
-  const destPath = buildWandernAttachmentVaultPath(photoIndex, name, titel, photosFolder);
+  const destPath = buildDailyNotePhotoVaultPath(date, photoIndex, titel, name, photosFolder);
   if (destPath === path) return path;
 
   const file = app.vault.getAbstractFileByPath(path);
@@ -171,6 +228,56 @@ export async function normalizeWandernPhotoPath(
   await ensureFolder(app, parent);
   await app.vault.rename(file as import("obsidian").TFile, destPath);
   return destPath;
+}
+
+/** @deprecated Use importDailyNotePhotoFile */
+export async function importLueftungAttachmentFile(
+  app: App,
+  file: File,
+  photoIndex: number,
+  titel: string,
+  photosFolder: string,
+  _year: number,
+  date?: Date,
+): Promise<string> {
+  return importDailyNotePhotoFile(app, file, date ?? new Date(), photoIndex, titel, photosFolder);
+}
+
+/** @deprecated Use normalizeDailyNotePhotoPath */
+export async function normalizeLueftungPhotoPath(
+  app: App,
+  path: string,
+  photoIndex: number,
+  titel: string,
+  photosFolder: string,
+  _year: number,
+  date?: Date,
+): Promise<string> {
+  return normalizeDailyNotePhotoPath(app, path, photoIndex, date ?? new Date(), titel, photosFolder);
+}
+
+/** @deprecated Use importDailyNotePhotoFile */
+export async function importWandernAttachmentFile(
+  app: App,
+  file: File,
+  photoIndex: number,
+  titel: string,
+  photosFolder: string,
+  date?: Date,
+): Promise<string> {
+  return importDailyNotePhotoFile(app, file, date ?? new Date(), photoIndex, titel, photosFolder);
+}
+
+/** @deprecated Use normalizeDailyNotePhotoPath */
+export async function normalizeWandernPhotoPath(
+  app: App,
+  path: string,
+  photoIndex: number,
+  titel: string,
+  photosFolder: string,
+  date?: Date,
+): Promise<string> {
+  return normalizeDailyNotePhotoPath(app, path, photoIndex, date ?? new Date(), titel, photosFolder);
 }
 
 /** Copy or reuse GPX under Calendar/Anhänge/GPX/<Callout-Titel>.gpx */

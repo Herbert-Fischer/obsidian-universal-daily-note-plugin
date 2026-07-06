@@ -328,6 +328,22 @@ export default class UniversalDailyNotePlugin extends Plugin {
       },
     });
 
+    this.addCommand({
+      id: "migrate-daily-note-photos",
+      name: "Daily-Note-Fotos nach Anhänge/Bilder migrieren",
+      callback: async () => {
+        const { migrateAllDailyNotePhotos } = await import("./notes/migrateDailyNotePhotos");
+        const result = await migrateAllDailyNotePhotos(this.app);
+        const msg = `${result.photosMoved} Foto(s) in ${result.filesUpdated} Notiz(en) verschoben.`;
+        if (result.errors.length > 0) {
+          console.warn("Universal Daily Note: Foto-Migration", result.errors);
+          new Notice(`${msg} ${result.errors.length} Hinweis(e) in der Konsole.`);
+        } else {
+          new Notice(msg);
+        }
+      },
+    });
+
     this.addSettingTab(new UniversalDailyNoteSettingTab(this.app, this));
 
     this.app.workspace.onLayoutReady(() => {
@@ -372,7 +388,7 @@ export default class UniversalDailyNotePlugin extends Plugin {
         options?.onSaved?.(savedDate);
         for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_DAILY_PANEL)) {
           if (leaf.view instanceof DailyPanelView) {
-            leaf.view.pinOutlineDay(savedDate, { refresh: true });
+            leaf.view.pinOutlineDay(savedDate);
           }
         }
       },

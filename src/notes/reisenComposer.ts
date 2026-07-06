@@ -9,6 +9,7 @@ import {
   isManagedCalloutStart,
 } from "./journalCallout";
 import { journalEntrySortMinutes, parseJournalEntryDisplay } from "./parseJournalEntryDisplay";
+import { detailToCalloutProseLines, stripCalloutPrefixRaw } from "./calloutProse";
 import { processVaultFile } from "./vaultProcess";
 
 export const REISEN_HEADING = "Reisen";
@@ -55,7 +56,7 @@ export function parseReisenMetaLine(line: string): ReisenMeta | null {
     return {
       entryId,
       reise: parsed.reise?.trim() ?? "",
-      detail: parsed.detail?.trim() ?? "",
+      detail: typeof parsed.detail === "string" ? parsed.detail : "",
     };
   } catch {
     return null;
@@ -82,7 +83,7 @@ export function parseReisenSortLine(line: string): { reise: string; order: Reise
 }
 
 function stripCalloutPrefix(line: string): string {
-  return line.replace(/^(?:>\s*)+/, "").trim();
+  return stripCalloutPrefixRaw(line);
 }
 
 function proseAfterCalloutTitle(sectionLines: string[], titleLineIndex: number): string {
@@ -94,7 +95,6 @@ function proseAfterCalloutTitle(sectionLines: string[], titleLineIndex: number):
     if (isManagedCalloutStart(line, REISEN_HEADING)) break;
     if (!trimmed.startsWith(">")) break;
     const inner = stripCalloutPrefix(line);
-    if (!inner) continue;
     prose.push(inner);
   }
   return prose.join("\n");
@@ -103,14 +103,11 @@ function proseAfterCalloutTitle(sectionLines: string[], titleLineIndex: number):
 export function buildReisenCalloutBlock(title: string, detail: string): string {
   const titel = title.trim() || "Reise";
   const lines = [formatManagedCalloutTitleLine(REISEN_HEADING, titel)];
-  const prose = detail
-    .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean);
-  if (prose.length === 0) {
+  const proseLines = detailToCalloutProseLines(detail);
+  if (proseLines.length === 0) {
     lines.push(">");
   } else {
-    lines.push(...prose.map((l) => `> ${l}`));
+    lines.push(...proseLines);
   }
   lines.push("");
   return lines.join("\n");
@@ -177,7 +174,7 @@ export function renderReisenSectionBody(
     }
     for (const entry of sortReisenEntries(group, order)) {
       const title = reisenCalloutTitle(entry);
-      const detail = entry.supplementDetail?.trim() ?? "";
+      const detail = entry.supplementDetail ?? "";
       out.push(...buildReisenCalloutBlock(title, detail).split("\n"));
       out.push(
         reisenMetaComment({

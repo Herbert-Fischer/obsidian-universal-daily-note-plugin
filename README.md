@@ -53,18 +53,20 @@ Plugin-spezifisch: `obsidian-daily-notes-interface`.
 | `notes/dailyNotesCore.ts` | `obsidian-daily-notes-interface` Adapter |
 | `notes/dailyNoteFallbackPaths.ts` | Fallback-Pfad und Dateinamen |
 | `notes/composerTemplates.ts` | Kontext-Vorlagen (Typischer Tag / Reisetag / Wanderung) |
+| `notes/*Composer.ts` | Profil-Sync (Reisen, Wandern, Heizung, Lüftung, Gedanken, Sonstiges) |
 | `tracks/gpxImport.ts` | GPX/TCX-Import für Reise-Etappen und Wander-Tracks |
 
 ## Composer-Vorlagen
 
-Im **Tages-Composer** (Vorlage-Menü) hängen die Angebote vom aktiven Abschnitt ab:
+Im **Tages-Composer** (Vorlage-Menü) hängen die Angebote vom aktiven Abschnitt ab. **Profil-Integration:** Reisen, Heizung, Lüftung, Gedanken und Wandern als expandierbare Felder am Tagebuch-Eintrag; **Sonstiges** als eigener Composer-Abschnitt (Heading „Sonstiges“).
 
 | Abschnitt | Bulk-Vorlage | Einzel-Vorlagen |
 |-----------|--------------|-----------------|
 | **Tagebuch** | Typischer Tag (Wetter, Aufstehen, Mittagessen, Spaziergang, Kalender) | Aufstehen, Mahlzeiten, Termin, … |
 | **Reisen** | Typischer Reisetag (Standort, Etappen, Highlights, optional Foto + GPX) | Abfahrt, Etappe, Highlight, Ankunft, … |
-| **Wandern** | Typische Wanderung (Standort, Start, Kurz-/Beschreibung, optional Foto + GPX) | Start, Kurzbeschreibung, Beschreibung, Gipfel, Track, Foto, … |
-| **Sonstige** | — | Termin, Besuch, Notiz |
+| **Wandern** | Typische Wanderung (Standort, Start, Beschreibung, optional Foto + GPX) | Start, Beschreibung, Gipfel, Track, Foto, … |
+| **Sonstiges** | — | Notiz, Geschenk, Besuch, Erledigt, … |
+| **Heizung / Lüftung / Gedanken** | — | profilspezifische Chips (Störung, Wartung, Einfall, …) |
 
 Bestehende Einträge: Bulk-Vorlagen ergänzen nur **fehlende** Prefixe (Bestätigungsdialog).
 

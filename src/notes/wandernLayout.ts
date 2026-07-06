@@ -9,7 +9,7 @@ import { extractSectionRange } from "./journalCallout";
 import { formatGermanShortDate } from "./journalCallout";
 import { journalProfileById } from "./journalProfiles";
 import { formatTrackSummary, type TrackMatch } from "../tracks/gpxImport";
-import { normalizeWandernPhotoPath, normalizeWandernTrackPath } from "./attachJournalMedia";
+import { normalizeDailyNotePhotoPath, normalizeWandernTrackPath } from "./attachJournalMedia";
 import { processVaultFile } from "./vaultProcess";
 import {
   buildPhotoCollageMarkdown,
@@ -44,8 +44,6 @@ export const DEFAULT_WANDERN_LAYOUT_TEMPLATE = `> [!mountain]+ {{titel}}
 > > [!multi-column]
 > >
 > > > [!blank|wide-60]
-> > > **Kurz:** {{kurz}}
-> > >
 > > > {{beschreibung}}
 > > >
 > > > {{track3d}}
@@ -123,7 +121,7 @@ export function wandernMetaComment(meta: WandernMeta): string {
 }
 
 export function parseWandernMetaLine(line: string): WandernMeta | null {
-  const trimmed = line.trim();
+  const trimmed = line.trim().replace(/^(?:>\s*)+/, "");
   if (!trimmed.startsWith(WANDERN_META_PREFIX)) return null;
   const jsonStart = trimmed.indexOf("{");
   const jsonEnd = trimmed.lastIndexOf("}");
@@ -268,12 +266,10 @@ export function renderWandernTemplate(options: RenderWandernTemplateOptions): st
     fotoSlots[`foto${i + 1}`] = photoEmbeds[i] ?? "";
   }
   const trackPath = options.track?.path ?? "";
-  const track3dPrefix = calloutPrefixBeforePlaceholder(template, "track3d");
-  const fotosPrefix = calloutPrefixBeforePlaceholder(template, "fotos");
   const exaggeration = options.layout.track3dElevationExaggeration ?? 4;
   const track3d =
     options.layout.track3dEnabled && trackPath
-      ? buildTrack3dBlock(trackPath, options.layout.track3dHeight, track3dPrefix, exaggeration)
+      ? buildTrack3dBlock(trackPath, options.layout.track3dHeight, "", exaggeration)
       : "";
   const fotoPaths = options.photos.map((p) => stripPhotoEmbed(p)).filter(Boolean);
   const fotosMarkdown =
@@ -297,6 +293,21 @@ export function renderWandernTemplate(options: RenderWandernTemplateOptions): st
   };
 
   let out = template;
+  if (!replacements.kurz?.trim()) {
+    const withoutKurz: string[] = [];
+    for (const line of out.split("\n")) {
+      const stripped = line.replace(/^(?:>\s*)+/, "");
+      if (line.includes("{{kurz}}") || /^\*\*Kurz:\*\*/i.test(stripped)) {
+        const prev = withoutKurz[withoutKurz.length - 1];
+        if (prev && /^>+\s*$/.test(prev)) {
+          withoutKurz.pop();
+        }
+        continue;
+      }
+      withoutKurz.push(line);
+    }
+    out = withoutKurz.join("\n");
+  }
   if (!replacements.fotos?.trim()) {
     const withoutGallery: string[] = [];
     for (const line of out.split("\n")) {
@@ -453,7 +464,7 @@ export async function saveWandernComposerState(
   const normalizedPhotos: string[] = [];
   for (let i = 0; i < Math.min(data.photos.length, maxPhotos); i++) {
     const raw = data.photos[i]!.replace(/^!\[\[|\]\]$/g, "");
-    const path = await normalizeWandernPhotoPath(app, raw, i, titel, photosFolder);
+    const path = await normalizeDailyNotePhotoPath(app, raw, i, date, titel, photosFolder);
     normalizedPhotos.push(path);
   }
   let track = data.track;

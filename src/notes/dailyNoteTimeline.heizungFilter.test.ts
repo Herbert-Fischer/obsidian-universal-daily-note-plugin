@@ -4,6 +4,7 @@ import {
   extractJournalLinesAllHeadings,
   extractUsedJournalHeadings,
   groupTimelineEntriesBySection,
+  loadTagebuchTimelineEntries,
 } from "./dailyNoteTimeline";
 
 const heizungLueftungLines = [
@@ -44,9 +45,11 @@ describe("Heizung/Lüftung outline filter", () => {
   });
 
   it("extracts Lüftung entry from Tagebuch feed line", () => {
-    const entries = extractJournalLines(heizungLueftungLines, "Lüftung");
+    const entries = loadTagebuchTimelineEntries(heizungLueftungLines).filter(
+      (e) => e.feedProfile === "lueftung",
+    );
     expect(entries).toHaveLength(1);
-    expect(entries[0]?.text).toContain("13:34 Lüftungswartung");
+    expect(entries[0]?.text).toContain("Lüftungswartung");
     expect(entries[0]?.feedProfile).toBe("lueftung");
     expect(entries[0]?.feedContext).toBe("Lüftung (Test");
   });

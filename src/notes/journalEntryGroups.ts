@@ -20,6 +20,8 @@ export function groupFieldLabel(profile: FeedProfile | undefined): string {
       return "Vorfall";
     case "lueftung":
       return "Wartung";
+    case "gedanken":
+      return "Thema";
     case "sonstiges":
       return "Thema";
     default:
@@ -37,6 +39,8 @@ export function groupFieldPlaceholder(profile: FeedProfile | undefined): string 
       return "z. B. Brennerausfall";
     case "lueftung":
       return "z. B. Filterwechsel 2026";
+    case "gedanken":
+      return "z. B. Obsidian, Haushalt";
     case "sonstiges":
       return "z. B. Lilien von Otto";
     default:

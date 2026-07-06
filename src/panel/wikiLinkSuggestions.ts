@@ -75,6 +75,7 @@ export function matchWikiLinkSuggestions(
 
   const results: WikiLinkSuggestion[] = [];
   const seen = new Set<string>();
+  const hasExactBasename = files.some((file) => file.basename.toLowerCase() === searchQ);
 
   const push = (item: WikiLinkSuggestion) => {
     const key = `${item.filePath}::${item.alias ?? ""}::${item.heading ?? ""}`;
@@ -103,8 +104,11 @@ export function matchWikiLinkSuggestions(
 
     if (!parsed.aliasMode) {
       const base = file.basename.toLowerCase();
-      const path = file.path.toLowerCase();
-      if (base.includes(searchQ) || path.includes(searchQ)) {
+      const matches =
+        base === searchQ ||
+        base.startsWith(searchQ) ||
+        (!hasExactBasename && base.includes(searchQ));
+      if (matches) {
         push({
           filePath: file.path,
           basename: file.basename,
@@ -143,9 +147,15 @@ export function matchWikiLinkSuggestions(
   }
 
   results.sort((a, b) => {
-    const aExact = a.label.toLowerCase() === searchQ ? 0 : 1;
-    const bExact = b.label.toLowerCase() === searchQ ? 0 : 1;
-    if (aExact !== bExact) return aExact - bExact;
+    const rank = (item: WikiLinkSuggestion) => {
+      const label = item.label.toLowerCase();
+      const base = item.basename.toLowerCase();
+      if (label === searchQ || base === searchQ) return 0;
+      if (label.startsWith(searchQ) || base.startsWith(searchQ)) return 1;
+      return 2;
+    };
+    const rankDiff = rank(a) - rank(b);
+    if (rankDiff !== 0) return rankDiff;
     if (a.alias && !b.alias) return -1;
     if (!a.alias && b.alias) return 1;
     return a.label.localeCompare(b.label, "de");

@@ -13,6 +13,7 @@ import {
 } from "./journalCallout";
 import type { FeedMetadata } from "./feedMetadata";
 import { processVaultFile } from "./vaultProcess";
+import { detailToCalloutProseLines, stripCalloutPrefixRaw } from "./calloutProse";
 
 export const SONSTIGES_HEADING = "Sonstiges";
 export const SONSTIGES_META_PREFIX = "<!-- udn-sonstiges:";
@@ -36,7 +37,7 @@ export function sonstigesMetaComment(meta: SonstigesMeta): string {
 }
 
 export function parseSonstigesMetaLine(line: string): SonstigesMeta | null {
-  const trimmed = line.trim();
+  const trimmed = line.trim().replace(/^(?:>\s*)+/, "");
   if (!trimmed.startsWith(SONSTIGES_META_PREFIX)) return null;
   const jsonStart = trimmed.indexOf("{");
   const jsonEnd = trimmed.lastIndexOf("}");
@@ -45,7 +46,7 @@ export function parseSonstigesMetaLine(line: string): SonstigesMeta | null {
     const parsed = JSON.parse(trimmed.slice(jsonStart, jsonEnd + 1)) as Partial<SonstigesMeta>;
     return {
       titel: parsed.titel?.trim() ?? "",
-      detail: parsed.detail?.trim() ?? "",
+      detail: typeof parsed.detail === "string" ? parsed.detail : "",
       feedTime: parsed.feedTime?.trim() ?? "",
       feedKurz: parsed.feedKurz?.trim() ?? "",
     };
@@ -63,7 +64,7 @@ export function parseSonstigesMetaFromLines(lines: string[]): SonstigesMeta | nu
 }
 
 function stripCalloutPrefix(line: string): string {
-  return line.replace(/^(?:>\s*)+/, "").trim();
+  return stripCalloutPrefixRaw(line);
 }
 
 function proseFromCalloutLines(sectionLines: string[]): { titel: string; detail: string } {
@@ -85,7 +86,6 @@ function proseFromCalloutLines(sectionLines: string[]): { titel: string; detail:
       continue;
     }
     const inner = stripCalloutPrefix(line);
-    if (!inner) continue;
     if (isPlainJournalBulletLine(line)) {
       const body = inner.replace(/^[-*+]\s+/, "");
       const text = stripLeadingTimeFromKurz(body);
@@ -101,14 +101,11 @@ function proseFromCalloutLines(sectionLines: string[]): { titel: string; detail:
 export function buildSonstigesCalloutBlock(title: string, detail: string): string {
   const titel = title.trim() || SONSTIGES_HEADING;
   const lines = [formatManagedCalloutTitleLine(SONSTIGES_HEADING, titel)];
-  const prose = detail
-    .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean);
-  if (prose.length === 0) {
+  const proseLines = detailToCalloutProseLines(detail);
+  if (proseLines.length === 0) {
     lines.push(">");
   } else {
-    lines.push(...prose.map((l) => `> ${l}`));
+    lines.push(...proseLines);
   }
   lines.push("");
   return lines.join("\n");

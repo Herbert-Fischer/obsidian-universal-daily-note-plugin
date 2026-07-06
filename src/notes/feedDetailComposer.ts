@@ -10,11 +10,10 @@ import type { FeedMetadata } from "./feedMetadata";
 import {
   journalProfileById,
   journalProfileForHeading,
-  lueftungPhotosFolderForYear,
   type JournalProfileDef,
 } from "./journalProfiles";
 import { defaultFeedLinksForProfile, resolveFeedLinksMarkdown, splitFeedLineContent } from "./feedLinks";
-import { wikiEmbedForPath } from "./attachJournalMedia";
+import { wikiEmbedForPath, importDailyNotePhotoFile, normalizeDailyNotePhotoPath, DEFAULT_DAILY_PHOTOS_FOLDER } from "./attachJournalMedia";
 import { processVaultFile } from "./vaultProcess";
 import {
   buildPhotoCollageMarkdownAsync,
@@ -155,12 +154,11 @@ function replaceDetailSectionBody(lines: string[], profile: JournalProfileDef, r
   return [...lines.slice(0, range.start + 1), ...bodyLines, ...lines.slice(range.end)];
 }
 
-function photosFolderForProfile(profile: JournalProfileDef, date: Date, layout: FeedDetailLayoutSettings): string {
+function photosFolderForProfile(profile: JournalProfileDef, layout: FeedDetailLayoutSettings): string {
   if (profile.id === "heizung") {
-    return layout.heizungPhotosFolder.trim() || profile.photosFolder;
+    return layout.heizungPhotosFolder.trim() || profile.photosFolder || DEFAULT_DAILY_PHOTOS_FOLDER;
   }
-  const base = layout.lueftungPhotosFolder.trim() || profile.photosFolder;
-  return lueftungPhotosFolderForYear(base, date.getFullYear());
+  return layout.lueftungPhotosFolder.trim() || profile.photosFolder || DEFAULT_DAILY_PHOTOS_FOLDER;
 }
 
 async function normalizeFeedDetailPhotoPath(
@@ -168,15 +166,12 @@ async function normalizeFeedDetailPhotoPath(
   rawPath: string,
   photoIndex: number,
   date: Date,
+  calloutTitle: string,
   photosFolder: string,
 ): Promise<string> {
   const trimmed = rawPath.replace(/^!\[\[|\]\]$/g, "").trim();
-  if (trimmed.includes("/")) return normalizePath(trimmed);
-  const extMatch = /\.([a-zA-Z0-9]{1,8})$/.exec(trimmed);
-  const ext = extMatch ? extMatch[1]!.toLowerCase() : "jpg";
-  const num = String(photoIndex + 1).padStart(2, "0");
-  const fileName = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}_${num}.${ext}`;
-  return normalizePath(`${photosFolder.replace(/\/+$/, "")}/${fileName}`);
+  if (!trimmed) return trimmed;
+  return normalizeDailyNotePhotoPath(app, trimmed, photoIndex, date, calloutTitle, photosFolder);
 }
 
 export async function importFeedDetailPhotoFile(
@@ -186,20 +181,10 @@ export async function importFeedDetailPhotoFile(
   date: Date,
   profile: JournalProfileDef,
   layout: FeedDetailLayoutSettings,
+  calloutTitle: string,
 ): Promise<string> {
-  const folder = photosFolderForProfile(profile, date, layout);
-  let destPath = await normalizeFeedDetailPhotoPath(app, file.name, photoIndex, date, folder);
-  const parent = destPath.replace(/\/[^/]+$/, "");
-  await ensureFolder(app, parent);
-  if (app.vault.getAbstractFileByPath(destPath)) {
-    const dot = destPath.lastIndexOf(".");
-    const stem = dot >= 0 ? destPath.slice(0, dot) : destPath;
-    const ext = dot >= 0 ? destPath.slice(dot) : "";
-    destPath = `${stem}-${Math.random().toString(36).slice(2, 4)}${ext}`;
-  }
-  const data = await file.arrayBuffer();
-  await app.vault.createBinary(destPath, data);
-  return destPath;
+  const folder = photosFolderForProfile(profile, layout);
+  return importDailyNotePhotoFile(app, file, date, photoIndex, calloutTitle, folder);
 }
 
 export async function loadFeedDetailComposerData(
@@ -290,11 +275,11 @@ export async function saveFeedDetailComposerState(
     return false;
   }
 
-  const photosFolder = photosFolderForProfile(profile, date, layout);
+  const photosFolder = photosFolderForProfile(profile, layout);
   const maxPhotos = Math.max(1, layout.maxPhotos ?? profile.maxPhotos);
   const normalizedPhotos: string[] = [];
   for (let i = 0; i < Math.min(data.photos.length, maxPhotos); i++) {
-    const path = await normalizeFeedDetailPhotoPath(app, data.photos[i]!, i, date, photosFolder);
+    const path = await normalizeFeedDetailPhotoPath(app, data.photos[i]!, i, date, titel, photosFolder);
     normalizedPhotos.push(path);
   }
 

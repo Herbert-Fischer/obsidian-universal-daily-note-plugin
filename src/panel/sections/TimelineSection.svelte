@@ -24,6 +24,7 @@ import { isWikiLinkSuggestOpen } from "../wikiLinkInputSuggest";
   import { parseJournalEntryDisplay, formatJournalEntryText } from "../../notes/parseJournalEntryDisplay";
   import { entryHueFromIndex, formatDayBubbleLabel } from "../formatDayBubble";
   import TimelineOutlineEntry from "./TimelineOutlineEntry.svelte";
+  import type { ComposerOpenFocus } from "../composer/openDailyComposer";
 
   import type { PanelStore } from "../panelStore";
   import type { CalendarSyncContext, OutlineRangeMode } from "../../integrations/calendarRange";
@@ -85,7 +86,7 @@ import { isWikiLinkSuggestOpen } from "../wikiLinkInputSuggest";
   export let tagebuchSettings: TagebuchVerweiseSettings;
   export let outlineSettings: OutlineSettings = DEFAULT_SETTINGS.outline;
   export let onOutlinePatch: (patch: Partial<OutlineSettings>) => void = () => {};
-  export let onOpenComposer: (date: Date) => void = () => {};
+  export let onOpenComposer: (date: Date, focus?: ComposerOpenFocus) => void = () => {};
   export let onOpenTaskComposer: (date: Date) => void = () => {};
   export let onInsertWeather: (date: Date) => void = () => {};
   export let onSelectDay: (dateKey: string) => void = () => {};
@@ -374,6 +375,14 @@ import { isWikiLinkSuggestOpen } from "../wikiLinkInputSuggest";
 
   function selectDay(day: TimelineDay) {
     onSelectDay(day.dateKey);
+  }
+
+  function openComposerEntry(day: TimelineDay, entry: TimelineEntry) {
+    selectDay(day);
+    onOpenComposer(dateFromDateKey(day.dateKey), {
+      line: entry.line,
+      entryId: entry.entryId,
+    });
   }
 
   function openWikiLink(dest: string, sourcePath: string) {
@@ -712,6 +721,7 @@ import { isWikiLinkSuggestOpen } from "../wikiLinkInputSuggest";
                       onEditKeydown={onEditKeydown}
                       onOpenWikiLink={openWikiLink}
                       onSelectDay={selectDay}
+                      onOpenComposerEntry={openComposerEntry}
                     />
                   {/each}
                 </div>
@@ -766,6 +776,7 @@ import { isWikiLinkSuggestOpen } from "../wikiLinkInputSuggest";
                         onEditKeydown={onEditKeydown}
                         onOpenWikiLink={openWikiLink}
                         onSelectDay={selectDay}
+                        onOpenComposerEntry={openComposerEntry}
                       />
                     {/each}
                   </div>
@@ -788,6 +799,7 @@ import { isWikiLinkSuggestOpen } from "../wikiLinkInputSuggest";
                   onEditKeydown={onEditKeydown}
                   onOpenWikiLink={openWikiLink}
                   onSelectDay={selectDay}
+                  onOpenComposerEntry={openComposerEntry}
                 />
               {/each}
             {/if}

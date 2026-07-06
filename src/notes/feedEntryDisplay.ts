@@ -17,6 +17,7 @@ const HUB_BUBBLE_CLASS: Record<string, string> = {
   "lueftungs-tagebuch": "udn-feedLinkBubble--lueftung",
   "reise-tagebuch": "udn-feedLinkBubble--reisen",
   "wandern-tagebuch": "udn-feedLinkBubble--wandern",
+  "gedanken-inbox": "udn-feedLinkBubble--gedanken",
 };
 
 function wikiLinksFromInner(text: string): Extract<WikiLinkSegment, { kind: "link" }>[] {
@@ -147,6 +148,7 @@ export function feedLinkBubbleClass(dest: string, feedProfile?: FeedProfile, bro
   if (page.includes("lüftung") || page.includes("lueftung")) return "udn-feedLinkBubble--lueftung";
   if (page.includes("reise")) return "udn-feedLinkBubble--reisen";
   if (page.includes("wandern")) return "udn-feedLinkBubble--wandern";
+  if (page.includes("gedanken")) return "udn-feedLinkBubble--gedanken";
   if (feedProfile && feedProfile !== "tagebuch") return `udn-feedLinkBubble--${feedProfile}`;
   return "udn-feedLinkBubble--default";
 }

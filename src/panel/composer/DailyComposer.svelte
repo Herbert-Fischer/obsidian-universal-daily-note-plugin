@@ -11,6 +11,7 @@
     buildChipEntryText,
     chipsForHeading,
     composerEntryText,
+    dedupeSupplementProfileEntries,
     loadComposerSectionHeadings,
     loadComposerState,
     saveComposerState,
@@ -46,20 +47,33 @@
   import FeedDetailComposerFields from "./FeedDetailComposerFields.svelte";
   import SonstigesComposerFields from "./SonstigesComposerFields.svelte";
   import PhotoCollageField from "./PhotoCollageField.svelte";
-  import { journalProfileForHeading } from "../../notes/journalProfiles";
+  import { journalProfileForHeading, journalProfileById } from "../../notes/journalProfiles";
   import type { FeedProfile } from "../../notes/feedMetadata";
   import { feedProfileLabel } from "../../notes/feedMetadata";
   import { generateEntryId } from "../../notes/journalEntryMeta";
   import { groupFieldLabel, groupFieldPlaceholder, loadRecentGroupLabels } from "../../notes/journalEntryGroups";
   import ProfileBubble from "../ProfileBubble.svelte";
   import ReisenComposerFields from "./ReisenComposerFields.svelte";
+  import LueftungComposerFields from "./LueftungComposerFields.svelte";
+  import HeizungComposerFields from "./HeizungComposerFields.svelte";
+  import GedankenComposerFields from "./GedankenComposerFields.svelte";
+  import { pickVaultImageFile } from "./pickVaultImageFile";
   import {
     loadFeedDetailComposerData,
     saveFeedDetailComposerState,
   } from "../../notes/feedDetailComposer";
   import { syncReisenSupplements, type ReisenSortOrder } from "../../notes/reisenComposer";
-  import { withOperationTimeout } from "../../notes/vaultProcess";
-  import { loadSonstigesComposerData, saveSonstigesComposerState } from "../../notes/sonstigesComposer";
+  import { syncLueftungSupplements, lueftungCalloutTitle } from "../../notes/lueftungComposer";
+  import { syncHeizungSupplements, heizungCalloutTitle } from "../../notes/heizungComposer";
+  import { syncGedankenSupplements } from "../../notes/gedankenComposer";
+  import { syncWandernSupplements, wandernCalloutTitle } from "../../notes/wandernComposer";
+  import { withOperationTimeout, suppressVaultMetadataNotify, notifyVaultFileChanged } from "../../notes/vaultProcess";
+  import { markComposerSaved, traceComposerSave } from "../../notes/composerSaveTrace";
+  import {
+    loadSonstigesComposerData,
+    saveSonstigesComposerState,
+    SONSTIGES_HEADING,
+  } from "../../notes/sonstigesComposer";
   import {
     applyWandernBulkFields,
     loadWandernComposerData,
@@ -67,6 +81,8 @@
     saveWandernComposerState,
   } from "../../notes/wandernLayout";
   import { reverseGeocode, getCurrentPosition } from "../../weather/openMeteo";
+  import { ensureDailyNoteFileForDate } from "../../notes/appendLogLine";
+  import { readDailyNoteSummary } from "../../notes/dailyNoteSummary";
 
   export let app: App;
   export let date: Date;
@@ -99,10 +115,36 @@
   export let initialFocusEntryId: string | null = null;
 
   const TAGEBUCH_HEADING = "Tagebuch";
-  const PROFILE_MENU_IDS: FeedProfile[] = ["reisen", "wandern", "heizung", "lueftung", "sonstiges"];
+  const PROFILE_MENU_IDS: FeedProfile[] = ["reisen", "wandern", "heizung", "lueftung", "gedanken", "sonstiges"];
+  const SUPPLEMENT_PROFILES = new Set<FeedProfile>(["reisen", "lueftung", "heizung", "gedanken"]);
+
+  function entryUsesWandernFields(profile: FeedProfile | undefined): boolean {
+    return profile === "wandern";
+  }
+
+  function entryExpandsOnFocus(profile: FeedProfile | undefined): boolean {
+    return entryUsesSupplementFields(profile) || entryUsesWandernFields(profile);
+  }
+
+  function trackMatchFromPath(path: string | undefined): TrackMatch | null {
+    const safe = path?.trim() ?? "";
+    if (!safe) return null;
+    return {
+      path: safe,
+      name: safe.split("/").pop() ?? safe,
+      distanceKm: null,
+      durationSec: null,
+      startLabel: null,
+      endLabel: null,
+    };
+  }
+
+  function entryUsesSupplementFields(profile: FeedProfile | undefined): boolean {
+    return profile != null && SUPPLEMENT_PROFILES.has(profile);
+  }
 
   let currentDate = normalizeLocalDay(date);
-  let activeHeading = TAGEBUCH_HEADING;
+  let activeHeading = initialJournalHeading?.trim() || TAGEBUCH_HEADING;
   let sectionHeadings: string[] = [activeHeading];
   let loading = true;
   let saving = false;
@@ -134,18 +176,23 @@
   let composerFile: TFile | null = null;
   let reiseSortOrder: Record<string, ReisenSortOrder> = {};
   let reiseGroupSuggestions: string[] = [];
+  let wartungGroupSuggestions: string[] = [];
+  let vorfallGroupSuggestions: string[] = [];
+  let themaGroupSuggestions: string[] = [];
   let weatherBusy = false;
   let templateBusy = false;
   let templateFileInput: HTMLInputElement;
   let pendingTemplatePack: ComposerTemplatePack | null = null;
   let pendingBulkOptions: { onlyMissing: boolean; selectedTrack: TrackMatch | null } | null = null;
   let pendingWandernPhoto = false;
+  let pendingWandernEntryId: string | null = null;
   let wandernTitel = "";
   let wandernKurz = "";
   let wandernBeschreibung = "";
   let wandernTrack: TrackMatch | null = null;
   let wandernPhotos: string[] = [];
   let wandernShowPreview = false;
+  let wandernTrackPickerEntryId: string | null = null;
   let wandernTrackPickerOpen = false;
   let wandernTrackPickerLoading = false;
   let wandernTrackOptions: TrackPickOption[] = [];
@@ -155,22 +202,141 @@
   let feedDetailPhotos: string[] = [];
   let sonstigesDetail = "";
   let sonstigesFeedKurz = "";
+  let sonstigesFeedTime = "";
   let listPhotos: string[] = [];
   let pendingComposerPhoto = false;
+  let pendingSupplementEntryId: string | null = null;
   let expandedEntryId: string | null = null;
   let landscapeMobile = false;
   let landscapeMq: MediaQueryList | null = null;
   let groupSuggestions: string[] = [];
+  const groupLabelsByProfile: Partial<Record<FeedProfile, string[]>> = {};
+  const groupLabelsInflight: Partial<Record<FeedProfile, Promise<string[]>>> = {};
+  let lastGroupProfileSignature = "";
+  let summaryDebounce: ReturnType<typeof setTimeout> | null = null;
+
+  function scheduleSummaryFromEntries(): void {
+    if (summaryTouched) return;
+    if (summaryDebounce) clearTimeout(summaryDebounce);
+    summaryDebounce = setTimeout(() => {
+      summaryDebounce = null;
+      summary = suggestSummaryFromEntries(entries.map(composerEntryText));
+    }, 250);
+  }
+
+  function flushPendingSummary(): void {
+    if (summaryDebounce) {
+      clearTimeout(summaryDebounce);
+      summaryDebounce = null;
+      if (!summaryTouched) {
+        summary = suggestSummaryFromEntries(entries.map(composerEntryText));
+      }
+    }
+  }
+
+  function entryProfileSignature(): string {
+    const parts = new Set<string>();
+    for (const entry of entries) {
+      if (entry.profile) parts.add(entry.profile);
+    }
+    if (expandedEntryId) {
+      const expanded = entries.find((entry) => entry.id === expandedEntryId);
+      if (
+        expanded?.profile &&
+        !entryUsesSupplementFields(expanded.profile) &&
+        expanded.profile !== "wandern"
+      ) {
+        parts.add(`expanded:${expanded.profile}`);
+      }
+    }
+    return [...parts].sort().join("|");
+  }
+
+  function resetGroupLabelCache() {
+    for (const key of Object.keys(groupLabelsByProfile) as FeedProfile[]) {
+      delete groupLabelsByProfile[key];
+    }
+    for (const key of Object.keys(groupLabelsInflight) as FeedProfile[]) {
+      delete groupLabelsInflight[key];
+    }
+    lastGroupProfileSignature = "";
+    reiseGroupSuggestions = [];
+    wartungGroupSuggestions = [];
+    vorfallGroupSuggestions = [];
+    themaGroupSuggestions = [];
+    groupSuggestions = [];
+  }
+
+  async function ensureGroupLabels(profile: FeedProfile): Promise<string[]> {
+    if (groupLabelsByProfile[profile]) return groupLabelsByProfile[profile]!;
+    if (!groupLabelsInflight[profile]) {
+      groupLabelsInflight[profile] = loadRecentGroupLabels(app, fallback, tagebuchSettings, profile).then(
+        (labels) => {
+          groupLabelsByProfile[profile] = labels;
+          delete groupLabelsInflight[profile];
+          return labels;
+        },
+      );
+    }
+    return groupLabelsInflight[profile]!;
+  }
+
+  async function syncGroupSuggestions() {
+    const needs = new Set<FeedProfile>();
+    for (const entry of entries) {
+      if (
+        entry.profile === "reisen" ||
+        entry.profile === "lueftung" ||
+        entry.profile === "heizung" ||
+        entry.profile === "gedanken" ||
+        entry.profile === "wandern"
+      ) {
+        needs.add(entry.profile);
+      }
+    }
+    const expanded = expandedEntryId ? entries.find((entry) => entry.id === expandedEntryId) : null;
+    if (
+      expanded?.profile &&
+      !entryUsesSupplementFields(expanded.profile) &&
+      expanded.profile !== "wandern"
+    ) {
+      needs.add(expanded.profile);
+    }
+
+    reiseGroupSuggestions = needs.has("reisen") ? await ensureGroupLabels("reisen") : [];
+    wartungGroupSuggestions = needs.has("lueftung") ? await ensureGroupLabels("lueftung") : [];
+    vorfallGroupSuggestions = needs.has("heizung") ? await ensureGroupLabels("heizung") : [];
+    themaGroupSuggestions = needs.has("gedanken") ? await ensureGroupLabels("gedanken") : [];
+
+    if (needs.has("wandern")) {
+      groupSuggestions = await ensureGroupLabels("wandern");
+    } else if (
+      expanded?.profile &&
+      !entryUsesSupplementFields(expanded.profile) &&
+      expanded.profile !== "wandern"
+    ) {
+      groupSuggestions = await ensureGroupLabels(expanded.profile);
+    } else {
+      groupSuggestions = [];
+    }
+  }
+
+  function maybeSyncGroupSuggestions() {
+    const signature = entryProfileSignature();
+    if (signature === lastGroupProfileSignature) return;
+    lastGroupProfileSignature = signature;
+    void syncGroupSuggestions();
+  }
 
   function onLandscapeChange() {
     landscapeMobile = isMobile && (landscapeMq?.matches ?? false);
   }
 
   $: activeProfile = journalProfileForHeading(activeHeading);
+  $: isSonstigesMode = activeHeading.trim().toLowerCase() === SONSTIGES_HEADING.toLowerCase();
   $: isWandernMode = false;
-  $: isSonstigesMode = false;
   $: isFeedDetailMode = false;
-  $: isSpecialFormMode = false;
+  $: isSpecialFormMode = isSonstigesMode || isWandernMode || isFeedDetailMode;
   $: wandernPreviewMarkdown = isWandernMode
     ? renderWandernTemplate({
         titel: wandernTitel || calloutTitle,
@@ -183,8 +349,29 @@
       })
     : "";
 
-  $: chips = chipsForHeading(TAGEBUCH_HEADING, entryPrefixes);
-  $: bulkTemplates = templatesForHeading(TAGEBUCH_HEADING, composerTemplates);
+  $: hasLueftungEntries = entries.some((e) => e.profile === "lueftung");
+  $: hasHeizungEntries = entries.some((e) => e.profile === "heizung");
+  $: hasGedankenEntries = entries.some((e) => e.profile === "gedanken");
+  $: hasWandernEntries = entries.some((e) => e.profile === "wandern");
+  $: hasSupplementPhotoEntries = hasLueftungEntries || hasHeizungEntries || hasWandernEntries;
+  $: wandernMaxPhotos = Math.max(
+    1,
+    wandernLayout.maxPhotos ?? journalProfileById("wandern")?.maxPhotos ?? 3,
+  );
+  $: lueftungMaxPhotos = Math.max(
+    1,
+    feedDetailLayout.maxPhotos ?? journalProfileById("lueftung")?.maxPhotos ?? 6,
+  );
+  $: heizungMaxPhotos = Math.max(
+    1,
+    feedDetailLayout.maxPhotos ?? journalProfileById("heizung")?.maxPhotos ?? 6,
+  );
+  $: chips = isSonstigesMode
+    ? chipsForHeading(SONSTIGES_HEADING, entryPrefixes)
+    : hasGedankenEntries
+      ? chipsForHeading("Gedanken", entryPrefixes)
+      : chipsForHeading(TAGEBUCH_HEADING, entryPrefixes);
+  $: bulkTemplates = templatesForHeading(isSonstigesMode ? SONSTIGES_HEADING : TAGEBUCH_HEADING, composerTemplates);
   $: prefixMenuEnabled = chips.length > 0 || bulkTemplates.length > 0 || !!onInsertWeather;
   $: dateLabel = formatDayBubbleLabel(
     `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, "0")}-${String(currentDate.getDate()).padStart(2, "0")}`,
@@ -211,7 +398,9 @@
     loading = true;
     loadError = "";
     modified = false;
+    resetGroupLabelCache();
     onDateChange(currentDate);
+    const sonstigesMode = activeHeading.trim().toLowerCase() === SONSTIGES_HEADING.toLowerCase();
     try {
       if (calendarSync?.enabled) {
         void import("../../integrations/calendarAppointments")
@@ -227,6 +416,39 @@
             console.warn("Universal Daily Note: Kalender-Sync beim Composer-Laden", syncErr);
           });
       }
+
+      if (sonstigesMode) {
+        const file = await ensureDailyNoteFileForDate(app, currentDate, fallback);
+        const [headings, sonstigesData] = await Promise.all([
+          loadComposerSectionHeadings(app, currentDate, fallback, tagebuchSettings, {
+            excludedHeadings,
+            defaultHeading: activeHeading,
+            durationDays,
+          }),
+          loadSonstigesComposerData(app, file),
+        ]);
+        if (generation !== loadGeneration) return;
+        sectionHeadings = headings.length > 0 ? headings : [activeHeading];
+        if (!sectionHeadings.some((h) => h.toLowerCase() === activeHeading.toLowerCase())) {
+          sectionHeadings = [activeHeading, ...sectionHeadings];
+        }
+        filePath = file.path;
+        composerFile = file;
+        entries = [];
+        reiseSortOrder = {};
+        listPhotos = [];
+        calloutTitle = sonstigesData.calloutTitle;
+        sonstigesDetail = sonstigesData.detail;
+        sonstigesFeedKurz = sonstigesData.feedKurz;
+        sonstigesFeedTime = sonstigesData.feedTime || currentTime();
+        summary = readDailyNoteSummary(app, file) || "";
+        summaryTouched = Boolean(summary.trim());
+        newEntryText = "";
+        newEntryTime = currentTime();
+        maybeSyncGroupSuggestions();
+        return;
+      }
+
       const [state, headings] = await Promise.all([
         loadComposerState(app, currentDate, fallback, TAGEBUCH_HEADING),
         loadComposerSectionHeadings(app, currentDate, fallback, tagebuchSettings, {
@@ -248,8 +470,12 @@
       listPhotos = [...state.photos];
       summary = state.summary;
       summaryTouched = Boolean(state.summary.trim());
+      sonstigesDetail = "";
+      sonstigesFeedKurz = "";
+      sonstigesFeedTime = "";
       newEntryText = "";
       newEntryTime = currentTime();
+      maybeSyncGroupSuggestions();
       await focusInitialEntry();
     } catch (e) {
       if (generation !== loadGeneration) return;
@@ -271,29 +497,49 @@
         ? entries.find((entry) => entry.entryId === initialFocusEntryId)
         : undefined) ??
       (initialFocusEntryLine != null
-        ? entries.find((entry) => entry.line === initialFocusEntryLine)
+        ? entries.find(
+            (entry) =>
+              entry.line === initialFocusEntryLine || entry.id === `line-${initialFocusEntryLine}`,
+          )
         : undefined);
     if (!target) return;
     expandedEntryId = target.id;
     await tick();
-    composerRoot
-      ?.querySelector<HTMLElement>(`[data-composer-entry="${target.id}"]`)
-      ?.scrollIntoView({ block: "center", behavior: "smooth" });
+    const row = composerRoot?.querySelector<HTMLElement>(`[data-composer-entry="${target.id}"]`);
+    row?.scrollIntoView({ block: "center", behavior: "smooth" });
+    const focusEl = row?.querySelector<HTMLElement>(
+      ".udn-composerEntryInput input, .udn-composerEntryInput textarea, .udn-timeBubbleInput",
+    );
+    focusEl?.focus();
   }
 
   function markModified() {
     modified = true;
   }
 
-  function photoImportContext(photoIndex: number) {
+  function photoImportContext(photoIndex: number, supplementEntry?: ComposerEntry) {
+    const profile = supplementEntry?.profile;
     return {
       date: currentDate,
       calloutTitle: wandernTitel || calloutTitle || activeHeading,
-      heading: activeHeading,
+      heading:
+        profile === "lueftung"
+          ? "Lüftung"
+          : profile === "heizung"
+            ? "Heizung"
+            : profile === "wandern"
+              ? "Wandern"
+              : activeHeading,
       photoIndex,
       attachmentsFolder,
       wandernLayout,
       feedDetailLayout,
+      lueftungEntryTitle:
+        profile === "lueftung" && supplementEntry ? lueftungCalloutTitle(supplementEntry) : undefined,
+      heizungEntryTitle:
+        profile === "heizung" && supplementEntry ? heizungCalloutTitle(supplementEntry) : undefined,
+      wandernEntryTitle:
+        profile === "wandern" && supplementEntry ? wandernCalloutTitle(supplementEntry) : undefined,
     };
   }
 
@@ -310,8 +556,106 @@
     return next;
   }
 
-  async function importComposerPhoto(selectedFile: File | null) {
-    if (!selectedFile) return;
+  async function importComposerPhoto(
+    selectedFiles: File | FileList | null | undefined,
+    supplementEntryId?: string | null,
+  ) {
+    if (!selectedFiles) return;
+    const files = Array.from(selectedFiles instanceof FileList ? selectedFiles : [selectedFiles]).filter(Boolean);
+    if (files.length === 0) return;
+
+    let added = 0;
+    for (const selectedFile of files) {
+      const imported = await importOneComposerPhoto(selectedFile, supplementEntryId);
+      if (imported) added++;
+    }
+    if (added === 1) new Notice("Foto hinzugefügt.");
+    else if (added > 1) new Notice(`${added} Fotos hinzugefügt.`);
+  }
+
+  async function importOneComposerPhoto(
+    selectedFile: File,
+    supplementEntryId?: string | null,
+  ): Promise<boolean> {
+    const supplementEntry = supplementEntryId
+      ? entries.find((e) => e.id === supplementEntryId)
+      : undefined;
+
+    if (supplementEntry?.profile === "lueftung") {
+      const photos = supplementEntry.supplementPhotos ?? [];
+      if (photos.length >= lueftungMaxPhotos) {
+        new Notice(`Maximal ${lueftungMaxPhotos} Fotos.`);
+        return false;
+      }
+      templateBusy = true;
+      try {
+        const path = await importJournalPhoto(
+          app,
+          selectedFile,
+          photoImportContext(photos.length, supplementEntry),
+        );
+        updateEntry(supplementEntry.id, { supplementPhotos: [...photos, path] });
+        markModified();
+        return true;
+      } catch (e) {
+        console.error("Universal Daily Note: Composer Lüftung-Foto", e);
+        new Notice("Foto konnte nicht gespeichert werden.");
+        return false;
+      } finally {
+        templateBusy = false;
+      }
+    }
+
+    if (supplementEntry?.profile === "heizung") {
+      const photos = supplementEntry.supplementPhotos ?? [];
+      if (photos.length >= heizungMaxPhotos) {
+        new Notice(`Maximal ${heizungMaxPhotos} Fotos.`);
+        return false;
+      }
+      templateBusy = true;
+      try {
+        const path = await importJournalPhoto(
+          app,
+          selectedFile,
+          photoImportContext(photos.length, supplementEntry),
+        );
+        updateEntry(supplementEntry.id, { supplementPhotos: [...photos, path] });
+        markModified();
+        return true;
+      } catch (e) {
+        console.error("Universal Daily Note: Composer Heizung-Foto", e);
+        new Notice("Foto konnte nicht gespeichert werden.");
+        return false;
+      } finally {
+        templateBusy = false;
+      }
+    }
+
+    if (supplementEntry?.profile === "wandern") {
+      const photos = supplementEntry.supplementPhotos ?? [];
+      if (photos.length >= wandernMaxPhotos) {
+        new Notice(`Maximal ${wandernMaxPhotos} Fotos.`);
+        return false;
+      }
+      templateBusy = true;
+      try {
+        const path = await importJournalPhoto(
+          app,
+          selectedFile,
+          photoImportContext(photos.length, supplementEntry),
+        );
+        updateEntry(supplementEntry.id, { supplementPhotos: [...photos, path] });
+        markModified();
+        return true;
+      } catch (e) {
+        console.error("Universal Daily Note: Composer Wandern-Foto", e);
+        new Notice("Foto konnte nicht gespeichert werden.");
+        return false;
+      } finally {
+        templateBusy = false;
+      }
+    }
+
     const maxPhotos = currentMaxPhotos();
     let photos: string[];
     if (isFeedDetailMode) photos = feedDetailPhotos;
@@ -320,7 +664,7 @@
 
     if (photos.length >= maxPhotos) {
       new Notice(`Maximal ${maxPhotos} Fotos.`);
-      return;
+      return false;
     }
 
     templateBusy = true;
@@ -330,24 +674,37 @@
       else if (isWandernMode) wandernPhotos = [...wandernPhotos, path];
       else listPhotos = [...listPhotos, path];
       markModified();
-      new Notice("Foto hinzugefügt.");
+      return true;
     } catch (e) {
       console.error("Universal Daily Note: Composer Foto", e);
       new Notice("Foto konnte nicht gespeichert werden.");
+      return false;
     } finally {
       templateBusy = false;
     }
   }
 
-  function onComposerAddPhotoClick() {
+  function onComposerAddPhotoClick(supplementEntryId?: string) {
     pendingTemplatePack = null;
     pendingBulkOptions = null;
     pendingWandernPhoto = false;
     pendingComposerPhoto = true;
+    pendingSupplementEntryId = supplementEntryId ?? null;
+    if (templateFileInput) templateFileInput.multiple = true;
     templateFileInput?.click();
   }
 
   function addChipEntry(chip: ComposerChip) {
+    if (isSonstigesMode) {
+      sonstigesFeedTime = chip.defaultTime ?? currentTime();
+      const label = chip.template.replace(/:$/, "").trim();
+      if (!sonstigesFeedKurz.trim()) sonstigesFeedKurz = label;
+      if (!calloutTitle.trim() || calloutTitle.trim().toLowerCase() === SONSTIGES_HEADING.toLowerCase()) {
+        calloutTitle = label;
+      }
+      markModified();
+      return;
+    }
     const time = chip.defaultTime ?? currentTime();
     const { time: entryTime, body } = parseJournalEntryDisplay(buildChipEntryText(chip, time));
     entries = [...entries, makeNewEntry(entryTime ?? time, body)];
@@ -369,7 +726,7 @@
     patch: Partial<
       Pick<
         ComposerEntry,
-        "time" | "body" | "profile" | "context" | "entryId" | "calloutId" | "supplementDetail"
+        "time" | "body" | "profile" | "context" | "entryId" | "calloutId" | "supplementDetail" | "supplementPhotos" | "supplementKurz" | "supplementTrackPath"
       >
     >,
   ) {
@@ -382,8 +739,11 @@
       return next;
     });
     markModified();
-    if (!summaryTouched) {
-      summary = suggestSummaryFromEntries(entries.map(composerEntryText));
+    if (patch.body !== undefined || patch.time !== undefined) {
+      scheduleSummaryFromEntries();
+    }
+    if (patch.profile !== undefined || patch.context !== undefined) {
+      maybeSyncGroupSuggestions();
     }
   }
 
@@ -393,7 +753,14 @@
       item.setTitle("Kein Profil");
       item.setChecked(!entry.profile || entry.profile === "tagebuch");
       item.onClick(() => {
-        updateEntry(entry.id, { profile: undefined, context: "", supplementDetail: undefined });
+        updateEntry(entry.id, {
+          profile: undefined,
+          context: "",
+          supplementDetail: undefined,
+          supplementPhotos: undefined,
+          supplementKurz: undefined,
+          supplementTrackPath: undefined,
+        });
         expandedEntryId = null;
       });
     });
@@ -402,7 +769,13 @@
         item.setTitle(feedProfileLabel(profileId));
         item.setChecked(entry.profile === profileId);
         item.onClick(() => {
-          updateEntry(entry.id, { profile: profileId, supplementDetail: profileId === "reisen" ? entry.supplementDetail : undefined });
+          updateEntry(entry.id, {
+            profile: profileId,
+            supplementDetail: entryUsesSupplementFields(profileId) || profileId === "wandern" ? entry.supplementDetail : undefined,
+            supplementPhotos: profileId === "lueftung" || profileId === "heizung" || profileId === "wandern" ? entry.supplementPhotos : undefined,
+            supplementKurz: profileId === "wandern" ? entry.supplementKurz : undefined,
+            supplementTrackPath: profileId === "wandern" ? entry.supplementTrackPath : undefined,
+          });
           expandedEntryId = entry.id;
         });
       });
@@ -411,43 +784,28 @@
   }
 
   $: expandedEntry = expandedEntryId ? entries.find((e) => e.id === expandedEntryId) ?? null : null;
+  $: expandedEntryId, maybeSyncGroupSuggestions();
 
-  $: if (entries.some((e) => e.profile === "reisen")) {
-    void loadRecentGroupLabels(app, fallback, tagebuchSettings, "reisen").then((labels) => {
-      reiseGroupSuggestions = labels;
-    });
-  } else {
-    reiseGroupSuggestions = [];
-  }
-
-  $: if (expandedEntry?.profile && expandedEntry.profile !== "reisen") {
-    void loadRecentGroupLabels(app, fallback, tagebuchSettings, expandedEntry.profile).then((labels) => {
-      groupSuggestions = labels;
-    });
-  } else {
-    groupSuggestions = [];
-  }
-
-  function expandReisenEntry(entry: ComposerEntry) {
-    if (entry.profile === "reisen") {
+  function expandSupplementEntry(entry: ComposerEntry) {
+    if (entryExpandsOnFocus(entry.profile)) {
       expandedEntryId = entry.id;
     }
   }
 
   function onComposerEntryRowClick(entry: ComposerEntry, ev: MouseEvent) {
-    if (entry.profile !== "reisen") return;
+    if (!entryExpandsOnFocus(entry.profile)) return;
     const target = ev.target as HTMLElement;
     if (target.closest(".udn-composerEntryRemove, .udn-profileBubble")) return;
     expandedEntryId = entry.id;
   }
 
   function onComposerEntryFocus(entry: ComposerEntry, ev: FocusEvent) {
-    expandReisenEntry(entry);
+    expandSupplementEntry(entry);
     onMobileInputFocus(ev);
   }
 
   function onComposerEntryBodyFocus(entry: ComposerEntry, ev: FocusEvent) {
-    expandReisenEntry(entry);
+    expandSupplementEntry(entry);
     onMobileInputFocus(ev);
   }
 
@@ -462,8 +820,161 @@
     updateEntry(entryId, { context: value });
   }
 
+  function onEntryWartungChange(entryId: string, value: string) {
+    updateEntry(entryId, { context: value });
+  }
+
+  function onEntryVorfallChange(entryId: string, value: string) {
+    updateEntry(entryId, { context: value });
+  }
+
+  function onEntryThemaChange(entryId: string, value: string) {
+    updateEntry(entryId, { context: value });
+  }
+
   function onEntrySupplementDetailChange(entryId: string, value: string) {
     updateEntry(entryId, { supplementDetail: value });
+  }
+
+  function onEntryLueftungPhotosChange(entryId: string, photos: string[]) {
+    updateEntry(entryId, { supplementPhotos: photos });
+  }
+
+  function onLueftungAddPhotoClick(entryId: string) {
+    onComposerAddPhotoClick(entryId);
+  }
+
+  async function onLueftungAddVaultPhotoClick(entryId: string) {
+    const entry = entries.find((e) => e.id === entryId);
+    if (!entry) return;
+    const photos = entry.supplementPhotos ?? [];
+    if (photos.length >= lueftungMaxPhotos) {
+      new Notice(`Maximal ${lueftungMaxPhotos} Fotos.`);
+      return;
+    }
+    const path = await pickVaultImageFile(app);
+    if (!path) return;
+    updateEntry(entryId, { supplementPhotos: [...photos, path] });
+    markModified();
+    new Notice("Vault-Foto verknüpft — wird beim Speichern in Anhänge/Bilder verschoben.");
+  }
+
+  function onLueftungRemovePhoto(entryId: string, index: number) {
+    const entry = entries.find((e) => e.id === entryId);
+    if (!entry) return;
+    onEntryLueftungPhotosChange(
+      entryId,
+      (entry.supplementPhotos ?? []).filter((_, i) => i !== index),
+    );
+  }
+
+  function onLueftungMovePhotoUp(entryId: string, index: number) {
+    const entry = entries.find((e) => e.id === entryId);
+    if (!entry) return;
+    onEntryLueftungPhotosChange(entryId, movePhotoAtIndex(entry.supplementPhotos ?? [], index, -1));
+  }
+
+  function onLueftungMovePhotoDown(entryId: string, index: number) {
+    const entry = entries.find((e) => e.id === entryId);
+    if (!entry) return;
+    onEntryLueftungPhotosChange(entryId, movePhotoAtIndex(entry.supplementPhotos ?? [], index, 1));
+  }
+
+  function onEntryHeizungPhotosChange(entryId: string, photos: string[]) {
+    updateEntry(entryId, { supplementPhotos: photos });
+  }
+
+  function onHeizungAddPhotoClick(entryId: string) {
+    onComposerAddPhotoClick(entryId);
+  }
+
+  async function onHeizungAddVaultPhotoClick(entryId: string) {
+    const entry = entries.find((e) => e.id === entryId);
+    if (!entry) return;
+    const photos = entry.supplementPhotos ?? [];
+    if (photos.length >= heizungMaxPhotos) {
+      new Notice(`Maximal ${heizungMaxPhotos} Fotos.`);
+      return;
+    }
+    const path = await pickVaultImageFile(app);
+    if (!path) return;
+    updateEntry(entryId, { supplementPhotos: [...photos, path] });
+    markModified();
+    new Notice("Vault-Foto verknüpft — wird beim Speichern in Anhänge/Bilder verschoben.");
+  }
+
+  function onHeizungRemovePhoto(entryId: string, index: number) {
+    const entry = entries.find((e) => e.id === entryId);
+    if (!entry) return;
+    onEntryHeizungPhotosChange(
+      entryId,
+      (entry.supplementPhotos ?? []).filter((_, i) => i !== index),
+    );
+  }
+
+  function onHeizungMovePhotoUp(entryId: string, index: number) {
+    const entry = entries.find((e) => e.id === entryId);
+    if (!entry) return;
+    onEntryHeizungPhotosChange(entryId, movePhotoAtIndex(entry.supplementPhotos ?? [], index, -1));
+  }
+
+  function onHeizungMovePhotoDown(entryId: string, index: number) {
+    const entry = entries.find((e) => e.id === entryId);
+    if (!entry) return;
+    onEntryHeizungPhotosChange(entryId, movePhotoAtIndex(entry.supplementPhotos ?? [], index, 1));
+  }
+
+  function onEntryWandernTitelChange(entryId: string, value: string) {
+    updateEntry(entryId, { context: value });
+  }
+
+  function onEntryWandernTrackChange(entryId: string, track: TrackMatch | null) {
+    updateEntry(entryId, { supplementTrackPath: track?.path ?? "" });
+  }
+
+  async function openWandernTrackPicker(entryId: string) {
+    if (wandernTrackPickerEntryId === entryId) {
+      wandernTrackPickerEntryId = null;
+      return;
+    }
+    if (!tracksSettings.enabled) {
+      new Notice("GPX-Tracks sind in den Einstellungen deaktiviert.");
+      return;
+    }
+
+    wandernTrackPickerEntryId = entryId;
+    wandernTrackPickerLoading = true;
+    wandernTrackOptions = [];
+    try {
+      const dayTracks = await findTracksForDay(app, currentDate, tracksSettings);
+      const allTracks = await findAllTracksInFolder(app, tracksSettings);
+      const dayPaths = new Set(dayTracks.map((t) => t.path));
+      const otherTracks = allTracks.filter((t) => !dayPaths.has(t.path));
+      if (dayTracks.length === 0 && otherTracks.length === 0) {
+        new Notice(`Keine GPX-Dateien in „${tracksSettings.folder}“ gefunden.`);
+        wandernTrackPickerEntryId = null;
+        return;
+      }
+      wandernTrackOptions = trackPickOptionsForDay(dayTracks, otherTracks);
+    } catch (e) {
+      console.error("Universal Daily Note: GPX-Tracks laden", e);
+      new Notice("GPX-Tracks konnten nicht geladen werden.");
+      wandernTrackPickerEntryId = null;
+    } finally {
+      wandernTrackPickerLoading = false;
+    }
+  }
+
+  function wandernPreviewForEntry(entry: ComposerEntry): string {
+    return renderWandernTemplate({
+      titel: wandernCalloutTitle(entry),
+      kurz: entry.supplementKurz ?? "",
+      beschreibung: entry.supplementDetail ?? "",
+      track: trackMatchFromPath(entry.supplementTrackPath),
+      photos: entry.supplementPhotos ?? [],
+      date: currentDate,
+      layout: wandernLayout,
+    });
   }
 
   function reiseGroupCount(reise: string): number {
@@ -622,9 +1133,14 @@
 
   async function runBulkTemplate(pack: ComposerTemplatePack) {
     if (templateBusy) return;
-    if (isWandernMode) {
+    const wandernTarget =
+      expandedEntry?.profile === "wandern" ? expandedEntry : null;
+    if (wandernTarget) {
       if (
-        (wandernKurz || wandernBeschreibung || wandernTrack || wandernPhotos.length > 0) &&
+        (wandernTarget.supplementKurz ||
+          wandernTarget.supplementDetail ||
+          wandernTarget.supplementTrackPath ||
+          (wandernTarget.supplementPhotos?.length ?? 0) > 0) &&
         !confirm("Vorlage auf Wandern-Felder anwenden?")
       ) {
         return;
@@ -644,16 +1160,18 @@
       }
     }
 
-    if (pack.actions?.includes("photo") && confirm(bulkPhotoConfirmMessage(activeHeading))) {
+    if (pack.actions?.includes("photo") && confirm(bulkPhotoConfirmMessage(wandernTarget ? "Wandern" : activeHeading))) {
       pendingTemplatePack = pack;
       pendingBulkOptions = { onlyMissing, selectedTrack };
-      pendingWandernPhoto = isWandernMode;
+      pendingWandernPhoto = Boolean(wandernTarget);
+      pendingWandernEntryId = wandernTarget?.id ?? null;
+      if (templateFileInput) templateFileInput.multiple = false;
       templateFileInput?.click();
       return;
     }
 
-    if (isWandernMode) {
-      await executeWandernBulkTemplate(pack, { selectedTrack });
+    if (wandernTarget) {
+      await executeWandernBulkTemplateForEntry(pack, wandernTarget, { selectedTrack });
       return;
     }
 
@@ -755,18 +1273,23 @@
 
   async function onTemplatePhotoSelected(ev: Event) {
     const input = ev.currentTarget as HTMLInputElement;
-    const selectedFile = input.files?.item(0) ?? null;
+    const selectedFiles = input.files;
+    const selectedFile = selectedFiles?.item(0) ?? null;
     const pack = pendingTemplatePack;
     const opts = pendingBulkOptions;
     const directPhoto = pendingComposerPhoto && !pack;
+    const supplementEntryId = pendingSupplementEntryId;
+    const wandernEntryId = pendingWandernEntryId;
     pendingTemplatePack = null;
     pendingBulkOptions = null;
     pendingWandernPhoto = false;
+    pendingWandernEntryId = null;
     pendingComposerPhoto = false;
+    pendingSupplementEntryId = null;
 
     try {
       if (directPhoto) {
-        await importComposerPhoto(selectedFile);
+        await importComposerPhoto(selectedFiles, supplementEntryId);
         return;
       }
 
@@ -774,28 +1297,24 @@
 
       templateBusy = true;
       try {
+        let photoPath: string | undefined;
         if (selectedFile) {
-          await importComposerPhoto(selectedFile);
+          if (wandernEntryId) {
+            await importComposerPhoto(selectedFile, wandernEntryId);
+            const entry = entries.find((e) => e.id === wandernEntryId);
+            photoPath = entry?.supplementPhotos?.[(entry.supplementPhotos?.length ?? 1) - 1];
+          } else {
+            await importComposerPhoto(selectedFile);
+          }
         }
-        if (isWandernMode) {
-          const updated = applyWandernBulkFields(
-            {
-              titel: wandernTitel || calloutTitle || "Wandern",
-              kurz: wandernKurz,
-              beschreibung: wandernBeschreibung,
-              track: opts.selectedTrack ?? wandernTrack,
-              photos: wandernPhotos,
-            },
-            {
-              track: opts.selectedTrack ?? wandernTrack,
-              maxPhotos: wandernLayout.maxPhotos ?? 3,
-            },
-          );
-          wandernTitel = updated.titel;
-          wandernTrack = updated.track;
-          wandernPhotos = updated.photos;
-          calloutTitle = updated.titel;
-          markModified();
+        if (wandernEntryId) {
+          const entry = entries.find((e) => e.id === wandernEntryId);
+          if (entry) {
+            await executeWandernBulkTemplateForEntry(pack, entry, {
+              selectedTrack: opts.selectedTrack,
+              photoPath,
+            });
+          }
         } else {
           await executeBulkTemplate(pack, {
             onlyMissing: opts.onlyMissing,
@@ -846,6 +1365,53 @@
   function onListMovePhotoDown(index: number) {
     listPhotos = movePhotoAtIndex(listPhotos, index, 1);
     markModified();
+  }
+
+  async function executeWandernBulkTemplateForEntry(
+    pack: ComposerTemplatePack,
+    entry: ComposerEntry,
+    options: { selectedTrack: TrackMatch | null; photoPath?: string },
+  ) {
+    templateBusy = true;
+    try {
+      let locationLabel = "";
+      if (pack.actions?.includes("location")) {
+        try {
+          const pos = await getCurrentPosition();
+          const place = await reverseGeocode(pos.coords.latitude, pos.coords.longitude);
+          locationLabel = place.placeName.split(",")[0]?.trim() ?? place.placeName;
+          onPersistSideEffects({ lastLocation: place.placeName });
+        } catch {
+          locationLabel = weatherLastLocation.trim().split(",")[0]?.trim() ?? weatherLastLocation.trim();
+        }
+      }
+      const updated = applyWandernBulkFields(
+        {
+          titel: entry.context?.trim() || wandernCalloutTitle(entry),
+          kurz: entry.supplementKurz ?? "",
+          beschreibung: entry.supplementDetail ?? "",
+          track: trackMatchFromPath(entry.supplementTrackPath),
+          photos: entry.supplementPhotos ?? [],
+        },
+        {
+          locationLabel,
+          track: options.selectedTrack ?? trackMatchFromPath(entry.supplementTrackPath),
+          photoPath: options.photoPath,
+          maxPhotos: wandernMaxPhotos,
+        },
+      );
+      updateEntry(entry.id, {
+        context: updated.titel,
+        supplementKurz: updated.kurz,
+        supplementDetail: updated.beschreibung,
+        supplementTrackPath: updated.track?.path ?? "",
+        supplementPhotos: updated.photos,
+      });
+    } catch (e) {
+      console.error("Universal Daily Note: Wandern-Vorlage", e);
+    } finally {
+      templateBusy = false;
+    }
   }
 
   async function executeWandernBulkTemplate(
@@ -974,16 +1540,20 @@
 
   async function syncCalendarAfterSave(savedDate: Date): Promise<void> {
     if (!calendarSync?.enabled) return;
+    if (calendarSync.syncOnOutlineLoad) return;
     try {
+      await traceComposerSave(app, "save:calendar-sync-start");
       const { syncCalendarAppointmentsIntoDailyNote } = await import("../../integrations/calendarAppointments");
-      await syncCalendarAppointmentsIntoDailyNote(app, {
+      const added = await syncCalendarAppointmentsIntoDailyNote(app, {
         date: savedDate,
         fallback,
         settings: calendarSync,
         oncePerSession: true,
       });
+      await traceComposerSave(app, "save:calendar-sync-done", String(added));
     } catch (syncErr) {
       console.warn("Universal Daily Note: Kalender-Sync nach Speichern", syncErr);
+      void traceComposerSave(app, "save:calendar-sync-error", String(syncErr));
     }
   }
 
@@ -999,22 +1569,58 @@
 
   async function persistComposerSave(): Promise<void> {
     const file = resolveComposerFile();
-    const dateKey = composerDateKey(currentDate);
-    const entryTexts = collectEntryTextsForSave();
-    await saveComposerState(
-      app,
-      {
+    if (isSonstigesMode) {
+      await saveSonstigesComposerState(
+        app,
         file,
-        journalHeading: TAGEBUCH_HEADING,
-        calloutTitle,
         summary,
-        dateKey,
-        photos: listPhotos,
-      },
-      entryTexts,
-    );
-    await syncReisenSupplements(app, file, entries, reiseSortOrder);
-    await persistCalendarLinkOverrides(app, entries);
+        currentDate,
+        {
+          calloutTitle,
+          detail: sonstigesDetail,
+          feedKurz: sonstigesFeedKurz,
+          feedTime: sonstigesFeedTime,
+        },
+        sonstigesFeedTime,
+      );
+      return;
+    }
+    const releaseMetadataNotify = suppressVaultMetadataNotify();
+    try {
+      await traceComposerSave(app, "save:begin", file.path);
+      entries = dedupeSupplementProfileEntries(entries);
+      const dateKey = composerDateKey(currentDate);
+      const entryTexts = collectEntryTextsForSave();
+      await traceComposerSave(app, "save:tagebuch");
+      await saveComposerState(
+        app,
+        {
+          file,
+          journalHeading: TAGEBUCH_HEADING,
+          calloutTitle,
+          summary,
+          dateKey,
+          photos: hasSupplementPhotoEntries ? [] : listPhotos,
+        },
+        entryTexts,
+      );
+      await traceComposerSave(app, "save:reisen", String(entries.filter((e) => e.profile === "reisen").length));
+      await syncReisenSupplements(app, file, entries, reiseSortOrder);
+      await traceComposerSave(app, "save:lueftung");
+      await syncLueftungSupplements(app, file, entries, currentDate, feedDetailLayout);
+      await traceComposerSave(app, "save:heizung");
+      await syncHeizungSupplements(app, file, entries, currentDate, feedDetailLayout);
+      await traceComposerSave(app, "save:gedanken");
+      await syncGedankenSupplements(app, file, entries);
+      await traceComposerSave(app, "save:wandern");
+      await syncWandernSupplements(app, file, entries, currentDate, wandernLayout);
+      await traceComposerSave(app, "save:calendar-overrides");
+      await persistCalendarLinkOverrides(app, entries);
+      await notifyVaultFileChanged(app, file);
+      await traceComposerSave(app, "save:metadata-notify");
+    } finally {
+      releaseMetadataNotify();
+    }
   }
 
   async function save() {
@@ -1023,31 +1629,40 @@
       new Notice("Notiz noch nicht geladen.");
       return;
     }
+    (document.activeElement as HTMLElement | null)?.blur?.();
+    await tick();
+    flushPendingSummary();
     saving = true;
     let saved = false;
     const savedDate = currentDate;
     try {
       console.info("Universal Daily Note: Composer save start", activeHeading, filePath);
+      void traceComposerSave(app, "save:click", `${activeHeading} ${filePath}`);
       await withOperationTimeout(
         persistComposerSave(),
         12_000,
         "Speichern dauerte länger als 12 s.",
       );
       console.info("Universal Daily Note: Composer save done", activeHeading, filePath);
+      await traceComposerSave(app, "save:done");
       saved = true;
       modified = false;
+      markComposerSaved(composerDateKey(savedDate));
+      onClose();
+      await traceComposerSave(app, "save:after-close");
       onSaved(savedDate);
+      await traceComposerSave(app, "save:after-onsaved");
     } catch (e) {
       console.error("Universal Daily Note: Composer save", e);
       const message = e instanceof Error ? e.message : "";
+      void traceComposerSave(app, "save:error", message || String(e));
       loadError = message || "Speichern fehlgeschlagen.";
       new Notice(loadError);
     } finally {
       saving = false;
     }
     if (saved) {
-      onClose();
-      void syncCalendarAfterSave(savedDate);
+      window.setTimeout(() => void syncCalendarAfterSave(savedDate), 0);
     }
   }
 
@@ -1172,19 +1787,30 @@
             <button type="button" bind:this={nowBtn} class={dk.iconRoundBtn} on:click={goToday} aria-label="Heute"></button>
           </div>
         </div>
-        <div class="udn-composerFilterBubbles">
-          <button
-            type="button"
-            bind:this={prefixBtn}
-            class="udn-headingFilter udn-composerPrefixFilter udn-headingFilter--menu"
-            disabled={!prefixMenuEnabled}
-            on:click={onPrefixFilterClick}
-          >
-            <span class="udn-headingFilterIcon" bind:this={prefixIconEl} aria-hidden="true"></span>
-            <span class="udn-headingFilterLabel">Vorlage</span>
-          </button>
-        </div>
+      <div class="udn-composerFilterBubbles">
+        <button
+          type="button"
+          bind:this={headingBtn}
+          class="udn-headingFilter udn-headingFilter--journal"
+          class:udn-headingFilter--menu={sectionHeadings.length > 1}
+          disabled={sectionHeadings.length <= 1}
+          on:click={onHeadingFilterClick}
+        >
+          <span class="udn-headingFilterIcon" bind:this={headingIconEl} aria-hidden="true"></span>
+          <span class="udn-headingFilterLabel">{activeHeading}</span>
+        </button>
+        <button
+          type="button"
+          bind:this={prefixBtn}
+          class="udn-headingFilter udn-composerPrefixFilter udn-headingFilter--menu"
+          disabled={!prefixMenuEnabled}
+          on:click={onPrefixFilterClick}
+        >
+          <span class="udn-headingFilterIcon" bind:this={prefixIconEl} aria-hidden="true"></span>
+          <span class="udn-headingFilterLabel">Vorlage</span>
+        </button>
       </div>
+    </div>
     {:else}
       <div class="udn-composerHeadNav">
         <button type="button" bind:this={prevBtn} class={dk.iconRoundBtn} on:click={() => shiftDate(-1)} aria-label="Vorheriger Tag"></button>
@@ -1195,6 +1821,17 @@
         <button type="button" bind:this={nowBtn} class={dk.iconRoundBtn} on:click={goToday} aria-label="Heute"></button>
       </div>
       <div class="udn-composerFilterBubbles">
+        <button
+          type="button"
+          bind:this={headingBtn}
+          class="udn-headingFilter udn-headingFilter--journal"
+          class:udn-headingFilter--menu={sectionHeadings.length > 1}
+          disabled={sectionHeadings.length <= 1}
+          on:click={onHeadingFilterClick}
+        >
+          <span class="udn-headingFilterIcon" bind:this={headingIconEl} aria-hidden="true"></span>
+          <span class="udn-headingFilterLabel">{activeHeading}</span>
+        </button>
         <button
           type="button"
           bind:this={prefixBtn}
@@ -1266,6 +1903,28 @@
       {/if}
 
       <div class="udn-composerSplitList">
+      {#if isSonstigesMode}
+        <SonstigesComposerFields
+          feedTime={sonstigesFeedTime}
+          feedKurz={sonstigesFeedKurz}
+          detail={sonstigesDetail}
+          {calloutTitle}
+          onFeedTimeChange={(value) => {
+            sonstigesFeedTime = value;
+            markModified();
+          }}
+          onFeedKurzChange={(value) => {
+            sonstigesFeedKurz = value;
+            markModified();
+          }}
+          onDetailChange={(value) => {
+            sonstigesDetail = value;
+            markModified();
+          }}
+          onFocus={onMobileInputFocus}
+        />
+      {:else}
+      {#if !hasSupplementPhotoEntries}
       <PhotoCollageField
         {app}
         photos={listPhotos}
@@ -1275,6 +1934,7 @@
         onMovePhotoUp={onListMovePhotoUp}
         onMovePhotoDown={onListMovePhotoDown}
       />
+      {/if}
       <ul class="udn-composerEntries">
         {#each entries as entry, entryIndex (entry.id)}
           {#if showReiseGroupHeader(entry, entryIndex)}
@@ -1294,6 +1954,10 @@
             class="udn-outlineEntry udn-composerEntry"
             class:udn-composerEntry--expanded={expandedEntryId === entry.id}
             class:udn-composerEntry--reisen={entry.profile === "reisen"}
+            class:udn-composerEntry--lueftung={entry.profile === "lueftung"}
+            class:udn-composerEntry--heizung={entry.profile === "heizung"}
+            class:udn-composerEntry--gedanken={entry.profile === "gedanken"}
+            class:udn-composerEntry--wandern={entry.profile === "wandern"}
             data-composer-entry={entry.id}
             on:click={(ev) => onComposerEntryRowClick(entry, ev)}
           >
@@ -1331,11 +1995,110 @@
             {#if expandedEntryId === entry.id && entry.profile === "reisen" && !landscapeMobile}
               <div class="udn-composerEntryExpand udn-composerEntryExpand--reisen">
                 <ReisenComposerFields
+                  {app}
+                  sourcePath={filePath}
                   reise={entry.context ?? ""}
                   detail={entry.supplementDetail ?? ""}
                   reiseOptions={reiseGroupSuggestions}
                   onReiseChange={(value) => onEntryReiseChange(entry.id, value)}
                   onDetailChange={(value) => onEntrySupplementDetailChange(entry.id, value)}
+                  onFocus={onMobileInputFocus}
+                />
+              </div>
+            {:else if expandedEntryId === entry.id && entry.profile === "lueftung" && !landscapeMobile}
+              <div class="udn-composerEntryExpand udn-composerEntryExpand--lueftung">
+                <LueftungComposerFields
+                  {app}
+                  sourcePath={filePath}
+                  wartung={entry.context ?? ""}
+                  detail={entry.supplementDetail ?? ""}
+                  photos={entry.supplementPhotos ?? []}
+                  maxPhotos={lueftungMaxPhotos}
+                  wartungOptions={wartungGroupSuggestions}
+                  onWartungChange={(value) => onEntryWartungChange(entry.id, value)}
+                  onDetailChange={(value) => onEntrySupplementDetailChange(entry.id, value)}
+                  onAddPhotoClick={() => onLueftungAddPhotoClick(entry.id)}
+                  onAddVaultPhotoClick={() => onLueftungAddVaultPhotoClick(entry.id)}
+                  onRemovePhoto={(index) => onLueftungRemovePhoto(entry.id, index)}
+                  onMovePhotoUp={(index) => onLueftungMovePhotoUp(entry.id, index)}
+                  onMovePhotoDown={(index) => onLueftungMovePhotoDown(entry.id, index)}
+                  onFocus={onMobileInputFocus}
+                />
+              </div>
+            {:else if expandedEntryId === entry.id && entry.profile === "heizung" && !landscapeMobile}
+              <div class="udn-composerEntryExpand udn-composerEntryExpand--heizung">
+                <HeizungComposerFields
+                  {app}
+                  sourcePath={filePath}
+                  vorfall={entry.context ?? ""}
+                  detail={entry.supplementDetail ?? ""}
+                  photos={entry.supplementPhotos ?? []}
+                  maxPhotos={heizungMaxPhotos}
+                  vorfallOptions={vorfallGroupSuggestions}
+                  onVorfallChange={(value) => onEntryVorfallChange(entry.id, value)}
+                  onDetailChange={(value) => onEntrySupplementDetailChange(entry.id, value)}
+                  onAddPhotoClick={() => onHeizungAddPhotoClick(entry.id)}
+                  onAddVaultPhotoClick={() => onHeizungAddVaultPhotoClick(entry.id)}
+                  onRemovePhoto={(index) => onHeizungRemovePhoto(entry.id, index)}
+                  onMovePhotoUp={(index) => onHeizungMovePhotoUp(entry.id, index)}
+                  onMovePhotoDown={(index) => onHeizungMovePhotoDown(entry.id, index)}
+                  onFocus={onMobileInputFocus}
+                />
+              </div>
+            {:else if expandedEntryId === entry.id && entry.profile === "gedanken" && !landscapeMobile}
+              <div class="udn-composerEntryExpand udn-composerEntryExpand--gedanken">
+                <GedankenComposerFields
+                  {app}
+                  sourcePath={filePath}
+                  thema={entry.context ?? ""}
+                  detail={entry.supplementDetail ?? ""}
+                  themaOptions={themaGroupSuggestions}
+                  onThemaChange={(value) => onEntryThemaChange(entry.id, value)}
+                  onDetailChange={(value) => onEntrySupplementDetailChange(entry.id, value)}
+                  onFocus={onMobileInputFocus}
+                />
+              </div>
+            {:else if expandedEntryId === entry.id && entry.profile === "wandern" && !landscapeMobile}
+              <div class="udn-composerEntryExpand udn-composerEntryExpand--wandern">
+                <WandernComposerFields
+                  {app}
+                  titel={entry.context ?? wandernCalloutTitle(entry)}
+                  beschreibung={entry.supplementDetail ?? ""}
+                  track={trackMatchFromPath(entry.supplementTrackPath)}
+                  photos={entry.supplementPhotos ?? []}
+                  maxPhotos={wandernMaxPhotos}
+                  trackPickerOpen={wandernTrackPickerEntryId === entry.id}
+                  trackPickerLoading={wandernTrackPickerLoading}
+                  trackOptions={wandernTrackOptions}
+                  previewMarkdown={wandernPreviewForEntry(entry)}
+                  showPreview={false}
+                  onTitelChange={(value) => onEntryWandernTitelChange(entry.id, value)}
+                  onBeschreibungChange={(value) => onEntrySupplementDetailChange(entry.id, value)}
+                  onPickTrackClick={() => void openWandernTrackPicker(entry.id)}
+                  onTrackOptionPick={(option) => {
+                    onEntryWandernTrackChange(entry.id, option.track);
+                    wandernTrackPickerEntryId = null;
+                  }}
+                  onClearTrackClick={() => onEntryWandernTrackChange(entry.id, null)}
+                  onAddPhotoClick={() => onComposerAddPhotoClick(entry.id)}
+                  onRemovePhoto={(index) => {
+                    const photos = entry.supplementPhotos ?? [];
+                    updateEntry(entry.id, { supplementPhotos: photos.filter((_, i) => i !== index) });
+                    markModified();
+                  }}
+                  onMovePhotoUp={(index) => {
+                    updateEntry(entry.id, {
+                      supplementPhotos: movePhotoAtIndex(entry.supplementPhotos ?? [], index, -1),
+                    });
+                    markModified();
+                  }}
+                  onMovePhotoDown={(index) => {
+                    updateEntry(entry.id, {
+                      supplementPhotos: movePhotoAtIndex(entry.supplementPhotos ?? [], index, 1),
+                    });
+                    markModified();
+                  }}
+                  onTogglePreview={() => {}}
                   onFocus={onMobileInputFocus}
                 />
               </div>
@@ -1393,17 +2156,121 @@
           <button type="button" class={dk.btn} on:click={addFreeEntry} disabled={!newEntryText.trim()}>+</button>
         </div>
       {/if}
+      {/if}
       </div>
 
       {#if landscapeMobile && expandedEntry?.profile === "reisen"}
         <div class="udn-composerSplitDetail">
           <p class="udn-composerSplitDetailTitle">{feedProfileLabel(expandedEntry.profile)}</p>
           <ReisenComposerFields
+            {app}
+            sourcePath={filePath}
             reise={expandedEntry.context ?? ""}
             detail={expandedEntry.supplementDetail ?? ""}
             reiseOptions={reiseGroupSuggestions}
             onReiseChange={(value) => onEntryReiseChange(expandedEntry.id, value)}
             onDetailChange={(value) => onEntrySupplementDetailChange(expandedEntry.id, value)}
+            onFocus={onMobileInputFocus}
+          />
+        </div>
+      {:else if landscapeMobile && expandedEntry?.profile === "lueftung"}
+        <div class="udn-composerSplitDetail">
+          <p class="udn-composerSplitDetailTitle">{feedProfileLabel(expandedEntry.profile)}</p>
+          <LueftungComposerFields
+            {app}
+            sourcePath={filePath}
+            wartung={expandedEntry.context ?? ""}
+            detail={expandedEntry.supplementDetail ?? ""}
+            photos={expandedEntry.supplementPhotos ?? []}
+            maxPhotos={lueftungMaxPhotos}
+            wartungOptions={wartungGroupSuggestions}
+            onWartungChange={(value) => onEntryWartungChange(expandedEntry.id, value)}
+            onDetailChange={(value) => onEntrySupplementDetailChange(expandedEntry.id, value)}
+            onAddPhotoClick={() => onLueftungAddPhotoClick(expandedEntry.id)}
+            onAddVaultPhotoClick={() => onLueftungAddVaultPhotoClick(expandedEntry.id)}
+            onRemovePhoto={(index) => onLueftungRemovePhoto(expandedEntry.id, index)}
+            onMovePhotoUp={(index) => onLueftungMovePhotoUp(expandedEntry.id, index)}
+            onMovePhotoDown={(index) => onLueftungMovePhotoDown(expandedEntry.id, index)}
+            onFocus={onMobileInputFocus}
+          />
+        </div>
+      {:else if landscapeMobile && expandedEntry?.profile === "heizung"}
+        <div class="udn-composerSplitDetail">
+          <p class="udn-composerSplitDetailTitle">{feedProfileLabel(expandedEntry.profile)}</p>
+          <HeizungComposerFields
+            {app}
+            sourcePath={filePath}
+            vorfall={expandedEntry.context ?? ""}
+            detail={expandedEntry.supplementDetail ?? ""}
+            photos={expandedEntry.supplementPhotos ?? []}
+            maxPhotos={heizungMaxPhotos}
+            vorfallOptions={vorfallGroupSuggestions}
+            onVorfallChange={(value) => onEntryVorfallChange(expandedEntry.id, value)}
+            onDetailChange={(value) => onEntrySupplementDetailChange(expandedEntry.id, value)}
+            onAddPhotoClick={() => onHeizungAddPhotoClick(expandedEntry.id)}
+            onAddVaultPhotoClick={() => onHeizungAddVaultPhotoClick(expandedEntry.id)}
+            onRemovePhoto={(index) => onHeizungRemovePhoto(expandedEntry.id, index)}
+            onMovePhotoUp={(index) => onHeizungMovePhotoUp(expandedEntry.id, index)}
+            onMovePhotoDown={(index) => onHeizungMovePhotoDown(expandedEntry.id, index)}
+            onFocus={onMobileInputFocus}
+          />
+        </div>
+      {:else if landscapeMobile && expandedEntry?.profile === "gedanken"}
+        <div class="udn-composerSplitDetail">
+          <p class="udn-composerSplitDetailTitle">{feedProfileLabel(expandedEntry.profile)}</p>
+          <GedankenComposerFields
+            {app}
+            sourcePath={filePath}
+            thema={expandedEntry.context ?? ""}
+            detail={expandedEntry.supplementDetail ?? ""}
+            themaOptions={themaGroupSuggestions}
+            onThemaChange={(value) => onEntryThemaChange(expandedEntry.id, value)}
+            onDetailChange={(value) => onEntrySupplementDetailChange(expandedEntry.id, value)}
+            onFocus={onMobileInputFocus}
+          />
+        </div>
+      {:else if landscapeMobile && expandedEntry?.profile === "wandern"}
+        <div class="udn-composerSplitDetail">
+          <p class="udn-composerSplitDetailTitle">{feedProfileLabel(expandedEntry.profile)}</p>
+          <WandernComposerFields
+            {app}
+            titel={expandedEntry.context ?? wandernCalloutTitle(expandedEntry)}
+            beschreibung={expandedEntry.supplementDetail ?? ""}
+            track={trackMatchFromPath(expandedEntry.supplementTrackPath)}
+            photos={expandedEntry.supplementPhotos ?? []}
+            maxPhotos={wandernMaxPhotos}
+            trackPickerOpen={wandernTrackPickerEntryId === expandedEntry.id}
+            trackPickerLoading={wandernTrackPickerLoading}
+            trackOptions={wandernTrackOptions}
+            previewMarkdown={wandernPreviewForEntry(expandedEntry)}
+            showPreview={false}
+            onTitelChange={(value) => onEntryWandernTitelChange(expandedEntry.id, value)}
+            onBeschreibungChange={(value) => onEntrySupplementDetailChange(expandedEntry.id, value)}
+            onPickTrackClick={() => void openWandernTrackPicker(expandedEntry.id)}
+            onTrackOptionPick={(option) => {
+              onEntryWandernTrackChange(expandedEntry.id, option.track);
+              wandernTrackPickerEntryId = null;
+            }}
+            onClearTrackClick={() => onEntryWandernTrackChange(expandedEntry.id, null)}
+            onAddPhotoClick={() => onComposerAddPhotoClick(expandedEntry.id)}
+            onRemovePhoto={(index) => {
+              const photos = expandedEntry.supplementPhotos ?? [];
+              updateEntry(expandedEntry.id, { supplementPhotos: photos.filter((_, i) => i !== index) });
+              markModified();
+            }}
+            onMovePhotoUp={(index) => {
+              updateEntry(expandedEntry.id, {
+                supplementPhotos: movePhotoAtIndex(expandedEntry.supplementPhotos ?? [], index, -1),
+              });
+              markModified();
+            }}
+            onMovePhotoDown={(index) => {
+              updateEntry(expandedEntry.id, {
+                supplementPhotos: movePhotoAtIndex(expandedEntry.supplementPhotos ?? [], index, 1),
+              });
+              markModified();
+            }}
+            onTogglePreview={() => {}}
             onFocus={onMobileInputFocus}
           />
         </div>
@@ -1432,7 +2299,7 @@
     </section>
   {/if}
 
-  {#if !loading && !loadError && isMobile}
+  {#if !loading && !loadError && isMobile && !isSpecialFormMode}
     <div class="udn-composerMobileDock" bind:this={mobileDock}>
       <div class="udn-composerAddRow udn-composerAddRow--pinned">
         <input

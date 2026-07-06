@@ -80,8 +80,8 @@
 
   function onEntryTap(ev: PointerEvent) {
     const target = ev.target as HTMLElement;
-    if (target.closest("a.internal-link, input, button")) return;
-    onSelectDay(day);
+    if (target.closest("a.internal-link, input, button, .udn-profileBubble")) return;
+    onOpenComposerEntry(day, entry);
   }
 </script>
 
@@ -89,6 +89,7 @@
   class="udn-outlineEntry"
   class:udn-outlineEntry--editing={editing}
   class:udn-outlineEntry--hasLinks={hasWikiLinks}
+  title="Im Composer bearbeiten"
   use:panelTapAction={onEntryTap}
 >
   <div class="udn-outlineEntryMain">
@@ -142,9 +143,9 @@
         feedProfile={entry.feedProfile}
         feedContext={entry.feedContext ?? ""}
         sourcePath={day.filePath}
-        title="Doppelklick zum Bearbeiten"
+        title="Im Composer bearbeiten"
         onOpenWikiLink={onOpenWikiLink}
-        onDblclick={() => onStartEdit(day, entry)}
+        onDblclick={() => onOpenComposerEntry(day, entry)}
       />
     {/if}
   </div>

@@ -2,7 +2,8 @@
   import { onMount } from "svelte";
   import { get } from "svelte/store";
   import type UniversalDailyNotePlugin from "../main";
-  import { DEFAULT_SETTINGS, type OutlineSettings } from "../settings";
+  import { DEFAULT_JOURNAL_HEADING, DEFAULT_SETTINGS, type OutlineSettings } from "../settings";
+  import { normalizeActiveJournalHeading } from "../notes/journalHeadingFilter";
   import { normalizeOutlineProfileFilters } from "../notes/feedMetadata";
   import {
     dateFromDailyNoteFile,
@@ -171,7 +172,15 @@
     };
 
     const onLeafChange = () => scheduleSyncFromActiveContext();
-    const onDataChange = () => bumpRefresh(store);
+    let refreshDebounce: ReturnType<typeof setTimeout> | null = null;
+    const scheduleRefresh = () => {
+      if (refreshDebounce) clearTimeout(refreshDebounce);
+      refreshDebounce = setTimeout(() => {
+        refreshDebounce = null;
+        bumpRefresh(store);
+      }, 350);
+    };
+    const onDataChange = () => scheduleRefresh();
     const onVaultReady = () => bumpRefresh(store);
 
     const workspaceRef = app.workspace.on("active-leaf-change", onLeafChange);
@@ -188,6 +197,7 @@
 
     return () => {
       if (syncTimer) clearTimeout(syncTimer);
+      if (refreshDebounce) clearTimeout(refreshDebounce);
       app.workspace.offref(workspaceRef);
       app.workspace.offref(layoutRef);
       app.metadataCache.offref(metaRef);
@@ -214,7 +224,12 @@
         date: d,
         focusEntryLine: focus?.line,
         focusEntryId: focus?.entryId,
-        journalHeading: outlineSettings.journalHeading,
+        journalHeading: focus
+          ? DEFAULT_JOURNAL_HEADING
+          : normalizeActiveJournalHeading(
+              outlineSettings.journalHeading,
+              outlineSettings.excludedHeadings,
+            ),
         onSaved: (savedDate) => {
           pinOutlineDayForDate(savedDate);
           bumpRefresh(store);

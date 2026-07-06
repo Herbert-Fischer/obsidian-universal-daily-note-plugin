@@ -7,7 +7,6 @@
   import PhotoCollageField from "./PhotoCollageField.svelte";
 
   export let app: App;
-  export let kurz = "";
   export let beschreibung = "";
   export let titel = "";
   export let track: TrackMatch | null = null;
@@ -18,7 +17,6 @@
   export let previewMarkdown = "";
   export let showPreview = false;
   export let maxPhotos = 3;
-  export let onKurzChange: (v: string) => void = () => {};
   export let onBeschreibungChange: (v: string) => void = () => {};
   export let onTitelChange: (v: string) => void = () => {};
   export let onRemovePhoto: (index: number) => void = () => {};
@@ -58,18 +56,6 @@
       on:input={(ev) => onTitelChange(inputValue(ev))}
       on:focus={focusTarget}
       placeholder="z. B. Wandern · Rhön"
-    />
-  </label>
-
-  <label class="udn-composerSummary">
-    <span class="udn-composerSummaryLabel">Kurzbeschreibung</span>
-    <input
-      type="text"
-      class="{dk.input} udn-composerSummaryInput"
-      value={kurz}
-      on:input={(ev) => onKurzChange(inputValue(ev))}
-      on:focus={focusTarget}
-      placeholder="Einzeiler für Outline und Bericht…"
     />
   </label>
 

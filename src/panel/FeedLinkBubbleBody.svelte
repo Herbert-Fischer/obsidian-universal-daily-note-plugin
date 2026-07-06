@@ -4,6 +4,7 @@
   import type { FeedProfile } from "../notes/feedMetadata";
   import { displayWikiLinkSegments, feedLinkBubbleClass } from "../notes/feedEntryDisplay";
   import { isUnresolvedWikiLink } from "../notes/resolveWikiLinks";
+  import InlineFormattedText from "./InlineFormattedText.svelte";
 
   export let text = "";
   /** @deprecated Use `text` — kept for existing callers during transition. */
@@ -49,6 +50,6 @@
         title={linkTitle(seg.dest)}
         use:sidebarPointerAction={() => onOpenWikiLink(seg.dest, sourcePath)}
       >{seg.label}</a>
-    {:else}{seg.value}{/if}
+    {:else}<InlineFormattedText text={seg.value} />{/if}
   {/each}
 </span>

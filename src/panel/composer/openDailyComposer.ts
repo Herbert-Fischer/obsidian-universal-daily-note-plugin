@@ -10,6 +10,11 @@ import { getMainAreaActiveMarkdownFile } from "../../tagebuchVerweise/mainPageFi
 import { runInsertWeather } from "../../weather/runInsertWeather";
 import { attachComposerDrag, applyComposerWindowPosition } from "./composerDrag";
 
+export type ComposerOpenFocus = {
+  line?: number;
+  entryId?: string;
+};
+
 export type OpenDailyComposerOptions = {
   date?: Date;
   journalHeading?: string;
@@ -151,11 +156,12 @@ export class DailyComposerModal extends Modal {
     this.detachKeyboard = null;
     this.detachViewport?.();
     this.detachViewport = null;
-    this.component?.$destroy();
+    const component = this.component;
     this.component = null;
     this.modalEl.removeClass("udn-composerModal");
     this.modalEl.removeClass("udn-composerModal--mobile");
     this.modalEl.removeClass("udn-composerModal--draggableHost");
+    window.requestAnimationFrame(() => component?.$destroy());
   }
 }
 

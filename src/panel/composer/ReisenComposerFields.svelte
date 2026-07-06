@@ -1,6 +1,10 @@
 <script lang="ts">
+  import type { App } from "obsidian";
   import { dk } from "@denkarium/obsidian-lib-ui";
+  import MarkdownDetailField from "./MarkdownDetailField.svelte";
 
+  export let app: App;
+  export let sourcePath = "";
   export let reise = "";
   export let detail = "";
   export let reiseOptions: string[] = [];
@@ -44,10 +48,6 @@
     onReiseChange(customReise.trim());
   }
 
-  function textareaValue(ev: Event): string {
-    return (ev.currentTarget as HTMLTextAreaElement).value;
-  }
-
   function focusTarget(ev: Event): void {
     onFocus(ev.currentTarget as HTMLElement);
   }
@@ -84,13 +84,12 @@
     </div>
   </div>
 
-  <textarea
-    class="udn-reisenDetailInput"
-    rows="5"
+  <MarkdownDetailField
+    {app}
+    {sourcePath}
     value={detail}
-    on:input={(ev) => onDetailChange(textareaValue(ev))}
-    on:focus={focusTarget}
-    placeholder="Fließtext — Absätze mit Zeilenumbruch."
-    aria-label="Erläuterung"
-  ></textarea>
+    ariaLabel="Erläuterung"
+    onValueChange={onDetailChange}
+    onFocus={focusTarget}
+  />
 </div>
