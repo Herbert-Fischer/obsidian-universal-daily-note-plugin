@@ -8,6 +8,7 @@ const HEADING_CALLOUT_WRITE: Record<string, string> = {
   sonstiges: "notes",
   reisen: "compass",
   wandern: "mountain",
+  spaziergang: "person-walking",
   heizung: "fire",
   lueftung: "wind",
   gedanken: "lightbulb",
@@ -26,6 +27,7 @@ const HEADING_CALLOUT_ALIASES: Record<string, string[]> = {
   sonstiges: ["notes", "box", "sonstiges"],
   reisen: ["compass", "globe", "travel", "reisen", "reise", "notes"],
   wandern: ["mountain", "footprints", "wandern", "hike", "notes"],
+  spaziergang: ["person-walking", "walking", "footprints", "spaziergang", "notes"],
   heizung: ["fire", "flame", "heizung"],
   lueftung: ["wind", "fan", "lueftung", "lüftung"],
   gedanken: ["lightbulb", "bulb", "idea", "gedanken"],
@@ -82,7 +84,7 @@ export function formatComposerCalloutType(heading: string): string {
   return HEADING_CALLOUT_WRITE[slug] ?? DEFAULT_CALLOUT_TYPE;
 }
 
-const EXPANDED_PROFILE_CALLOUTS = new Set(["reisen", "wandern", "heizung", "lueftung", "gedanken"]);
+const EXPANDED_PROFILE_CALLOUTS = new Set(["reisen", "wandern", "spaziergang", "heizung", "lueftung", "gedanken"]);
 
 /** Fold marker for profile ## sections written from the composer (+ = expanded). */
 export function calloutFoldMarkerForHeading(heading: string): string {
@@ -245,6 +247,7 @@ export function isDecorativeCalloutLine(line: string): boolean {
 const KNOWN_SECTION_CALLOUT_TITLES = new Set([
   "sonstiges",
   "reisen",
+  "spaziergang",
   "tagebuch",
   "wichtig",
   "gesundheit",

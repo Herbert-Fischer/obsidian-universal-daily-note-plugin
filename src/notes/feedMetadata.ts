@@ -1,6 +1,14 @@
 /** Feed metadata for ## Tagebuch entries (outline filtering). */
 
-export type FeedProfile = "tagebuch" | "sonstiges" | "reisen" | "wandern" | "heizung" | "lueftung" | "gedanken";
+export type FeedProfile =
+  | "tagebuch"
+  | "sonstiges"
+  | "reisen"
+  | "wandern"
+  | "spaziergang"
+  | "heizung"
+  | "lueftung"
+  | "gedanken";
 
 export type FeedProfileFilter = "alle" | FeedProfile;
 
@@ -16,6 +24,7 @@ const PROFILE_ALIASES: Record<string, FeedProfile> = {
   sonstiges: "sonstiges",
   reisen: "reisen",
   wandern: "wandern",
+  spaziergang: "spaziergang",
   heizung: "heizung",
   lueftung: "lueftung",
   lüftung: "lueftung",
@@ -28,6 +37,7 @@ const HUB_LINK_PROFILE: Record<string, FeedProfile> = {
   "lueftungs-tagebuch": "lueftung",
   "reise-tagebuch": "reisen",
   "wandern-tagebuch": "wandern",
+  "spaziergang-tagebuch": "spaziergang",
   "gedanken-inbox": "gedanken",
 };
 
@@ -106,6 +116,8 @@ export function feedProfileLabel(profile: FeedProfile): string {
       return "Reisen";
     case "wandern":
       return "Wandern";
+    case "spaziergang":
+      return "Spaziergang";
     case "heizung":
       return "Heizung";
     case "lueftung":
@@ -144,13 +156,22 @@ export function toggleFeedProfileFilter(filters: FeedProfile[], profile: FeedPro
   const set = new Set(filters);
   if (set.has(profile)) set.delete(profile);
   else set.add(profile);
-  const order: FeedProfile[] = ["reisen", "wandern", "heizung", "lueftung", "gedanken", "sonstiges"];
+  const order: FeedProfile[] = [
+    "reisen",
+    "wandern",
+    "spaziergang",
+    "heizung",
+    "lueftung",
+    "gedanken",
+    "sonstiges",
+  ];
   return order.filter((p) => set.has(p));
 }
 
 export const OUTLINE_PROFILE_FILTER_OPTIONS: FeedProfile[] = [
   "reisen",
   "wandern",
+  "spaziergang",
   "heizung",
   "lueftung",
   "gedanken",

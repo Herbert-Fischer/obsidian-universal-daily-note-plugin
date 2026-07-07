@@ -207,12 +207,13 @@ function wandernTitleFromText(text: string): string {
 }
 
 export function wandernCalloutTitle(entry: WandernSyncEntry): string {
-  const ctx = entry.context?.trim();
-  if (ctx) return wandernTitleFromText(ctx);
   const body = entry.body.trim();
   const parsed = parseJournalEntryDisplay(body);
-  const text = wandernTitleFromText(parsed.body.trim() || body);
-  return text || "Wandern";
+  const fromBody = wandernTitleFromText(parsed.body.trim() || body);
+  if (fromBody) return fromBody;
+  const ctx = entry.context?.trim();
+  if (ctx) return wandernTitleFromText(ctx);
+  return "Wandern";
 }
 
 function sortWandernEntries(entries: WandernSyncEntry[]): WandernSyncEntry[] {

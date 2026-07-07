@@ -48,10 +48,17 @@ export type ComposerTemplatesSettings = {
   tagebuchBulkEnabled: boolean;
   reisenBulkEnabled: boolean;
   wandernBulkEnabled: boolean;
+  spaziergangBulkEnabled: boolean;
   heizungBulkEnabled: boolean;
   lueftungBulkEnabled: boolean;
   /** Last Reisen trip label for callout title fallback */
   lastTripLabel: string;
+};
+
+/** User-managed composer group labels (e.g. Reise names). */
+export type ComposerGroupLabelListSettings = {
+  extra: string[];
+  hidden: string[];
 };
 
 export type FeedDetailLayoutSettings = {
@@ -138,10 +145,13 @@ export type UniversalDailyNoteSettings = {
   calendarLinkOverrides: Record<string, string>;
   weatherCapture: WeatherCaptureSettings;
   composerTemplates: ComposerTemplatesSettings;
+  /** Extra/hidden group labels per profile (Reise, Wartung, …). */
+  composerGroupLabels: Partial<Record<FeedProfile, ComposerGroupLabelListSettings>>;
   feedDetailLayout: FeedDetailLayoutSettings;
   composerWindow: ComposerWindowSettings;
   composer: ComposerSettings;
   wandernLayout: WandernLayoutSettings;
+  spaziergangLayout: WandernLayoutSettings;
   tracks: TracksSettings;
   analytics: AnalyticsSettings;
   outline: OutlineSettings;
@@ -203,10 +213,12 @@ export const DEFAULT_SETTINGS: UniversalDailyNoteSettings = {
     tagebuchBulkEnabled: true,
     reisenBulkEnabled: true,
     wandernBulkEnabled: true,
+    spaziergangBulkEnabled: true,
     heizungBulkEnabled: true,
     lueftungBulkEnabled: true,
     lastTripLabel: "",
   },
+  composerGroupLabels: {},
   feedDetailLayout: {
     heizungPhotosFolder: "Calendar/Anhänge/Bilder",
     lueftungPhotosFolder: "Calendar/Anhänge/Bilder",
@@ -223,6 +235,15 @@ export const DEFAULT_SETTINGS: UniversalDailyNoteSettings = {
     template: "",
     maxPhotos: 3,
     track3dEnabled: true,
+    track3dHeight: 400,
+    track3dElevationExaggeration: 4,
+    photosFolder: "Calendar/Anhänge/Bilder",
+    tracksFolder: "Calendar/Anhänge/GPX",
+  },
+  spaziergangLayout: {
+    template: "",
+    maxPhotos: 3,
+    track3dEnabled: false,
     track3dHeight: 400,
     track3dElevationExaggeration: 4,
     photosFolder: "Calendar/Anhänge/Bilder",

@@ -101,8 +101,10 @@ export class DailyComposerModal extends Modal {
         calendarSync: this.plugin.settings.calendarSync ?? DEFAULT_SETTINGS.calendarSync,
         calendarLinkOverrides: this.plugin.settings.calendarLinkOverrides ?? DEFAULT_SETTINGS.calendarLinkOverrides,
         composerTemplates: composerTemplates ?? DEFAULT_SETTINGS.composerTemplates,
+        composerGroupLabels: this.plugin.settings.composerGroupLabels ?? DEFAULT_SETTINGS.composerGroupLabels,
         tracksSettings: tracks ?? DEFAULT_SETTINGS.tracks,
         wandernLayout: this.plugin.settings.wandernLayout ?? DEFAULT_SETTINGS.wandernLayout,
+        spaziergangLayout: this.plugin.settings.spaziergangLayout ?? DEFAULT_SETTINGS.spaziergangLayout,
         feedDetailLayout: this.plugin.settings.feedDetailLayout ?? DEFAULT_SETTINGS.feedDetailLayout,
         attachmentsFolder: quickCapture.attachmentsFolder,
         weatherLastLocation: weatherCapture.lastLocation,
@@ -133,6 +135,9 @@ export class DailyComposerModal extends Modal {
           }
           if (patch.lastTripLabel !== undefined) {
             this.plugin.settings.composerTemplates.lastTripLabel = patch.lastTripLabel;
+          }
+          if (patch.composerGroupLabels !== undefined) {
+            this.plugin.settings.composerGroupLabels = patch.composerGroupLabels;
           }
           void this.plugin.saveSettings();
         },

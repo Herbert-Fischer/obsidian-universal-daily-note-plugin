@@ -23,7 +23,7 @@ export function groupFieldLabel(profile: FeedProfile | undefined): string {
     case "gedanken":
       return "Thema";
     case "sonstiges":
-      return "Thema";
+      return "Gruppe";
     default:
       return "Gruppe";
   }
@@ -68,6 +68,27 @@ export function collectGroupLabelsFromText(text: string, profile?: FeedProfile):
     }
   }
   return [...labels].sort((a, b) => a.localeCompare(b, "de"));
+}
+
+export function mergeGroupLabelSuggestions(
+  fromVault: string[],
+  overrides?: { extra?: string[]; hidden?: string[] },
+): string[] {
+  const hidden = new Set((overrides?.hidden ?? []).map((s) => s.trim().toLowerCase()).filter(Boolean));
+  const out = new Set<string>();
+  for (const label of fromVault) {
+    const trimmed = label.trim();
+    if (!trimmed) continue;
+    if (hidden.has(trimmed.toLowerCase())) continue;
+    out.add(trimmed);
+  }
+  for (const label of overrides?.extra ?? []) {
+    const trimmed = label.trim();
+    if (!trimmed) continue;
+    if (hidden.has(trimmed.toLowerCase())) continue;
+    out.add(trimmed);
+  }
+  return [...out].sort((a, b) => a.localeCompare(b, "de"));
 }
 
 export async function loadRecentGroupLabels(

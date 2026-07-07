@@ -54,7 +54,8 @@ Plugin-spezifisch: `obsidian-daily-notes-interface`.
 | `notes/dailyNoteFallbackPaths.ts` | Fallback-Pfad und Dateinamen |
 | `notes/composerTemplates.ts` | Kontext-Vorlagen (Typischer Tag / Reisetag / Wanderung) |
 | `notes/*Composer.ts` | Profil-Sync (Reisen, Wandern, Heizung, Lüftung, Gedanken, Sonstiges) |
-| `tracks/gpxImport.ts` | GPX/TCX-Import für Reise-Etappen und Wander-Tracks |
+| `tracks/gpxImport.ts` | GPX/TCX-Import für Reise-Etappen und Wander-/Spaziergang-Tracks |
+| `integrations/garminSync.ts` | *(geplant)* Import aus `Calendar/.garmin/pending.json` |
 
 ## Composer-Vorlagen
 
@@ -96,16 +97,37 @@ Bestehende Einträge: Bulk-Vorlagen ergänzen nur **fehlende** Prefixe (Bestäti
 
 ## GPS-Tracks (Garmin / Google Timeline)
 
-Live-Abruf von Garmin Connect oder Google Maps ist im Plugin nicht möglich. Stattdessen GPX/TCX-Dateien im Vault ablegen:
+### Heute (manuell)
+
+Live-Abruf von Garmin Connect oder Google Maps ist **im Plugin nicht möglich**. GPX/TCX-Dateien im Vault ablegen und im Tages-Composer verknüpfen („Track wählen“):
 
 | Quelle | Workflow | Ablage (Beispiel) |
 |--------|----------|-------------------|
-| **Garmin** | Aktivität als GPX exportieren (Connect, `garmin-connect-export`, …) | `Calendar/Tracks/Garmin/2026-06-24-Wanderung.gpx` |
+| **Garmin** | Aktivität als GPX exportieren (Connect, `garmin-connect-export`, …) | `Calendar/Anhänge/GPX/2026-06-24-Wanderung.gpx` |
 | **Google Timeline** | Android: Einstellungen → Standort → Timeline → Export JSON → Konverter zu Tages-GPX ([Timeline-GPX-Exporter](https://github.com/pe1hvh/Timeline-GPX-Exporter), [Dawarich](https://dawarich.app/tools/google-timeline-converter/)) | `Calendar/Tracks/Google/2026-06-24.gpx` |
 
-Der Dateiname muss das Datum `YYYY-MM-DD` enthalten. Bei **Typischer Reisetag** wird der Track in die Etappe-Zeile übernommen; bei **Typische Wanderung** in die Track-Zeile (Distanz, Dauer, Wiki-Link). Kartenansicht: Community-Plugin [Map View](https://github.com/esm7/obsidian-map-view).
+Der Dateiname muss das Datum `YYYY-MM-DD` enthalten. Bei **Typischer Reisetag** wird der Track in die Etappe-Zeile übernommen; bei **Typische Wanderung** / **Typischer Spaziergang** in die Track-Zeile (Distanz, Dauer, Wiki-Link). Kartenansicht im Plugin: `udn-track-3d`; optional Community-Plugin [Map View](https://github.com/esm7/obsidian-map-view).
 
-Einstellungen: **Track-Ordner** unter Plugin-Einstellungen.
+Einstellungen: **Track-Ordner** (`tracks.folder`, Default `Calendar/Tracks`) und **Wandern/Spaziergang GPX-Ordner** (`wandernLayout.tracksFolder`, Default `Calendar/Anhänge/GPX`).
+
+Vault-Doku: [[Atlas/Technologien/Obsidian Plugins/Universal Daily Note/Plugin — Detail Garmin Sync CalDAV und Thunderbird|Garmin Sync — CalDAV & Thunderbird]].
+
+### Geplant: Garmin vollautomatisch + Thunderbird-Kalender
+
+Drei-Stufen-Architektur (noch **nicht implementiert**):
+
+1. **Lokaler Cron** (`scripts/garmin-sync/`) — holt neue Garmin-Aktivitäten (Wandern/Spaziergang), lädt GPX ins Vault, schreibt `Calendar/.garmin/pending.json`.
+2. **All-INKL CalDAV** — eigener Kalender **„Aktivitäten“**: zeitgebundene VEVENTs (`UID: garmin-{id}@denkarium`) für **Thunderbird** (CalDAV-Abo).
+3. **Plugin-Importer** (`src/integrations/garminSync.ts`, geplant) — liest `pending.json`, schreibt vollautomatisch `## Tagebuch` + `## Wandern` / `## Spaziergang` inkl. Track (Marker `<!-- udn-garmin:{id} -->`).
+
+Der bestehende **Kalender-Sync** (Hauptkalender → `Termin:`-Zeilen) bleibt unverändert; Garmin-Aktivitäten laufen über den separaten Aktivitäten-Kalender und den geplanten Garmin-Importer — **kein Doppel-Eintrag**.
+
+| System | Rolle |
+|--------|--------|
+| Garmin Uhr | Quelle (GPS, Zeit, Distanz) |
+| Cron-Script | Sync-Motor (GPX, pending.json, CalDAV-PUT) |
+| All-INKL „Aktivitäten“ | Thunderbird-Kalenderansicht |
+| Obsidian Vault | Tagebuch, GPX, 3D-Track, Composer-Nachbearbeitung |
 
 ## API für Integrationen (ab 1.2.6)
 

@@ -48,6 +48,17 @@ import {
 } from "./wandernComposer";
 import { parseWandernMetaFromLines, parseWandernMetaLine, wandernTimelineTextFromMeta } from "./wandernLayout";
 import {
+  collectSpaziergangEntryIds,
+  parseSpaziergangEntryMetaLine,
+  spaziergangContextByEntryId,
+  spaziergangSupplementMatchesByTitle,
+} from "./spaziergangComposer";
+import {
+  parseSpaziergangMetaFromLines,
+  parseSpaziergangMetaLine,
+  spaziergangTimelineTextFromMeta,
+} from "./spaziergangLayout";
+import {
   isLegacyMisplacedSonstigesTripCallout,
   isManagedCalloutStart,
   isPlainJournalBulletLine,
@@ -96,6 +107,41 @@ function tryWandernTimelineEntry(
   const meta = parseWandernMetaLine(line.trim());
   if (!meta) return null;
   const text = wandernTimelineTextFromMeta(meta);
+  if (!text) return null;
+  return { line: lineIndex, text, rawLine: line, section };
+}
+
+function trySpaziergangTimelineEntry(
+  line: string,
+  lineIndex: number,
+  section: string,
+): TimelineEntry | null {
+  const entryMeta = parseSpaziergangEntryMetaLine(line.trim());
+  if (entryMeta) {
+    const text = spaziergangTimelineTextFromMeta({
+      kurz: entryMeta.kurz,
+      beschreibung: entryMeta.beschreibung,
+      track: entryMeta.track,
+      trackPath: entryMeta.trackPath,
+      fotos: entryMeta.fotos ?? [],
+      titel: entryMeta.titel,
+    });
+    if (!text) return null;
+    return {
+      line: lineIndex,
+      text,
+      rawLine: line,
+      section,
+      feedProfile: "spaziergang",
+      entryId: entryMeta.entryId,
+      hasCallout: true,
+      calloutId: entryMeta.entryId,
+      ...(entryMeta.titel.trim().toLowerCase() !== "spaziergang" ? { feedContext: entryMeta.titel.trim() } : {}),
+    };
+  }
+  const meta = parseSpaziergangMetaLine(line.trim());
+  if (!meta) return null;
+  const text = spaziergangTimelineTextFromMeta(meta);
   if (!text) return null;
   return { line: lineIndex, text, rawLine: line, section };
 }
@@ -227,6 +273,10 @@ function sectionHasJournalActivity(textLines: string[], sectionStart: number, he
     if (/^[-*+]\s/.test(trimmed) || /^>\s*[-*+]\s/.test(trimmed)) return true;
     if (headingLower === "wandern") {
       if (parseWandernMetaLine(trimmed)) return true;
+      if (isManagedCalloutStart(line, heading)) return true;
+    }
+    if (headingLower === "spaziergang") {
+      if (parseSpaziergangMetaLine(trimmed)) return true;
       if (isManagedCalloutStart(line, heading)) return true;
     }
     if (headingLower === SONSTIGES_HEADING.toLowerCase()) {
@@ -398,6 +448,105 @@ function entryMetaFromNextLine(textLines: string[], bulletIndex: number): Return
   const nextLine = textLines[bulletIndex + 1] ?? "";
   if (!isEntryMetaCommentLine(nextLine)) return null;
   return parseEntryMetaComment(cleanJournalLine(nextLine.trim()));
+}
+
+function findTagebuchBulletByEntryId(
+  textLines: string[],
+  entryId: string,
+): { lineIndex: number; rawLine: string; text: string; feedContext?: string } | null {
+  const id = entryId.trim();
+  if (!id) return null;
+  for (let i = 0; i < textLines.length; i++) {
+    const meta = parseEntryMetaComment(textLines[i] ?? "");
+    if (!meta || meta.id !== id) continue;
+    for (let j = i - 1; j >= Math.max(0, i - 4); j--) {
+      const line = textLines[j] ?? "";
+      if (!isPlainJournalBulletLine(line)) continue;
+      const text = cleanJournalLine(line);
+      if (!text) continue;
+      return {
+        lineIndex: j,
+        rawLine: line,
+        text,
+        ...(meta.context?.trim() ? { feedContext: meta.context.trim() } : {}),
+      };
+    }
+  }
+  return null;
+}
+
+function tryHeizungSectionTimelineEntry(
+  line: string,
+  lineIndex: number,
+  section: string,
+  allLines: string[],
+): TimelineEntry | null {
+  if (section.trim().toLowerCase() !== "heizung") return null;
+  const meta = parseHeizungMetaLine(line.trim());
+  if (!meta) return null;
+  const feed = findTagebuchBulletByEntryId(allLines, meta.entryId);
+  if (feed) {
+    return {
+      line: feed.lineIndex,
+      text: feed.text,
+      rawLine: feed.rawLine,
+      section,
+      feedProfile: "heizung",
+      ...(feed.feedContext ? { feedContext: feed.feedContext } : {}),
+      entryId: meta.entryId,
+      calloutId: meta.entryId,
+      hasCallout: true,
+    };
+  }
+  const kurz = stripLeadingTimeFromKurz(meta.vorfall || "Heizung");
+  return {
+    line: lineIndex,
+    text: kurz,
+    rawLine: line,
+    section,
+    feedProfile: "heizung",
+    ...(meta.vorfall.trim() ? { feedContext: meta.vorfall.trim() } : {}),
+    entryId: meta.entryId,
+    calloutId: meta.entryId,
+    hasCallout: true,
+  };
+}
+
+function tryLueftungSectionTimelineEntry(
+  line: string,
+  lineIndex: number,
+  section: string,
+  allLines: string[],
+): TimelineEntry | null {
+  if (section.trim().toLowerCase() !== "lüftung" && section.trim().toLowerCase() !== "lueftung") return null;
+  const meta = parseLueftungMetaLine(line.trim());
+  if (!meta) return null;
+  const feed = findTagebuchBulletByEntryId(allLines, meta.entryId);
+  if (feed) {
+    return {
+      line: feed.lineIndex,
+      text: feed.text,
+      rawLine: feed.rawLine,
+      section: "Lüftung",
+      feedProfile: "lueftung",
+      ...(feed.feedContext ? { feedContext: feed.feedContext } : {}),
+      entryId: meta.entryId,
+      calloutId: meta.entryId,
+      hasCallout: true,
+    };
+  }
+  const kurz = stripLeadingTimeFromKurz(meta.wartung || "Lüftung");
+  return {
+    line: lineIndex,
+    text: kurz,
+    rawLine: line,
+    section: "Lüftung",
+    feedProfile: "lueftung",
+    ...(meta.wartung.trim() ? { feedContext: meta.wartung.trim() } : {}),
+    entryId: meta.entryId,
+    calloutId: meta.entryId,
+    hasCallout: true,
+  };
 }
 
 function pushJournalBulletLine(
@@ -609,6 +758,7 @@ export function extractJournalLines(
   }
   const isReisen = target === "reisen";
   const isWandern = target === "wandern";
+  const isSpaziergang = target === "spaziergang";
   let inSection = false;
   let inManagedCallout = false;
   let skipReisenTripCallout = false;
@@ -655,6 +805,13 @@ export function extractJournalLines(
 
     if (isWandern) {
       const entry = tryWandernTimelineEntry(line, i, journalHeading);
+      if (entry) {
+        out.push(entry);
+        continue;
+      }
+    }
+    if (isSpaziergang) {
+      const entry = trySpaziergangTimelineEntry(line, i, journalHeading);
       if (entry) {
         out.push(entry);
         continue;
@@ -766,8 +923,25 @@ export function extractJournalLinesAllHeadings(
         continue;
       }
     }
+    if (currentSection?.trim().toLowerCase() === "spaziergang") {
+      const entry = trySpaziergangTimelineEntry(line, i, currentSection);
+      if (entry) {
+        out.push(entry);
+        continue;
+      }
+    }
 
     if (currentSection) {
+      const heizungEntry = tryHeizungSectionTimelineEntry(line, i, currentSection, textLines);
+      if (heizungEntry) {
+        out.push(heizungEntry);
+        continue;
+      }
+      const lueftungEntry = tryLueftungSectionTimelineEntry(line, i, currentSection, textLines);
+      if (lueftungEntry) {
+        out.push(lueftungEntry);
+        continue;
+      }
       const feedDetailEntry = tryFeedDetailTimelineEntry(line, i, currentSection, textLines);
       if (feedDetailEntry) {
         out.push(feedDetailEntry);
@@ -981,6 +1155,44 @@ function mergeSyntheticTagebuchFeedEntries(lines: string[], entries: TimelineEnt
     }
   }
 
+  if (!has("spaziergang")) {
+    const spaziergangIds = collectSpaziergangEntryIds(lines);
+    const range = extractSectionRange(lines, "Spaziergang");
+    const profile = journalProfileById("spaziergang");
+    if (profile && range && spaziergangIds.size > 0) {
+      let titel = "";
+      for (let i = range.start + 1; i < range.end; i++) {
+        const meta = parseSpaziergangEntryMetaLine(lines[i] ?? "");
+        if (meta?.titel.trim()) {
+          titel = meta.titel.trim();
+          break;
+        }
+      }
+      const kurz = stripLeadingTimeFromKurz(buildWandernFeedKurz("", titel || "Spaziergang"));
+      const text = `${kurz} ${profile.feedSuffix}`.trim();
+      next.push({
+        line: range.start + 1,
+        text,
+        rawLine: `- ${text}`,
+        feedProfile: "spaziergang",
+        ...(titel.trim() !== "Spaziergang" ? { feedContext: titel.trim() } : {}),
+      });
+    } else if (range && profile) {
+      const meta = parseSpaziergangMetaFromLines(lines.slice(range.start + 1, range.end));
+      if (meta) {
+        const kurz = stripLeadingTimeFromKurz(buildWandernFeedKurz(meta.kurz, meta.titel || "Spaziergang"));
+        const text = `${kurz} ${profile.feedSuffix}`.trim();
+        next.push({
+          line: range.start + 1,
+          text,
+          rawLine: `- ${text}`,
+          feedProfile: "spaziergang",
+          ...(meta.titel.trim() !== "Spaziergang" ? { feedContext: meta.titel.trim() } : {}),
+        });
+      }
+    }
+  }
+
   if (!has("sonstiges")) {
     const range = extractSectionRange(lines, SONSTIGES_HEADING);
     if (range) {
@@ -1110,6 +1322,7 @@ export function loadTagebuchTimelineEntries(lines: string[]): TimelineEntry[] {
   entries = overlayLueftungTimelineEntries(lines, entries);
   entries = overlayHeizungTimelineEntries(lines, entries);
   entries = overlayWandernTimelineEntries(lines, entries);
+  entries = overlaySpaziergangTimelineEntries(lines, entries);
   entries = mergeSyntheticTagebuchFeedEntries(lines, entries);
   entries = dedupeFeedProfileEntries(entries);
   return entries;
@@ -1214,6 +1427,41 @@ function overlayWandernTimelineEntries(lines: string[], entries: TimelineEntry[]
         feedContext: entry.feedContext?.trim() || byTitle.titel || wandernContext.get(byTitle.entryId),
         hasCallout: true,
         calloutId: byTitle.entryId,
+      };
+    }
+    return entry;
+  });
+}
+
+function overlaySpaziergangTimelineEntries(lines: string[], entries: TimelineEntry[]): TimelineEntry[] {
+  const ids = collectSpaziergangEntryIds(lines);
+  if (ids.size === 0 && !extractSectionRange(lines, "Spaziergang")) return entries;
+  const ctxById = spaziergangContextByEntryId(lines);
+  const byTitle = spaziergangSupplementMatchesByTitle(lines);
+  return entries.map((entry) => {
+    if (entry.entryId && ids.has(entry.entryId)) {
+      return {
+        ...entry,
+        feedProfile: "spaziergang",
+        feedContext: entry.feedContext?.trim() || ctxById.get(entry.entryId),
+        hasCallout: true,
+        calloutId: entry.entryId,
+      };
+    }
+    if (effectiveFeedProfile(entry.feedProfile, entry.feedContext) === "spaziergang") {
+      return entry;
+    }
+    const { body } = parseJournalEntryDisplay(entry.text);
+    const titleKey = stripLeadingTimeFromKurz(body).trim().toLowerCase();
+    const match = titleKey ? byTitle.get(titleKey) : undefined;
+    if (match) {
+      return {
+        ...entry,
+        feedProfile: "spaziergang",
+        entryId: match.entryId,
+        feedContext: entry.feedContext?.trim() || match.titel || ctxById.get(match.entryId),
+        hasCallout: true,
+        calloutId: match.entryId,
       };
     }
     return entry;

@@ -1,11 +1,17 @@
 import { effectiveFeedProfile, feedProfileLabel, type FeedProfile } from "./feedMetadata";
 import { stripJournalLineForDisplay } from "./journalEntryMeta";
 import { parseWikiLinks, type WikiLinkSegment } from "./parseWikiLinks";
+import { parseJournalLinks } from "./parseJournalLinks";
 
 export type FeedEntrySuffixSplit = {
   lead: string;
   links: WikiLinkSegment[];
 };
+
+export type DisplayLinkSegment =
+  | { kind: "text"; value: string }
+  | { kind: "link"; dest: string; label: string }
+  | { kind: "url"; href: string; label: string };
 
 const PAREN_LINK_GROUP = /\(([^()]*\[\[[^\]]+\]\][^()]*)\)\s*$/;
 const OPEN_PAREN_BEFORE_LINK = /\(\s*$/;
@@ -52,13 +58,18 @@ export function splitFeedEntrySuffix(body: string): FeedEntrySuffixSplit {
 }
 
 /** Wiki-link segments for display — links stay at their position in the sentence. */
-export function displayWikiLinkSegments(body: string): WikiLinkSegment[] {
-  const raw = parseWikiLinks(stripJournalLineForDisplay(body));
-  const out: WikiLinkSegment[] = [];
+export function displayWikiLinkSegments(body: string): DisplayLinkSegment[] {
+  const cleaned = stripJournalLineForDisplay(body);
+  const raw = parseJournalLinks(cleaned).map((seg) => {
+    if (seg.kind === "wiki") return { kind: "link" as const, dest: seg.dest, label: seg.label };
+    if (seg.kind === "url") return { kind: "url" as const, href: seg.href, label: seg.label };
+    return { kind: "text" as const, value: seg.value };
+  });
+  const out: DisplayLinkSegment[] = [];
 
   for (let i = 0; i < raw.length; i++) {
     const seg = raw[i]!;
-    if (seg.kind === "link") {
+    if (seg.kind === "link" || seg.kind === "url") {
       out.push(seg);
       continue;
     }
@@ -67,10 +78,10 @@ export function displayWikiLinkSegments(body: string): WikiLinkSegment[] {
     const next = raw[i + 1];
     const prev = out[out.length - 1];
 
-    if (next?.kind === "link" && OPEN_PAREN_BEFORE_LINK.test(value)) {
+    if ((next?.kind === "link" || next?.kind === "url") && OPEN_PAREN_BEFORE_LINK.test(value)) {
       value = value.replace(OPEN_PAREN_BEFORE_LINK, "");
     }
-    if (prev?.kind === "link" && CLOSE_PAREN_AFTER_LINK.test(value)) {
+    if ((prev?.kind === "link" || prev?.kind === "url") && CLOSE_PAREN_AFTER_LINK.test(value)) {
       value = value.replace(CLOSE_PAREN_AFTER_LINK, "");
     }
 
@@ -81,7 +92,7 @@ export function displayWikiLinkSegments(body: string): WikiLinkSegment[] {
 }
 
 export function bodyHasWikiLinks(body: string): boolean {
-  return displayWikiLinkSegments(body).some((seg) => seg.kind === "link");
+  return displayWikiLinkSegments(body).some((seg) => seg.kind === "link" || seg.kind === "url");
 }
 
 /** Split all wiki links from body; remaining text is lead (legacy suffix extraction). */

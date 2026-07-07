@@ -20,7 +20,7 @@
 
   $: displayText = text || lead;
   $: segments = displayWikiLinkSegments(displayText);
-  $: hasLinks = segments.some((seg) => seg.kind === "link");
+  $: hasLinks = segments.some((seg) => seg.kind === "link" || seg.kind === "url");
 
   function linkClass(dest: string): string {
     const broken = app ? isUnresolvedWikiLink(app, dest, sourcePath) : false;
@@ -50,6 +50,14 @@
         title={linkTitle(seg.dest)}
         use:sidebarPointerAction={() => onOpenWikiLink(seg.dest, sourcePath)}
       >{seg.label}</a>
+    {:else if seg.kind === "url"}
+      <a
+        class="external-link"
+        href={seg.href}
+        target="_blank"
+        rel="noopener noreferrer"
+        >{seg.label}</a
+      >
     {:else}<InlineFormattedText text={seg.value} />{/if}
   {/each}
 </span>

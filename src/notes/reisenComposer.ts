@@ -10,8 +10,22 @@ import {
 } from "./journalCallout";
 import { journalEntrySortMinutes, parseJournalEntryDisplay } from "./parseJournalEntryDisplay";
 import { detailToCalloutProseLines, stripCalloutPrefixRaw } from "./calloutProse";
+import {
+  buildPhotoCollageMarkdownAsync,
+  mergePhotoSources,
+  nestedGalleryPrefixForCallout,
+  parsePhotoCollageFromLines,
+  photoEmbeds,
+  stripPhotoEmbed,
+  type PhotoCollageLayout,
+} from "./photoCollage";
 import { processVaultFile } from "./vaultProcess";
 import { wandernCalloutTitle, type WandernSyncEntry } from "./wandernComposer";
+import { spaziergangCalloutTitle, type SpaziergangSyncEntry } from "./spaziergangComposer";
+
+function walkProfileWithReise(profile: string | undefined): boolean {
+  return profile === "wandern" || profile === "spaziergang";
+}
 
 export const REISEN_HEADING = "Reisen";
 export const REISEN_META_PREFIX = "<!-- udn-reisen:";
@@ -21,29 +35,45 @@ export type ReisenMeta = {
   entryId: string;
   reise: string;
   detail: string;
+  fotos?: string[];
+  layout?: PhotoCollageLayout | "";
+};
+
+export type ReisenSupplement = {
+  reise: string;
+  detail: string;
+  photos: string[];
 };
 
 export type ReisenSortOrder = "asc" | "desc";
 
 export type ReisenSupplementsLoadResult = {
-  supplements: Map<string, { reise: string; detail: string }>;
+  supplements: Map<string, ReisenSupplement>;
   sortOrders: Record<string, ReisenSortOrder>;
   entryIdsWithCallout: Set<string>;
 };
 
 export type ReisenSyncEntry = Pick<
   ComposerEntry,
-  "entryId" | "time" | "body" | "context" | "profile" | "supplementDetail" | "supplementKurz" | "reiseAssignment"
+  | "entryId"
+  | "time"
+  | "body"
+  | "context"
+  | "profile"
+  | "supplementDetail"
+  | "supplementKurz"
+  | "supplementPhotos"
+  | "reiseAssignment"
 >;
 
 export function entryQualifiesForReisenSection(entry: Pick<ComposerEntry, "profile" | "reiseAssignment" | "entryId">): boolean {
   if (!entry.entryId?.trim()) return false;
   if (entry.profile === "reisen") return true;
-  return entry.profile === "wandern" && Boolean(entry.reiseAssignment?.trim());
+  return walkProfileWithReise(entry.profile) && Boolean(entry.reiseAssignment?.trim());
 }
 
 function reiseGroupKey(entry: ReisenSyncEntry): string {
-  if (entry.profile === "wandern") return entry.reiseAssignment?.trim() ?? "";
+  if (walkProfileWithReise(entry.profile)) return entry.reiseAssignment?.trim() ?? "";
   return entry.context?.trim() ?? "";
 }
 
@@ -57,11 +87,20 @@ export function reisenSectionEntryTitle(entry: ReisenSyncEntry): string {
       profile: entry.profile,
     } as WandernSyncEntry);
   }
+  if (entry.profile === "spaziergang") {
+    return spaziergangCalloutTitle({
+      entryId: entry.entryId,
+      time: entry.time,
+      body: entry.body,
+      context: entry.context,
+      profile: entry.profile,
+    } as SpaziergangSyncEntry);
+  }
   return reisenCalloutTitle(entry);
 }
 
 function reisenSectionEntryDetail(entry: ReisenSyncEntry): string {
-  if (entry.profile === "wandern") {
+  if (walkProfileWithReise(entry.profile)) {
     return entry.supplementDetail?.trim() || entry.supplementKurz?.trim() || "";
   }
   return entry.supplementDetail ?? "";
@@ -69,7 +108,7 @@ function reisenSectionEntryDetail(entry: ReisenSyncEntry): string {
 
 function toReisenSyncEntry(entry: ComposerEntry): ReisenSyncEntry | null {
   if (!entryQualifiesForReisenSection(entry)) return null;
-  if (entry.profile === "wandern") {
+  if (walkProfileWithReise(entry.profile)) {
     return {
       entryId: entry.entryId,
       time: entry.time,
@@ -88,6 +127,7 @@ function toReisenSyncEntry(entry: ComposerEntry): ReisenSyncEntry | null {
     context: entry.context,
     profile: entry.profile,
     supplementDetail: entry.supplementDetail,
+    supplementPhotos: entry.supplementPhotos,
   };
 }
 
@@ -113,6 +153,8 @@ export function parseReisenMetaLine(line: string): ReisenMeta | null {
       entryId,
       reise: parsed.reise?.trim() ?? "",
       detail: typeof parsed.detail === "string" ? parsed.detail : "",
+      fotos: Array.isArray(parsed.fotos) ? parsed.fotos.map((f) => stripPhotoEmbed(String(f))) : undefined,
+      layout: (parsed.layout as PhotoCollageLayout | "") ?? "",
     };
   } catch {
     return null;
@@ -142,31 +184,64 @@ function stripCalloutPrefix(line: string): string {
   return stripCalloutPrefixRaw(line);
 }
 
-function proseAfterCalloutTitle(sectionLines: string[], titleLineIndex: number): string {
-  const prose: string[] = [];
+function parseReisenCalloutContent(
+  sectionLines: string[],
+  titleLineIndex: number,
+): { detail: string; photos: string[]; layout: PhotoCollageLayout | "" } {
+  let end = sectionLines.length;
   for (let i = titleLineIndex + 1; i < sectionLines.length; i++) {
     const line = sectionLines[i] ?? "";
     const trimmed = line.trim();
-    if (parseReisenMetaLine(trimmed) || parseReisenSortLine(trimmed)) break;
-    if (isManagedCalloutStart(line, REISEN_HEADING)) break;
-    if (!trimmed.startsWith(">")) break;
+    if (parseReisenMetaLine(trimmed) || parseReisenSortLine(trimmed) || isManagedCalloutStart(line, REISEN_HEADING)) {
+      end = i;
+      break;
+    }
+  }
+
+  const blockLines = sectionLines.slice(titleLineIndex + 1, end);
+  const parsed = parsePhotoCollageFromLines(blockLines, 0, blockLines.length);
+  const prose: string[] = [];
+  for (const line of blockLines) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith(">")) continue;
     const inner = stripCalloutPrefix(line);
+    if (/^\[!blank-container[^\]]*gallery/i.test(inner.trim())) continue;
+    if (/^!\[\[/.test(inner) && !inner.trim().startsWith("[!")) continue;
     prose.push(inner);
   }
-  return prose.join("\n");
+  return { detail: prose.join("\n"), photos: parsed.photos, layout: parsed.layout };
 }
 
-export function buildReisenCalloutBlock(title: string, detail: string): string {
+export function buildReisenCalloutBlock(title: string, detail: string, photoLines: string[] = []): string {
   const titel = title.trim() || "Reise";
   const lines = [formatManagedCalloutTitleLine(REISEN_HEADING, titel)];
   const proseLines = detailToCalloutProseLines(detail);
-  if (proseLines.length === 0) {
-    lines.push(">");
-  } else {
+  if (proseLines.length > 0) {
     lines.push(...proseLines);
+  }
+  if (photoLines.length > 0) {
+    lines.push(...photoLines);
+  }
+  if (proseLines.length === 0 && photoLines.length === 0) {
+    lines.push(">");
   }
   lines.push("");
   return lines.join("\n");
+}
+
+export async function buildReisenCalloutBlockAsync(
+  app: App,
+  title: string,
+  detail: string,
+  photos: string[],
+): Promise<string> {
+  const photoLines =
+    photos.length > 0
+      ? (await buildPhotoCollageMarkdownAsync(app, photos, nestedGalleryPrefixForCallout("> ")))
+          .markdown.split("\n")
+          .filter(Boolean)
+      : [];
+  return buildReisenCalloutBlock(title, detail, photoLines);
 }
 
 export function reisenCalloutTitle(entry: ReisenSyncEntry): string {
@@ -199,10 +274,11 @@ function sortReisenEntries(entries: ReisenSyncEntry[], order: ReisenSortOrder): 
   return indexed.map((item) => item.entry);
 }
 
-export function renderReisenSectionBody(
+export async function renderReisenSectionBody(
+  app: App,
   entries: ReisenSyncEntry[],
   sortModes: Record<string, ReisenSortOrder> = {},
-): string[] {
+): Promise<string[]> {
   const reisenEntries = entries.filter((e) => e.entryId?.trim());
   if (reisenEntries.length === 0) return [];
 
@@ -231,12 +307,19 @@ export function renderReisenSectionBody(
     for (const entry of sortReisenEntries(group, order)) {
       const title = reisenSectionEntryTitle(entry);
       const detail = reisenSectionEntryDetail(entry);
-      out.push(...buildReisenCalloutBlock(title, detail).split("\n"));
+      const photos =
+        entry.profile === "reisen"
+          ? (entry.supplementPhotos ?? []).map(stripPhotoEmbed).filter(Boolean)
+          : [];
+      out.push(
+        ...(await buildReisenCalloutBlockAsync(app, title, detail, photos)).split("\n"),
+      );
       out.push(
         reisenMetaComment({
           entryId: entry.entryId!,
           reise: reiseGroupKey(entry),
           detail,
+          ...(photos.length > 0 ? { fotos: photoEmbeds(photos) } : {}),
         }),
       );
       out.push("");
@@ -246,14 +329,15 @@ export function renderReisenSectionBody(
 }
 
 export function parseReisenSupplementsFromLines(lines: string[]): ReisenSupplementsLoadResult {
-  const supplements = new Map<string, { reise: string; detail: string }>();
+  const supplements = new Map<string, ReisenSupplement>();
   const sortOrders: Record<string, ReisenSortOrder> = {};
   const entryIdsWithCallout = new Set<string>();
 
   const range = extractSectionRange(lines, REISEN_HEADING);
   const sectionLines = range ? lines.slice(range.start + 1, range.end) : [];
 
-  for (const line of sectionLines) {
+  for (let i = 0; i < sectionLines.length; i++) {
+    const line = sectionLines[i] ?? "";
     const sort = parseReisenSortLine(line);
     if (sort) {
       sortOrders[sort.reise] = sort.order;
@@ -262,17 +346,21 @@ export function parseReisenSupplementsFromLines(lines: string[]): ReisenSuppleme
     const meta = parseReisenMetaLine(line);
     if (!meta) continue;
     entryIdsWithCallout.add(meta.entryId);
+
     let detail = meta.detail;
-    if (!detail) {
-      const idx = sectionLines.indexOf(line);
-      for (let i = idx - 1; i >= 0; i--) {
-        if (isManagedCalloutStart(sectionLines[i] ?? "", REISEN_HEADING)) {
-          detail = proseAfterCalloutTitle(sectionLines, i);
-          break;
-        }
+    let photos = (meta.fotos ?? []).map(stripPhotoEmbed).filter(Boolean);
+    for (let j = i - 1; j >= 0; j--) {
+      if (isManagedCalloutStart(sectionLines[j] ?? "", REISEN_HEADING)) {
+        const parsed = parseReisenCalloutContent(sectionLines, j);
+        if (!detail) detail = parsed.detail;
+        photos = mergePhotoSources(
+          { photos: parsed.photos, layout: parsed.layout },
+          photos.length > 0 ? { photos } : null,
+        ).photos;
+        break;
       }
     }
-    supplements.set(meta.entryId, { reise: meta.reise, detail });
+    supplements.set(meta.entryId, { reise: meta.reise, detail, photos });
   }
 
   return { supplements, sortOrders, entryIdsWithCallout };
@@ -361,7 +449,7 @@ export async function syncReisenSupplements(
     .map((e) => toReisenSyncEntry(e))
     .filter((e): e is ReisenSyncEntry => e != null);
 
-  const bodyLines = renderReisenSectionBody(syncEntries, sortModes);
+  const bodyLines = await renderReisenSectionBody(app, syncEntries, sortModes);
 
   await processVaultFile(app, file, (raw) => {
     let lines = raw.split("\n");
@@ -390,12 +478,13 @@ export function mergeReisenSupplementsIntoEntries(
       return {
         ...entry,
         supplementDetail: sup.detail,
+        supplementPhotos: sup.photos.length > 0 ? sup.photos : entry.supplementPhotos,
         context: entry.context?.trim() || sup.reise || entry.context,
         calloutId: hasCallout ? entry.entryId : entry.calloutId,
       };
     }
 
-    if (entry.profile === "wandern") {
+    if (walkProfileWithReise(entry.profile)) {
       const hasCallout = loaded.entryIdsWithCallout.has(entry.entryId);
       return {
         ...entry,

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildChipEntryText,
+  chipsForHeading,
   COMPOSER_SECTION_PRESETS,
   rewriteJournalBullets,
   suggestSummaryFromEntries,
@@ -189,5 +190,15 @@ describe("buildChipEntryText", () => {
     expect(buildChipEntryText(aufstehen, "07:30")).toBe("07:30 Aufstehen");
     const lunch = DEFAULT_COMPOSER_CHIPS[1]!;
     expect(buildChipEntryText(lunch, "12:00")).toBe("12:00 Mittagessen: ");
+  });
+});
+
+describe("chipsForHeading", () => {
+  it("includes Wandern and Spaziergang chips for Reisen journal", () => {
+    const chips = chipsForHeading("Reisen", []);
+    const labels = chips.map((c) => c.label);
+    expect(labels).toContain("Abfahrt");
+    expect(labels).toContain("Wandern");
+    expect(labels).toContain("Spaziergang");
   });
 });

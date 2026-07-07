@@ -81,8 +81,8 @@ describe("loadOutlineBatch reisen filter", () => {
     );
 
     expect(batch.days.length).toBeGreaterThan(0);
-    expect(batch.days.some((d) => d.dateKey === "2026-07-03")).toBe(true);
-    const july3 = batch.days.find((d) => d.dateKey === "2026-07-03");
-    expect(july3?.entries.some((e) => e.feedProfile === "reisen")).toBe(true);
+    expect(batch.days.some((d) => d.dateKey === "2026-06-10")).toBe(true);
+    const june10 = batch.days.find((d) => d.dateKey === "2026-06-10");
+    expect(june10?.entries.some((e) => e.feedProfile === "reisen")).toBe(true);
   });
 });

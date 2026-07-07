@@ -3,7 +3,7 @@ import {
   appendEntryMeta,
   formatEntryMetaComment,
   parseEntryMetaComment,
-  profileLetter,
+  profileIconName,
   stripEntryMeta,
 } from "./journalEntryMeta";
 
@@ -16,11 +16,12 @@ describe("journalEntryMeta", () => {
     expect(appendEntryMeta(body, meta!)).toBe(line);
   });
 
-  it("parses profile letters", () => {
-    expect(profileLetter("reisen")).toBe("R");
-    expect(profileLetter("wandern")).toBe("W");
-    expect(profileLetter("heizung")).toBe("H");
-    expect(profileLetter("tagebuch")).toBe("");
+  it("resolves profile icon names", () => {
+    expect(profileIconName("reisen")).toBe("compass");
+    expect(profileIconName("wandern")).toBe("mountain");
+    expect(profileIconName("spaziergang")).toBe("person-walking");
+    expect(profileIconName("heizung")).toBe("flame");
+    expect(profileIconName("tagebuch")).toBe("");
   });
 
   it("formats minimal meta", () => {

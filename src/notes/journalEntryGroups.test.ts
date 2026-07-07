@@ -1,17 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { collectGroupLabelsFromText, groupFieldLabel } from "./journalEntryGroups";
+import { mergeGroupLabelSuggestions } from "./journalEntryGroups";
 
-describe("journalEntryGroups", () => {
-  it("labels group field by profile", () => {
-    expect(groupFieldLabel("reisen")).toBe("Reise");
-    expect(groupFieldLabel("heizung")).toBe("Vorfall");
-  });
-
-  it("collects group labels from udn-entry metadata", () => {
-    const text = `
-- 10:00 Abfahrt <!-- udn-entry:{"id":"a1","profile":"reisen","context":"Mamas 90ter"} -->
-- 14:00 Ankunft <!-- udn-entry:{"id":"b2","profile":"reisen","context":"Mamas 90ter"} -->
-`;
-    expect(collectGroupLabelsFromText(text, "reisen")).toEqual(["Mamas 90ter"]);
+describe("mergeGroupLabelSuggestions", () => {
+  it("merges extra labels and hides blocked names", () => {
+    const out = mergeGroupLabelSuggestions(
+      ["Mamas 90ter Geburtstag", "Erbach"],
+      { extra: ["Sommer 2026"], hidden: ["Mamas 90ter Geburtstag"] },
+    );
+    expect(out).toContain("Erbach");
+    expect(out).toContain("Sommer 2026");
+    expect(out).not.toContain("Mamas 90ter Geburtstag");
   });
 });

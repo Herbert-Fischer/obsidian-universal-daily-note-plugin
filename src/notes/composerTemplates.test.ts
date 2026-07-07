@@ -8,6 +8,7 @@ import {
   entryHasPrefix,
   TAGEBUCH_BULK_CHIPS,
   templatesForHeading,
+  SPAZIERGANG_BULK_CHIPS,
   WANDERN_BULK_CHIPS,
 } from "./composerTemplates";
 import type { ComposerEntry } from "./dailyComposer";
@@ -17,6 +18,7 @@ const defaultTemplateSettings = {
   tagebuchBulkEnabled: true,
   reisenBulkEnabled: true,
   wandernBulkEnabled: true,
+  spaziergangBulkEnabled: true,
   lastTripLabel: "",
 };
 
@@ -33,10 +35,24 @@ describe("composerTemplates", () => {
     expect(packs[0]?.actions).toEqual(["location", "track", "photo"]);
   });
 
+  it("returns spaziergang bulk template for Spaziergang heading", () => {
+    const packs = templatesForHeading("Spaziergang", defaultTemplateSettings);
+    expect(packs.some((p) => p.id === "spaziergang-bulk")).toBe(true);
+    expect(packs[0]?.actions).toEqual(["location", "track", "photo"]);
+  });
+
   it("hides wandern bulk when disabled in settings", () => {
     const packs = templatesForHeading("Wandern", {
       ...defaultTemplateSettings,
       wandernBulkEnabled: false,
+    });
+    expect(packs).toHaveLength(0);
+  });
+
+  it("hides spaziergang bulk when disabled in settings", () => {
+    const packs = templatesForHeading("Spaziergang", {
+      ...defaultTemplateSettings,
+      spaziergangBulkEnabled: false,
     });
     expect(packs).toHaveLength(0);
   });
@@ -60,6 +76,13 @@ describe("composerTemplates", () => {
 
   it("adds wandern bulk chips with expected prefixes", () => {
     const adds = chipEntriesToAdd(WANDERN_BULK_CHIPS, [], false);
+    expect(adds.some((e) => e.body.startsWith("Kurzbeschreibung:"))).toBe(true);
+    expect(adds.some((e) => e.body.startsWith("Beschreibung:"))).toBe(true);
+    expect(adds.some((e) => e.body.startsWith("Start:"))).toBe(true);
+  });
+
+  it("adds spaziergang bulk chips with expected prefixes", () => {
+    const adds = chipEntriesToAdd(SPAZIERGANG_BULK_CHIPS, [], false);
     expect(adds.some((e) => e.body.startsWith("Kurzbeschreibung:"))).toBe(true);
     expect(adds.some((e) => e.body.startsWith("Beschreibung:"))).toBe(true);
     expect(adds.some((e) => e.body.startsWith("Start:"))).toBe(true);

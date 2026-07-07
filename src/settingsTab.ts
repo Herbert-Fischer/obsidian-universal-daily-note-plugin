@@ -166,6 +166,7 @@ export class UniversalDailyNoteSettingTab extends PluginSettingTab {
       tagebuchBulkEnabled: true,
       reisenBulkEnabled: true,
       wandernBulkEnabled: true,
+      spaziergangBulkEnabled: true,
       lastTripLabel: "",
     };
 
@@ -225,6 +226,16 @@ export class UniversalDailyNoteSettingTab extends PluginSettingTab {
       .addToggle((t) =>
         t.setValue(tpl.wandernBulkEnabled).onChange(async (value) => {
           tpl.wandernBulkEnabled = value;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Typischer Spaziergang")
+      .setDesc("Bulk-Vorlage für ## Spaziergang: Standort, Start, Kurz- und Beschreibung, optional Foto und GPX-Track.")
+      .addToggle((t) =>
+        t.setValue(tpl.spaziergangBulkEnabled ?? true).onChange(async (value) => {
+          tpl.spaziergangBulkEnabled = value;
           await this.plugin.saveSettings();
         }),
       );

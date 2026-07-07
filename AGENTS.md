@@ -57,3 +57,4 @@ npm test   # src/**/*.test.ts — fallback path helpers
 - [Obsidian plugin guidelines](https://docs.obsidian.md/Plugins/Releasing/Plugin+guidelines)
 - [Obsidian API](https://docs.obsidian.md)
 - User-facing docs: `README.md`
+- Vault docs (Garmin/CalDAV/Thunderbird, geplant): `Atlas/Technologien/Obsidian Plugins/Universal Daily Note/Plugin — Detail Garmin Sync CalDAV und Thunderbird.md`

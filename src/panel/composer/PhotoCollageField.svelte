@@ -39,13 +39,13 @@
   <div class="udn-wandernPhotosHead">
     <span class="udn-composerSummaryLabel">{label || `Fotos (${photos.length}/${maxPhotos})`}</span>
     <div class="udn-wandernPhotosHeadActions">
-      <button type="button" class={dk.btnSm} disabled={photos.length >= maxPhotos} on:click={onAddPhotoClick}>
+      <button type="button" class={dk.btn} disabled={photos.length >= maxPhotos} on:click={onAddPhotoClick}>
         Fotos hinzufügen
       </button>
       {#if showVaultPicker}
         <button
           type="button"
-          class={dk.btnSm}
+          class={dk.btn}
           disabled={photos.length >= maxPhotos}
           on:click={onAddVaultPhotoClick}
         >
@@ -69,9 +69,9 @@
             <span class="udn-wandernPhotoPath">{stripPhotoEmbed(photo)}</span>
           {/if}
           <figcaption class="udn-photoStripActions">
-            <button type="button" class={dk.btnSm} disabled={index === 0} on:click={() => onMovePhotoUp(index)} aria-label="Nach links">←</button>
-            <button type="button" class={dk.btnSm} on:click={() => onRemovePhoto(index)}>Entfernen</button>
-            <button type="button" class={dk.btnSm} disabled={index >= photos.length - 1} on:click={() => onMovePhotoDown(index)} aria-label="Nach rechts">→</button>
+            <button type="button" class={dk.btn} disabled={index === 0} on:click={() => onMovePhotoUp(index)} aria-label="Nach links">←</button>
+            <button type="button" class={dk.btn} on:click={() => onRemovePhoto(index)}>Entfernen</button>
+            <button type="button" class={dk.btn} disabled={index >= photos.length - 1} on:click={() => onMovePhotoDown(index)} aria-label="Nach rechts">→</button>
           </figcaption>
         </figure>
       {/each}

@@ -22,6 +22,8 @@ export type PhotoImportContext = {
   heizungEntryTitle?: string;
   /** Per-entry Wandern callout title for attachment subfolder. */
   wandernEntryTitle?: string;
+  /** Per-entry Spaziergang callout title for attachment subfolder. */
+  spaziergangEntryTitle?: string;
 };
 
 function profileForContext(ctx: PhotoImportContext): JournalProfileDef | null {
@@ -37,6 +39,9 @@ function dailyPhotosFolder(ctx: PhotoImportContext): string {
   }
   if (ctx.wandernEntryTitle?.trim()) {
     return journalProfileById("wandern")?.photosFolder.trim() || DEFAULT_DAILY_PHOTOS_FOLDER;
+  }
+  if (ctx.spaziergangEntryTitle?.trim()) {
+    return journalProfileById("spaziergang")?.photosFolder.trim() || DEFAULT_DAILY_PHOTOS_FOLDER;
   }
   const profile = profileForContext(ctx);
   if (profile?.id === "lueftung" || profile?.id === "heizung" || profile?.id === "reisen") {
@@ -54,6 +59,7 @@ function calloutTitleForImport(ctx: PhotoImportContext): string {
     ctx.lueftungEntryTitle?.trim() ||
     ctx.heizungEntryTitle?.trim() ||
     ctx.wandernEntryTitle?.trim() ||
+    ctx.spaziergangEntryTitle?.trim() ||
     ctx.calloutTitle.trim() ||
     ctx.heading.trim() ||
     "Tagebuch"
@@ -64,7 +70,7 @@ function calloutTitleForImport(ctx: PhotoImportContext): string {
 export async function importJournalPhoto(app: App, file: File, ctx: PhotoImportContext): Promise<string> {
   const profile = profileForContext(ctx);
 
-  if (profile?.id === "wandern" || profile?.id === "lueftung" || profile?.id === "heizung" || profile?.kind === "list" || !profile) {
+  if (profile?.id === "wandern" || profile?.id === "spaziergang" || profile?.id === "lueftung" || profile?.id === "heizung" || profile?.kind === "list" || !profile) {
     return importDailyNotePhotoFile(
       app,
       file,

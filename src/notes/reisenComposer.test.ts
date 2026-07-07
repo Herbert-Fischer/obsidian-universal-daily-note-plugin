@@ -14,6 +14,15 @@ function mockFile(path: string): TFile {
   return { path } as TFile;
 }
 
+function mockApp(): App {
+  return {
+    vault: {
+      getAbstractFileByPath: () => null,
+      getResourcePath: () => "",
+    },
+  } as unknown as App;
+}
+
 describe("reisenComposer", () => {
   it("builds compass callout with prose", () => {
     const block = buildReisenCalloutBlock("Abfahrt Hamburg", "Boxi beladen.\nLosfahrt.");
@@ -31,8 +40,9 @@ describe("reisenComposer", () => {
     expect(meta?.reise).toBe("Mamas 90ter");
   });
 
-  it("sorts callouts within a reise by time descending", () => {
-    const body = renderReisenSectionBody(
+  it("sorts callouts within a reise by time descending", async () => {
+    const body = await renderReisenSectionBody(
+      mockApp(),
       [
         {
           entryId: "b2",
@@ -90,6 +100,33 @@ describe("reisenComposer", () => {
     expect(merged[0]?.calloutId).toBe("x9");
   });
 
+  it("roundtrips reisen photos into composer entries", () => {
+    const lines = [
+      "## Reisen",
+      "",
+      "> [!compass]+ Abfahrt",
+      "> Detailtext",
+      "> ![[Calendar/Anhänge/Bilder/reise.jpg]]",
+      '<!-- udn-reisen: {"entryId":"x9","reise":"Sommer","detail":"Detailtext","fotos":["Calendar/Anhänge/Bilder/reise.jpg"]} -->',
+    ];
+    const loaded = parseReisenSupplementsFromLines(lines);
+    const merged = mergeReisenSupplementsIntoEntries(
+      [
+        {
+          id: "line-1",
+          line: 1,
+          time: "10:00",
+          body: "Abfahrt",
+          rawLine: "- 10:00 Abfahrt",
+          entryId: "x9",
+          profile: "reisen",
+        },
+      ],
+      loaded,
+    );
+    expect(merged[0]?.supplementPhotos).toEqual(["Calendar/Anhänge/Bilder/reise.jpg"]);
+  });
+
   it("removes orphan reisen callouts on sync", async () => {
     let disk = [
       "## Tagebuch",
@@ -139,8 +176,8 @@ describe("reisenComposer", () => {
     expect(disk).not.toContain("Verwaist");
   });
 
-  it("includes wandern entries with reise assignment in ## Reisen", () => {
-    const body = renderReisenSectionBody([
+  it("includes wandern entries with reise assignment in ## Reisen", async () => {
+    const body = await renderReisenSectionBody(mockApp(), [
       {
         entryId: "knvh",
         time: "09:45",
@@ -156,6 +193,24 @@ describe("reisenComposer", () => {
     expect(joined).toContain('"reise":"Mamas 90ter Geburtstag"');
     expect(joined).toContain('"entryId":"knvh"');
     expect(joined).toContain("Rundweg mit Aussicht");
+  });
+
+  it("includes spaziergang entries with reise assignment in ## Reisen", async () => {
+    const body = await renderReisenSectionBody(mockApp(), [
+      {
+        entryId: "sp1",
+        time: "11:00",
+        body: "Spaziergang: Heidküppel",
+        context: "Spaziergang: Heidküppel",
+        profile: "spaziergang",
+        reiseAssignment: "Sommer 2026",
+        supplementDetail: "Runde mit Hund",
+      },
+    ]);
+    const joined = body.join("\n");
+    expect(joined).toContain("Heidküppel");
+    expect(joined).toContain('"reise":"Sommer 2026"');
+    expect(joined).toContain("Runde mit Hund");
   });
 
   it("merges reise assignment into wandern composer entries", () => {

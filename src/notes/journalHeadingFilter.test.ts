@@ -37,6 +37,7 @@ describe("journalHeadingFilter", () => {
       "Lüftung",
       "Reisen",
       "Sonstiges",
+      "Spaziergang",
       "Wandern",
     ]);
   });

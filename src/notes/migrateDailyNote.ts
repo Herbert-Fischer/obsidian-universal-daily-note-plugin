@@ -243,6 +243,25 @@ function ensureReisenTripStub(lines: string[], tripLabel: string | null): string
   return [...lines.slice(0, range.start + 1), "", ...stub, ...lines.slice(range.start + 1)];
 }
 
+function wrapSonstigesBulletsInNotesCallout(lines: string[]): string[] {
+  const range = extractSectionRange(lines, SONSTIGES_HEADING);
+  if (!range) return lines;
+  const body = lines.slice(range.start + 1, range.end);
+  const hasNotesCallout = body.some((l) => /^\s*>\s*\[!\s*notes\]/i.test(l.trim()));
+  if (hasNotesCallout) return lines;
+  const bullets = body.filter((l) => /^\s*[-*+]\s+/.test(l.trim()));
+  if (bullets.length === 0) return lines;
+  const wrapped: string[] = ["> [!notes] Sonstiges", ...bullets.map((b) => `> ${b.trim()}`)];
+  const next = [
+    ...lines.slice(0, range.start + 1),
+    "",
+    ...wrapped,
+    "",
+    ...lines.slice(range.end),
+  ];
+  return next;
+}
+
 /** Move misplaced Reisen trip callouts from ## Sonstiges into ## Reisen. */
 export function migrateMisplacedReisenTrips(lines: string[]): string[] {
   const trip = extractSonstigesReisenTrip(lines);
@@ -262,8 +281,11 @@ export function migrateMisplacedReisenTrips(lines: string[]): string[] {
 
 export function migrateDailyNoteBody(lines: string[], dateKey: string): string[] {
   const excluded = new Set(DEFAULT_EXCLUDED_JOURNAL_HEADINGS.map((h) => h.toLowerCase()));
+  // Sonstiges migration is handled separately to avoid losing legacy free-text bullets.
+  excluded.add("sonstiges");
   let next = ensureMfhNavCallout(lines);
   next = migrateMisplacedReisenTrips(next);
+  next = wrapSonstigesBulletsInNotesCallout(next);
 
   const headings = extractAllH2Headings(next);
   const toProcess: string[] = [];

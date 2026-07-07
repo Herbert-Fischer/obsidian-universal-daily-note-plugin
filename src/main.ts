@@ -26,7 +26,7 @@ import { syncCalendarAppointmentsIntoDailyNote } from "./integrations/calendarAp
 import { cleanupReisenCalendarSyncForRecentDays } from "./integrations/cleanupReisenCalendarSync";
 import { WEATHER_ICON, WEATHER_LABEL } from "./weather/weatherUi";
 import { registerTrack3dProcessor } from "./tracks/track3dView";
-import { registerPhotoGalleryLightbox } from "./photos/photoLightbox";
+import { openPhotoLightbox, registerPhotoGalleryLightbox } from "./photos/photoLightbox";
 import { registerJournalMetaPostProcessor } from "./notes/journalMetaPostProcessor";
 
 function migrateCollapsed(raw: Partial<Record<string, boolean>> | undefined): Record<SectionId, boolean> {
@@ -87,6 +87,7 @@ function mergeSettings(raw: Partial<UniversalDailyNoteSettings> | null): Univers
     calendarLinkOverrides: { ...DEFAULT_SETTINGS.calendarLinkOverrides, ...loaded.calendarLinkOverrides },
     weatherCapture: { ...DEFAULT_SETTINGS.weatherCapture, ...loaded.weatherCapture },
     composerTemplates: { ...DEFAULT_SETTINGS.composerTemplates, ...loaded.composerTemplates },
+    composerGroupLabels: { ...DEFAULT_SETTINGS.composerGroupLabels, ...loaded.composerGroupLabels },
     feedDetailLayout: { ...DEFAULT_SETTINGS.feedDetailLayout, ...loaded.feedDetailLayout },
     composerWindow: { ...DEFAULT_SETTINGS.composerWindow, ...loaded.composerWindow },
     composer: { ...DEFAULT_SETTINGS.composer, ...loaded.composer },
@@ -104,6 +105,8 @@ export default class UniversalDailyNotePlugin extends Plugin {
   settings!: UniversalDailyNoteSettings;
   /** Guard: auto-open composer at most once per calendar day (todayNoteOpen mode). */
   lastAutoComposerDateKey: string | null = null;
+  /** Gallery lightbox with arrow navigation (also used from Dataview views). */
+  openPhotoLightbox = openPhotoLightbox;
 
   async onload() {
     await this.loadSettings();
@@ -382,11 +385,16 @@ export default class UniversalDailyNotePlugin extends Plugin {
   /** Called by Universal Calendar and other integrations. */
   openComposerForDate(
     date: Date,
-    options?: { onSaved?: (date: Date) => void; focusEntryId?: string; focusEntryLine?: number },
+    options?: {
+      onSaved?: (date: Date) => void;
+      focusEntryId?: string;
+      focusEntryLine?: number;
+      journalHeading?: string;
+    },
   ): void {
     openDailyComposer(this, {
       date,
-      journalHeading: this.settings.outline.journalHeading,
+      journalHeading: options?.journalHeading ?? this.settings.outline.journalHeading,
       focusEntryId: options?.focusEntryId,
       focusEntryLine: options?.focusEntryLine,
       onSaved: (savedDate) => {

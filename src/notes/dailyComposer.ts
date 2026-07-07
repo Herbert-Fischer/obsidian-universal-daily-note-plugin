@@ -59,6 +59,8 @@ import { loadHeizungSupplements, mergeHeizungSupplementsIntoEntries } from "./he
 import { loadLueftungSupplements, mergeLueftungSupplementsIntoEntries } from "./lueftungComposer";
 import { loadGedankenSupplements, mergeGedankenSupplementsIntoEntries } from "./gedankenComposer";
 import { loadWandernSupplements, mergeWandernSupplementsIntoEntries } from "./wandernComposer";
+import { loadSpaziergangSupplements, mergeSpaziergangSupplementsIntoEntries } from "./spaziergangComposer";
+import { loadSonstigesSupplements, mergeSonstigesSupplementsIntoEntries } from "./sonstigesComposer";
 
 export type ComposerEntry = {
   id: string;
@@ -117,6 +119,12 @@ export const REISEN_COMPOSER_CHIPS: ComposerChip[] = [
   { label: "Ankunft", template: "Ankunft:", defaultTime: "18:00" },
   { label: "Unterkunft", template: "Unterkunft:", defaultTime: "19:00" },
   { label: "Foto", template: "Foto:", defaultTime: "14:00" },
+];
+
+/** Walk chips offered alongside Reisen chips in the Reise-Tagebuch composer. */
+export const REISEN_WALK_COMPOSER_CHIPS: ComposerChip[] = [
+  { label: "Wandern", template: "Wandern:", defaultTime: "09:00" },
+  { label: "Spaziergang", template: "Spaziergang:", defaultTime: "11:00" },
 ];
 
 export const WANDERN_COMPOSER_CHIPS: ComposerChip[] = [
@@ -194,7 +202,9 @@ function entryToComposer(entry: TimelineEntry): ComposerEntry {
   const context = meta?.context?.trim() || entry.feedContext?.trim() || undefined;
   const entryId = meta?.id || entry.entryId || (profile || context ? generateEntryId() : undefined);
   const reiseAssignment =
-    profile === "wandern" ? meta?.reise?.trim() || undefined : undefined;
+    profile === "wandern" || profile === "spaziergang"
+      ? meta?.reise?.trim() || undefined
+      : undefined;
   return {
     id: calendarId ? `cal-${calendarId}` : `line-${entry.line}`,
     line: entry.line,
@@ -286,12 +296,13 @@ export function composerEntryText(
       entry.profile === "lueftung" ||
       entry.profile === "heizung" ||
       entry.profile === "gedanken" ||
-      entry.profile === "wandern") &&
+      entry.profile === "wandern" ||
+      entry.profile === "spaziergang") &&
     (entry.supplementDetail?.trim() ||
       entry.supplementKurz?.trim() ||
       entry.supplementTrackPath?.trim() ||
       (entry.supplementPhotos?.length ?? 0) > 0 ||
-      (entry.profile === "wandern" && entry.reiseAssignment?.trim())) &&
+      ((entry.profile === "wandern" || entry.profile === "spaziergang") && entry.reiseAssignment?.trim())) &&
     entry.entryId
       ? entry.entryId
       : entry.calloutId;
@@ -319,16 +330,16 @@ function supplementEntryDedupeKey(entry: ComposerEntry): string | null {
   if (!entry.profile || entry.profile === "tagebuch") return null;
   const { lead } = splitFeedEntrySuffix(stripJournalLineForDisplay(entry.body));
   const bodyKey = stripLeadingTimeFromKurz(lead).trim().toLowerCase();
-  if (entry.profile === "wandern") {
-    const ctxKey = wandernTitleFromText(entry.context ?? "").trim().toLowerCase();
+  if (entry.profile === "wandern" || entry.profile === "spaziergang") {
+    const ctxKey = walkTitleFromText(entry.context ?? "").trim().toLowerCase();
     const titleKey = ctxKey.length > bodyKey.length ? ctxKey : bodyKey;
-    return `wandern::${titleKey}`;
+    return `${entry.profile}::${titleKey}`;
   }
   const ctx = (entry.context ?? "").trim().toLowerCase();
   return `${entry.profile}::${bodyKey}::${ctx}`;
 }
 
-function wandernTitleFromText(text: string): string {
+function walkTitleFromText(text: string): string {
   const { lead } = splitFeedEntrySuffix(stripJournalLineForDisplay(text));
   return stripLeadingTimeFromKurz(lead).trim();
 }
@@ -412,7 +423,9 @@ export function chipsFromPrefixes(prefixes: string[], base: ComposerChip[]): Com
 export function chipsForHeading(heading: string, prefixes: string[]): ComposerChip[] {
   const h = heading.trim().toLowerCase();
   if (h === "tagebuch") return chipsFromPrefixes(prefixes, TAGEBUCH_COMPOSER_CHIPS);
-  if (h === "reisen") return chipsFromPrefixes(prefixes, REISEN_COMPOSER_CHIPS);
+  if (h === "reisen") {
+    return chipsFromPrefixes(prefixes, [...REISEN_COMPOSER_CHIPS, ...REISEN_WALK_COMPOSER_CHIPS]);
+  }
   if (h === "wandern") return chipsFromPrefixes(prefixes, WANDERN_COMPOSER_CHIPS);
   if (h === "heizung") return chipsFromPrefixes(prefixes, HEIZUNG_COMPOSER_CHIPS);
   if (h === "lüftung" || h === "lueftung") return chipsFromPrefixes(prefixes, LUEFTUNG_COMPOSER_CHIPS);
@@ -545,7 +558,7 @@ export function rewriteJournalBullets(
       i++;
       continue;
     }
-    if (trimmed.startsWith("<!-- udn-sonstiges:")) {
+    if (trimmed.startsWith("<!-- udn-sonstiges:") || trimmed.startsWith("<!-- udn-sonstiges-entry:")) {
       i++;
       continue;
     }
@@ -553,7 +566,7 @@ export function rewriteJournalBullets(
       i++;
       continue;
     }
-    if (trimmed.startsWith("<!-- udn-lueftung-entry:") || trimmed.startsWith("<!-- udn-heizung-entry:") || trimmed.startsWith("<!-- udn-wandern-entry:")) {
+    if (trimmed.startsWith("<!-- udn-lueftung-entry:") || trimmed.startsWith("<!-- udn-heizung-entry:") || trimmed.startsWith("<!-- udn-wandern-entry:") || trimmed.startsWith("<!-- udn-spaziergang-entry:")) {
       i++;
       continue;
     }
@@ -650,8 +663,12 @@ export async function loadComposerState(
   entries = mergeHeizungSupplementsIntoEntries(entries, heizungLoaded);
   const gedankenLoaded = await loadGedankenSupplements(app, file);
   entries = mergeGedankenSupplementsIntoEntries(entries, gedankenLoaded);
+  const sonstigesLoaded = await loadSonstigesSupplements(app, file);
+  entries = mergeSonstigesSupplementsIntoEntries(entries, sonstigesLoaded);
   const wandernLoaded = await loadWandernSupplements(app, file);
   entries = mergeWandernSupplementsIntoEntries(entries, wandernLoaded);
+  const spaziergangLoaded = await loadSpaziergangSupplements(app, file);
+  entries = mergeSpaziergangSupplementsIntoEntries(entries, spaziergangLoaded);
   entries = dedupeSupplementProfileEntries(entries);
   const priorTexts = entries.map(composerEntryText);
   entries = entries.map((entry) => {

@@ -1156,6 +1156,67 @@ body.is-mobile .udn-verweise .udn-outlineEntry .udn-timelineEntryBody {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.udn-wandernMediaField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+
+.udn-wandernMediaStrip {
+  --udn-photo-row-height: 120px;
+  --udn-photo-thumb-width: min(42vw, 168px);
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  gap: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 6px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s, 4px);
+  background: var(--background-secondary);
+  scroll-snap-type: x proximity;
+}
+
+.udn-wandernMediaStrip .udn-photoStripItem {
+  scroll-snap-align: start;
+}
+
+.udn-wandernMediaStripTrack {
+  flex: 0 0 min(42vw, 200px);
+  width: min(42vw, 200px);
+}
+
+.udn-wandernMediaStripTrackCanvas {
+  display: block;
+  width: 100%;
+  height: var(--udn-photo-row-height);
+  border-radius: var(--radius-s, 4px);
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+}
+
+.udn-wandernMediaStrip .udn-photoStripActions {
+  flex-wrap: wrap;
+}
+
+.udn-wandernMediaStrip .udn-trackPreviewSummary {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
 }
 
 .udn-wandernTextarea {
@@ -1407,6 +1468,8 @@ body.is-mobile .udn-verweise .udn-outlineEntry .udn-timelineEntryBody {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  width: 100%;
+  margin-top: 4px;
 }
 
 .udn-composerChip,
@@ -1802,6 +1865,51 @@ body.is-mobile .udn-composerEntry.udn-outlineEntry {
   min-width: 0;
 }
 
+body.is-mobile .udn-composer--mobile .udn-composerEntry.udn-outlineEntry.udn-composerEntry--expanded {
+  flex-wrap: wrap;
+  align-items: flex-start;
+  row-gap: 4px;
+}
+
+body.is-mobile .udn-composer--mobile .udn-composerEntry--expanded .udn-timeBubbleInput {
+  order: 1;
+}
+
+body.is-mobile .udn-composer--mobile .udn-composerEntry--expanded .udn-profileBubble {
+  order: 2;
+}
+
+body.is-mobile .udn-composer--mobile .udn-composerEntry--expanded .udn-composerEntryRemove {
+  order: 3;
+  margin-left: auto;
+}
+
+body.is-mobile .udn-composer--mobile .udn-composerEntry--expanded .udn-composerEntryInput,
+body.is-mobile .udn-composer--mobile .udn-composerEntry--expanded .udn-timelineEntryBody {
+  order: 4;
+  flex: 1 1 100%;
+  max-width: 100%;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+body.is-mobile .udn-composer--mobile .udn-composerEntry--expanded .udn-composerEntryInput--empty:not(:focus) {
+  flex: 0 0 0;
+  width: 0;
+  min-width: 0;
+  max-width: 0;
+  padding: 0;
+  margin: 0;
+  border-width: 0;
+  overflow: hidden;
+  opacity: 0;
+}
+
+body.is-mobile .udn-composer--mobile .udn-composerEntry--expanded .udn-composerEntryExpand {
+  order: 5;
+}
+
 body.is-mobile .udn-composer--mobile .udn-composerEntry .dk-input {
   width: auto;
   min-height: 30px;
@@ -1913,15 +2021,49 @@ body.is-mobile .udn-composerFoot--mobile .dk-btnPrimary {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.35em;
-  height: 1.35em;
-  min-width: 1.35em;
-  padding: 0;
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  margin: 0;
+  padding: 0 !important;
   border-radius: 999px;
-  font-size: var(--dk-font-mini);
-  font-weight: 700;
-  line-height: 1;
+  border: 1px solid transparent;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
+  font-size: 0;
+  font-weight: 400;
+  line-height: 0;
+  vertical-align: middle;
+  box-sizing: border-box;
   cursor: pointer;
+  overflow: visible;
+  appearance: none;
+}
+
+.udn-profileBubble.udn-feedLinkBubble {
+  max-width: none;
+  white-space: nowrap;
+  text-overflow: clip;
+}
+
+.udn-profileBubbleIconHost {
+  display: contents;
+}
+
+.udn-profileBubbleIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+.udn-profileBubbleIcon svg {
+  display: block;
+  width: 15px;
+  height: 15px;
+  margin: 0;
 }
 
 .udn-profileBubble--empty {
@@ -1929,6 +2071,7 @@ body.is-mobile .udn-composerFoot--mobile .dk-btnPrimary {
   background: var(--background-secondary);
   color: var(--text-faint);
   font-weight: 400;
+  box-shadow: none;
 }
 
 .udn-profileBubble.udn-feedLinkBubble:not(.udn-profileBubble--empty) {
@@ -1937,7 +2080,97 @@ body.is-mobile .udn-composerFoot--mobile .dk-btnPrimary {
   cursor: pointer;
 }
 
-.udn-profileBubble.udn-feedLinkBubble--default,
+.udn-profileBubble.udn-feedLinkBubble--default {
+  border-color: var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  box-shadow: none;
+}
+
+.udn-profileBubble.udn-feedLinkBubble--heizung {
+  border-color: rgb(194, 65, 12);
+  background: rgb(234, 88, 12);
+  color: #fff;
+}
+
+.udn-profileBubble.udn-feedLinkBubble--lueftung {
+  border-color: rgb(3, 105, 161);
+  background: rgb(14, 165, 233);
+  color: #fff;
+}
+
+.udn-profileBubble.udn-feedLinkBubble--reisen {
+  border-color: rgb(146, 64, 14);
+  background: rgb(180, 83, 9);
+  color: #fff;
+}
+
+.udn-profileBubble.udn-feedLinkBubble--wandern {
+  border-color: rgb(21, 128, 61);
+  background: rgb(22, 163, 74);
+  color: #fff;
+}
+
+.udn-profileBubble.udn-feedLinkBubble--spaziergang {
+  border-color: rgb(6, 120, 148);
+  background: rgb(8, 145, 178);
+  color: #fff;
+}
+
+.udn-profileBubble.udn-feedLinkBubble--sonstiges {
+  border-color: rgb(91, 33, 182);
+  background: rgb(124, 58, 237);
+  color: #fff;
+}
+
+.udn-profileBubble.udn-feedLinkBubble--gedanken {
+  border-color: rgb(161, 98, 7);
+  background: rgb(202, 138, 4);
+  color: #fff;
+}
+
+.udn-profileBubble.udn-feedLinkBubble--heizung:hover {
+  border-color: rgb(154, 52, 18);
+  background: rgb(194, 65, 12);
+  color: #fff;
+}
+
+.udn-profileBubble.udn-feedLinkBubble--lueftung:hover {
+  border-color: rgb(2, 132, 199);
+  background: rgb(3, 105, 161);
+  color: #fff;
+}
+
+.udn-profileBubble.udn-feedLinkBubble--reisen:hover {
+  border-color: rgb(120, 53, 15);
+  background: rgb(146, 64, 14);
+  color: #fff;
+}
+
+.udn-profileBubble.udn-feedLinkBubble--wandern:hover {
+  border-color: rgb(20, 83, 45);
+  background: rgb(21, 128, 61);
+  color: #fff;
+}
+
+.udn-profileBubble.udn-feedLinkBubble--spaziergang:hover {
+  border-color: rgb(6, 120, 148);
+  background: rgb(8, 145, 178);
+  color: #fff;
+}
+
+.udn-profileBubble.udn-feedLinkBubble--gedanken:hover {
+  border-color: rgb(133, 77, 14);
+  background: rgb(161, 98, 7);
+  color: #fff;
+}
+
+.udn-profileBubble.udn-feedLinkBubble--sonstiges:hover {
+  border-color: rgb(76, 29, 149);
+  background: rgb(91, 33, 182);
+  color: #fff;
+}
+
 .udn-profileFilterChip.udn-feedLinkBubble--default,
 .udn-sectionFilterChip.udn-feedLinkBubble--default {
   border: 1px solid var(--background-modifier-border);
@@ -1945,7 +2178,6 @@ body.is-mobile .udn-composerFoot--mobile .dk-btnPrimary {
   color: var(--text-muted);
 }
 
-.udn-profileBubble.udn-feedLinkBubble--heizung,
 .udn-profileFilterChip.udn-feedLinkBubble--heizung,
 .udn-sectionFilterChip.udn-feedLinkBubble--heizung {
   border-color: rgba(234, 88, 12, 0.35);
@@ -1953,7 +2185,6 @@ body.is-mobile .udn-composerFoot--mobile .dk-btnPrimary {
   color: rgb(154, 52, 18);
 }
 
-.udn-profileBubble.udn-feedLinkBubble--lueftung,
 .udn-profileFilterChip.udn-feedLinkBubble--lueftung,
 .udn-sectionFilterChip.udn-feedLinkBubble--lueftung {
   border-color: rgba(14, 165, 233, 0.35);
@@ -1961,7 +2192,6 @@ body.is-mobile .udn-composerFoot--mobile .dk-btnPrimary {
   color: rgb(3, 105, 161);
 }
 
-.udn-profileBubble.udn-feedLinkBubble--reisen,
 .udn-profileFilterChip.udn-feedLinkBubble--reisen,
 .udn-sectionFilterChip.udn-feedLinkBubble--reisen {
   border-color: rgba(180, 83, 9, 0.35);
@@ -1969,7 +2199,6 @@ body.is-mobile .udn-composerFoot--mobile .dk-btnPrimary {
   color: rgb(146, 64, 14);
 }
 
-.udn-profileBubble.udn-feedLinkBubble--wandern,
 .udn-profileFilterChip.udn-feedLinkBubble--wandern,
 .udn-sectionFilterChip.udn-feedLinkBubble--wandern {
   border-color: rgba(22, 163, 74, 0.35);
@@ -1977,7 +2206,13 @@ body.is-mobile .udn-composerFoot--mobile .dk-btnPrimary {
   color: rgb(21, 128, 61);
 }
 
-.udn-profileBubble.udn-feedLinkBubble--sonstiges,
+.udn-profileFilterChip.udn-feedLinkBubble--spaziergang,
+.udn-sectionFilterChip.udn-feedLinkBubble--spaziergang {
+  border-color: rgba(34, 197, 94, 0.22);
+  background: rgba(34, 197, 94, 0.08);
+  color: rgb(21, 128, 61);
+}
+
 .udn-profileFilterChip.udn-feedLinkBubble--sonstiges,
 .udn-sectionFilterChip.udn-feedLinkBubble--sonstiges {
   border-color: rgba(124, 58, 237, 0.35);
@@ -1985,7 +2220,6 @@ body.is-mobile .udn-composerFoot--mobile .dk-btnPrimary {
   color: rgb(91, 33, 182);
 }
 
-.udn-profileBubble.udn-feedLinkBubble--gedanken,
 .udn-profileFilterChip.udn-feedLinkBubble--gedanken,
 .udn-sectionFilterChip.udn-feedLinkBubble--gedanken {
   border-color: rgba(234, 179, 8, 0.35);
@@ -1993,7 +2227,6 @@ body.is-mobile .udn-composerFoot--mobile .dk-btnPrimary {
   color: rgb(161, 98, 7);
 }
 
-.udn-profileBubble.udn-feedLinkBubble--heizung:hover,
 .udn-profileFilterChip.udn-feedLinkBubble--heizung:hover,
 .udn-sectionFilterChip.udn-feedLinkBubble--heizung:hover {
   border-color: rgba(234, 88, 12, 0.5);
@@ -2001,7 +2234,6 @@ body.is-mobile .udn-composerFoot--mobile .dk-btnPrimary {
   color: rgb(154, 52, 18);
 }
 
-.udn-profileBubble.udn-feedLinkBubble--lueftung:hover,
 .udn-profileFilterChip.udn-feedLinkBubble--lueftung:hover,
 .udn-sectionFilterChip.udn-feedLinkBubble--lueftung:hover {
   border-color: rgba(14, 165, 233, 0.5);
@@ -2009,7 +2241,6 @@ body.is-mobile .udn-composerFoot--mobile .dk-btnPrimary {
   color: rgb(3, 105, 161);
 }
 
-.udn-profileBubble.udn-feedLinkBubble--reisen:hover,
 .udn-profileFilterChip.udn-feedLinkBubble--reisen:hover,
 .udn-sectionFilterChip.udn-feedLinkBubble--reisen:hover {
   border-color: rgba(180, 83, 9, 0.5);
@@ -2017,7 +2248,6 @@ body.is-mobile .udn-composerFoot--mobile .dk-btnPrimary {
   color: rgb(146, 64, 14);
 }
 
-.udn-profileBubble.udn-feedLinkBubble--wandern:hover,
 .udn-profileFilterChip.udn-feedLinkBubble--wandern:hover,
 .udn-sectionFilterChip.udn-feedLinkBubble--wandern:hover {
   border-color: rgba(22, 163, 74, 0.5);
@@ -2025,7 +2255,13 @@ body.is-mobile .udn-composerFoot--mobile .dk-btnPrimary {
   color: rgb(21, 128, 61);
 }
 
-.udn-profileBubble.udn-feedLinkBubble--gedanken:hover,
+.udn-profileFilterChip.udn-feedLinkBubble--spaziergang:hover,
+.udn-sectionFilterChip.udn-feedLinkBubble--spaziergang:hover {
+  border-color: rgba(34, 197, 94, 0.35);
+  background: rgba(34, 197, 94, 0.14);
+  color: rgb(21, 128, 61);
+}
+
 .udn-profileFilterChip.udn-feedLinkBubble--gedanken:hover,
 .udn-sectionFilterChip.udn-feedLinkBubble--gedanken:hover {
   border-color: rgba(234, 179, 8, 0.5);
@@ -2033,7 +2269,6 @@ body.is-mobile .udn-composerFoot--mobile .dk-btnPrimary {
   color: rgb(161, 98, 7);
 }
 
-.udn-profileBubble.udn-feedLinkBubble--sonstiges:hover,
 .udn-profileFilterChip.udn-feedLinkBubble--sonstiges:hover,
 .udn-sectionFilterChip.udn-feedLinkBubble--sonstiges:hover {
   border-color: rgba(124, 58, 237, 0.5);
@@ -2087,6 +2322,11 @@ body.is-mobile .udn-composerFoot--mobile .dk-btnPrimary {
   align-items: flex-start;
 }
 
+.udn-outlineEntryMain .udn-profileBubble {
+  align-self: center;
+  flex-shrink: 0;
+}
+
 .udn-outlineEntryMain {
   display: flex;
   flex-direction: row;
@@ -2123,7 +2363,8 @@ body.is-mobile .udn-composerFoot--mobile .dk-btnPrimary {
 
 .udn-composerEntryExpand--reisen,
 .udn-composerEntryExpand--lueftung,
-.udn-composerEntryExpand--heizung {
+.udn-composerEntryExpand--heizung,
+.udn-composerEntryExpand--wandern {
   padding-left: 0;
 }
 
@@ -2165,8 +2406,14 @@ body.is-mobile .udn-composerFoot--mobile .dk-btnPrimary {
   flex: 1;
   min-width: 0;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   gap: 4px;
+}
+
+.udn-reisenReiseInput {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
 }
 
 .udn-reisenReiseSelect {
@@ -2220,8 +2467,167 @@ body.is-mobile .udn-composerFoot--mobile .dk-btnPrimary {
   gap: 4px;
 }
 
-.udn-markdownDetailPreviewToggle {
+.udn-markdownDetailToolbar .dk-btn {
+  min-width: 28px;
+  min-height: 28px;
+  padding: 2px 8px;
+  line-height: 1.2;
+}
+
+.udn-markdownDetailPreviewToggle--solo {
   margin-left: auto;
+}
+
+.udn-markdownDetailReiseWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 10rem;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.udn-markdownDetailReiseMenu--open {
+  background: var(--background-modifier-hover);
+}
+
+.udn-reiseMenu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 100;
+  min-width: 220px;
+  max-width: min(360px, 80vw);
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-s);
+  overflow: hidden;
+}
+
+.udn-reiseMenuEmpty {
+  padding: 8px 12px;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.udn-reiseMenuRow {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.udn-reiseMenuRow:last-of-type {
+  border-bottom: none;
+}
+
+.udn-reiseMenuPick {
+  flex: 1 1 auto;
+  min-width: 0;
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-normal);
+  text-align: left;
+  padding: 6px 10px;
+  font-size: var(--font-ui-small);
+  cursor: pointer;
+}
+
+.udn-reiseMenuPick:hover {
+  background: var(--background-modifier-hover);
+}
+
+.udn-reiseMenuRemove {
+  flex-shrink: 0;
+  appearance: none;
+  border: 0;
+  border-left: 1px solid var(--background-modifier-border);
+  background: transparent;
+  color: var(--text-muted);
+  padding: 0 10px;
+  font-size: var(--font-ui-small);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.udn-reiseMenuRemove:hover {
+  color: var(--text-error);
+  background: var(--background-modifier-hover);
+}
+
+.udn-reiseMenuFooter {
+  border-top: 1px solid var(--background-modifier-border);
+  padding: 6px;
+}
+
+.udn-reiseMenuSave {
+  width: 100%;
+  font-size: var(--font-ui-smaller);
+}
+
+.udn-markdownDetailReiseClear {
+  flex-shrink: 0;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0 6px;
+  line-height: 1;
+}
+
+.udn-markdownDetailReiseMenu {
+  flex-shrink: 0;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0 6px;
+  line-height: 1;
+}
+
+.udn-markdownDetailToolbarReise {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.udn-trackPreviewField {
+  width: 100%;
+  min-width: 0;
+}
+
+.udn-trackPreviewToggle--active {
+  border-color: var(--interactive-accent);
+  background: color-mix(in srgb, var(--interactive-accent) 12%, var(--background-secondary));
+}
+
+.udn-trackPreviewStripItem {
+  margin: 6px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 100%;
+}
+
+.udn-trackPreviewCanvas {
+  display: block;
+  width: 100%;
+  max-width: 18rem;
+  height: auto;
+  border-radius: 4px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+}
+
+.udn-trackPreviewMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+
+.udn-trackPreviewSummary {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
 }
 
 .udn-markdownDetailInput {
@@ -2267,8 +2673,65 @@ body.is-mobile .udn-composerFoot--mobile .dk-btnPrimary {
 
 /* Mobile: compact typography */
 body.is-mobile .udn-composer--mobile {
-  --udn-mobile-control: 24px;
-  --udn-mobile-font: var(--font-ui-smaller);
+  --udn-mobile-control: 32px;
+  --udn-mobile-font: var(--font-ui-small);
+}
+
+body.is-mobile .udn-composer--mobile .udn-composerEntryExpand {
+  flex: 1 1 100%;
+  width: 100%;
+  max-width: 100%;
+  padding-left: 0;
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--background-modifier-border);
+  box-sizing: border-box;
+}
+
+body.is-mobile .udn-composer--mobile .udn-wandernForm,
+body.is-mobile .udn-composer--mobile .udn-wandernForm .udn-markdownDetailField,
+body.is-mobile .udn-composer--mobile .udn-wandernForm .udn-wandernTrack,
+body.is-mobile .udn-composer--mobile .udn-wandernForm .udn-photoCollageField,
+body.is-mobile .udn-composer--mobile .udn-wandernForm .udn-trackPreviewField,
+body.is-mobile .udn-composer--mobile .udn-wandernForm .udn-wandernMediaField {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+body.is-mobile .udn-composer--mobile .udn-reisenReiseRow {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+
+body.is-mobile .udn-composer--mobile .udn-reisenReiseLabel {
+  width: auto;
+}
+
+body.is-mobile .udn-composer--mobile .udn-markdownDetailToolbar {
+  gap: 6px;
+}
+
+body.is-mobile .udn-composer--mobile .udn-markdownDetailToolbar .dk-btn {
+  min-width: 32px;
+  min-height: 32px;
+  padding: 4px 8px;
+}
+
+body.is-mobile .udn-composer--mobile .udn-markdownDetailPreviewToggle {
+  margin-left: 0;
+}
+
+body.is-mobile .udn-composer--mobile .udn-markdownDetailInput,
+body.is-mobile .udn-composer--mobile .udn-markdownDetailPreview {
+  max-height: min(22vh, 8rem);
+  min-height: 3.5em;
+}
+
+body.is-mobile .udn-composer--mobile .udn-reisenDetailInput {
+  max-height: min(22vh, 8rem);
 }
 
 body.is-mobile .udn-composer--mobile .udn-composerEntry .dk-input,

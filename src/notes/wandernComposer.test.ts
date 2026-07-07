@@ -7,6 +7,7 @@ import {
   parseWandernSupplementsFromLines,
   renderWandernSectionBody,
   syncWandernSupplements,
+  wandernCalloutTitle,
   wandernEntryMetaComment,
 } from "./wandernComposer";
 
@@ -15,6 +16,17 @@ function mockFile(path: string): TFile {
 }
 
 describe("wandernComposer", () => {
+  it("prefers journal body over stale context for callout title", () => {
+    expect(
+      wandernCalloutTitle({
+        body: "Spaziergang: Heidküppel (mit Hund)",
+        context: "Spaziergang:",
+        time: "11:00",
+        profile: "spaziergang",
+      }),
+    ).toBe("Spaziergang: Heidküppel (mit Hund)");
+  });
+
   it("parses wandern entry meta comment", () => {
     const meta = parseWandernEntryMetaLine(
       '<!-- udn-wandern-entry: {"entryId":"w1","titel":"Alpen","kurz":"5 km","beschreibung":"Schön","trackPath":"Calendar/tracks/a.gpx","track":"a.gpx"} -->',

@@ -12,14 +12,7 @@ export type JournalEntryMeta = {
   callout?: string;
 };
 
-const PROFILE_LETTERS: Partial<Record<FeedProfile, string>> = {
-  reisen: "R",
-  wandern: "W",
-  heizung: "H",
-  lueftung: "L",
-  gedanken: "G",
-  sonstiges: "S",
-};
+export { profileIconName } from "./profileIcons";
 
 export function generateEntryId(): string {
   const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
@@ -28,11 +21,6 @@ export function generateEntryId(): string {
     id += chars[Math.floor(Math.random() * chars.length)]!;
   }
   return id;
-}
-
-export function profileLetter(profile: FeedProfile | undefined): string {
-  if (!profile || profile === "tagebuch") return "";
-  return PROFILE_LETTERS[profile] ?? "";
 }
 
 export function profileBubbleClass(profile: FeedProfile | undefined): string {
@@ -129,7 +117,7 @@ export function entryMetaFromProfile(
     id,
     ...(prof ? { profile: prof } : {}),
     ...(ctx ? { context: ctx } : {}),
-    ...(prof === "wandern" && trip ? { reise: trip } : {}),
+    ...((prof === "wandern" || prof === "spaziergang") && trip ? { reise: trip } : {}),
     ...(callout?.trim() ? { callout: callout.trim() } : {}),
   };
 }

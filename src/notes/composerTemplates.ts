@@ -45,6 +45,7 @@ export type ComposerTemplatePack = {
 export const TYPISCHER_TAG_LABEL = "Typischer Tag";
 export const TYPISCHER_REISETAG_LABEL = "Typischer Reisetag";
 export const TYPISCHE_WANDERUNG_LABEL = "Typische Wanderung";
+export const TYPISCHER_SPAZIERGANG_LABEL = "Typischer Spaziergang";
 
 export const TAGEBUCH_BULK_CHIPS: ComposerChip[] = [
   { label: "Aufstehen", template: "Aufstehen", defaultTime: "07:30" },
@@ -65,6 +66,15 @@ export const WANDERN_BULK_CHIPS: ComposerChip[] = [
   { label: "Kurzbeschreibung", template: "Kurzbeschreibung:", defaultTime: "09:30" },
   { label: "Beschreibung", template: "Beschreibung:", defaultTime: "15:00" },
   { label: "Gipfel", template: "Gipfel:", defaultTime: "12:00" },
+  { label: "Ende", template: "Ende:", defaultTime: "16:00" },
+  { label: "Foto", template: "Foto:", defaultTime: "15:30" },
+];
+
+export const SPAZIERGANG_BULK_CHIPS: ComposerChip[] = [
+  { label: "Start", template: "Start:", defaultTime: "09:00" },
+  { label: "Kurzbeschreibung", template: "Kurzbeschreibung:", defaultTime: "09:30" },
+  { label: "Beschreibung", template: "Beschreibung:", defaultTime: "15:00" },
+  { label: "Highlight", template: "Highlight:", defaultTime: "12:00" },
   { label: "Ende", template: "Ende:", defaultTime: "16:00" },
   { label: "Foto", template: "Foto:", defaultTime: "15:30" },
 ];
@@ -107,6 +117,14 @@ export const COMPOSER_TEMPLATE_PACKS: ComposerTemplatePack[] = [
     actions: ["location", "track", "photo"],
   },
   {
+    id: "spaziergang-bulk",
+    label: TYPISCHER_SPAZIERGANG_LABEL,
+    headings: ["Spaziergang"],
+    kind: "bulk",
+    chips: SPAZIERGANG_BULK_CHIPS,
+    actions: ["location", "track", "photo"],
+  },
+  {
     id: "heizung-bulk",
     label: "Typischer Heizungseintrag",
     headings: ["Heizung"],
@@ -140,6 +158,7 @@ export function templatesForHeading(
     if (pack.id === "tagebuch-bulk" && !settings.tagebuchBulkEnabled) return false;
     if (pack.id === "reisen-bulk" && !settings.reisenBulkEnabled) return false;
     if (pack.id === "wandern-bulk" && !settings.wandernBulkEnabled) return false;
+    if (pack.id === "spaziergang-bulk" && !settings.spaziergangBulkEnabled) return false;
     if (pack.id === "heizung-bulk" && !settings.heizungBulkEnabled) return false;
     if (pack.id === "lueftung-bulk" && !settings.lueftungBulkEnabled) return false;
     return true;

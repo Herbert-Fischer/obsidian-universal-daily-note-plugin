@@ -3,7 +3,7 @@
   import type { App } from "obsidian";
   import { Menu, Notice, setIcon, TFile } from "obsidian";
   import { dk } from "@denkarium/obsidian-lib-ui";
-  import type { DailyNoteFallbackSettings, TagebuchVerweiseSettings, CalendarSyncSettings, ComposerTemplatesSettings, TracksSettings, WandernLayoutSettings, FeedDetailLayoutSettings } from "../../settings";
+  import type { DailyNoteFallbackSettings, TagebuchVerweiseSettings, CalendarSyncSettings, ComposerTemplatesSettings, ComposerGroupLabelListSettings, TracksSettings, WandernLayoutSettings, FeedDetailLayoutSettings } from "../../settings";
   import { DEFAULT_SETTINGS } from "../../settings";
   import { addLocalDays, formatTimeLocal, normalizeLocalDay } from "../dateUtils";
   import { formatDayBubbleLabel } from "../formatDayBubble";
@@ -51,7 +51,7 @@
   import type { FeedProfile } from "../../notes/feedMetadata";
   import { feedProfileLabel } from "../../notes/feedMetadata";
   import { generateEntryId } from "../../notes/journalEntryMeta";
-  import { groupFieldLabel, groupFieldPlaceholder, loadRecentGroupLabels } from "../../notes/journalEntryGroups";
+  import { groupFieldLabel, groupFieldPlaceholder, loadRecentGroupLabels, mergeGroupLabelSuggestions } from "../../notes/journalEntryGroups";
   import ProfileBubble from "../ProfileBubble.svelte";
   import ReisenComposerFields from "./ReisenComposerFields.svelte";
   import LueftungComposerFields from "./LueftungComposerFields.svelte";
@@ -66,12 +66,12 @@
   import { syncLueftungSupplements, lueftungCalloutTitle } from "../../notes/lueftungComposer";
   import { syncHeizungSupplements, heizungCalloutTitle } from "../../notes/heizungComposer";
   import { syncGedankenSupplements } from "../../notes/gedankenComposer";
+  import { syncSpaziergangSupplements, spaziergangCalloutTitle } from "../../notes/spaziergangComposer";
   import { syncWandernSupplements, wandernCalloutTitle } from "../../notes/wandernComposer";
   import { withOperationTimeout, suppressVaultMetadataNotify, notifyVaultFileChanged } from "../../notes/vaultProcess";
   import { markComposerSaved, traceComposerSave } from "../../notes/composerSaveTrace";
   import {
-    loadSonstigesComposerData,
-    saveSonstigesComposerState,
+    syncSonstigesSupplements,
     SONSTIGES_HEADING,
   } from "../../notes/sonstigesComposer";
   import {
@@ -80,9 +80,8 @@
     renderWandernTemplate,
     saveWandernComposerState,
   } from "../../notes/wandernLayout";
+  import { renderSpaziergangTemplate } from "../../notes/spaziergangLayout";
   import { reverseGeocode, getCurrentPosition } from "../../weather/openMeteo";
-  import { ensureDailyNoteFileForDate } from "../../notes/appendLogLine";
-  import { readDailyNoteSummary } from "../../notes/dailyNoteSummary";
 
   export let app: App;
   export let date: Date;
@@ -95,14 +94,18 @@
   export let calendarSync: CalendarSyncSettings = DEFAULT_SETTINGS.calendarSync;
   export let calendarLinkOverrides: Record<string, string> = DEFAULT_SETTINGS.calendarLinkOverrides;
   export let composerTemplates: ComposerTemplatesSettings = DEFAULT_SETTINGS.composerTemplates;
+  export let composerGroupLabels: Partial<Record<FeedProfile, ComposerGroupLabelListSettings>> =
+    DEFAULT_SETTINGS.composerGroupLabels;
   export let tracksSettings: TracksSettings = DEFAULT_SETTINGS.tracks;
   export let wandernLayout: WandernLayoutSettings = DEFAULT_SETTINGS.wandernLayout;
+  export let spaziergangLayout: WandernLayoutSettings = DEFAULT_SETTINGS.spaziergangLayout;
   export let feedDetailLayout: FeedDetailLayoutSettings = DEFAULT_SETTINGS.feedDetailLayout;
   export let attachmentsFolder = DEFAULT_SETTINGS.quickCapture.attachmentsFolder;
   export let weatherLastLocation = "";
   export let onPersistSideEffects: (patch: {
     lastLocation?: string;
     lastTripLabel?: string;
+    composerGroupLabels?: Partial<Record<FeedProfile, ComposerGroupLabelListSettings>>;
   }) => void = () => {};
   export let timeFormat = "HH:mm";
   export let onClose: () => void = () => {};
@@ -115,11 +118,23 @@
   export let initialFocusEntryId: string | null = null;
 
   const TAGEBUCH_HEADING = "Tagebuch";
-  const PROFILE_MENU_IDS: FeedProfile[] = ["reisen", "wandern", "heizung", "lueftung", "gedanken", "sonstiges"];
-  const SUPPLEMENT_PROFILES = new Set<FeedProfile>(["reisen", "lueftung", "heizung", "gedanken"]);
+  const PROFILE_MENU_IDS: FeedProfile[] = [
+    "reisen",
+    "wandern",
+    "spaziergang",
+    "heizung",
+    "lueftung",
+    "gedanken",
+    "sonstiges",
+  ];
+  const SUPPLEMENT_PROFILES = new Set<FeedProfile>(["reisen", "lueftung", "heizung", "gedanken", "sonstiges"]);
 
   function entryUsesWandernFields(profile: FeedProfile | undefined): boolean {
-    return profile === "wandern";
+    return profile === "wandern" || profile === "spaziergang";
+  }
+
+  function isWalkProfile(profile: FeedProfile | undefined): boolean {
+    return entryUsesWandernFields(profile);
   }
 
   function entryExpandsOnFocus(profile: FeedProfile | undefined): boolean {
@@ -200,9 +215,6 @@
   let feedDetailLinks = "";
   let feedDetailDetail = "";
   let feedDetailPhotos: string[] = [];
-  let sonstigesDetail = "";
-  let sonstigesFeedKurz = "";
-  let sonstigesFeedTime = "";
   let listPhotos: string[] = [];
   let pendingComposerPhoto = false;
   let pendingSupplementEntryId: string | null = null;
@@ -244,7 +256,8 @@
       if (
         expanded?.profile &&
         !entryUsesSupplementFields(expanded.profile) &&
-        expanded.profile !== "wandern"
+        expanded.profile !== "wandern" &&
+        expanded.profile !== "spaziergang"
       ) {
         parts.add(`expanded:${expanded.profile}`);
       }
@@ -268,17 +281,44 @@
   }
 
   async function ensureGroupLabels(profile: FeedProfile): Promise<string[]> {
-    if (groupLabelsByProfile[profile]) return groupLabelsByProfile[profile]!;
+    if (groupLabelsByProfile[profile]) {
+      return mergeGroupLabelSuggestions(groupLabelsByProfile[profile]!, composerGroupLabels[profile]);
+    }
     if (!groupLabelsInflight[profile]) {
       groupLabelsInflight[profile] = loadRecentGroupLabels(app, fallback, tagebuchSettings, profile).then(
         (labels) => {
           groupLabelsByProfile[profile] = labels;
           delete groupLabelsInflight[profile];
-          return labels;
+          return mergeGroupLabelSuggestions(labels, composerGroupLabels[profile]);
         },
       );
     }
     return groupLabelsInflight[profile]!;
+  }
+
+  function persistReiseGroupLabels(patch: ComposerGroupLabelListSettings): void {
+    composerGroupLabels = { ...composerGroupLabels, reisen: patch };
+    onPersistSideEffects({ composerGroupLabels });
+    resetGroupLabelCache();
+    void syncGroupSuggestions();
+  }
+
+  function addReiseGroupLabel(label: string): void {
+    const trimmed = label.trim();
+    if (!trimmed) return;
+    const current = composerGroupLabels.reisen ?? { extra: [], hidden: [] };
+    const extra = [...new Set([...(current.extra ?? []), trimmed])];
+    const hidden = (current.hidden ?? []).filter((h) => h.trim().toLowerCase() !== trimmed.toLowerCase());
+    persistReiseGroupLabels({ extra, hidden });
+  }
+
+  function hideReiseGroupLabel(label: string): void {
+    const trimmed = label.trim();
+    if (!trimmed) return;
+    const current = composerGroupLabels.reisen ?? { extra: [], hidden: [] };
+    const hidden = [...new Set([...(current.hidden ?? []), trimmed])];
+    const extra = (current.extra ?? []).filter((h) => h.trim().toLowerCase() !== trimmed.toLowerCase());
+    persistReiseGroupLabels({ extra, hidden });
   }
 
   async function syncGroupSuggestions() {
@@ -289,7 +329,8 @@
         entry.profile === "lueftung" ||
         entry.profile === "heizung" ||
         entry.profile === "gedanken" ||
-        entry.profile === "wandern"
+        entry.profile === "wandern" ||
+        entry.profile === "spaziergang"
       ) {
         needs.add(entry.profile);
       }
@@ -298,11 +339,14 @@
     if (
       expanded?.profile &&
       !entryUsesSupplementFields(expanded.profile) &&
-      expanded.profile !== "wandern"
+      !isWalkProfile(expanded.profile)
     ) {
       needs.add(expanded.profile);
     }
-    if (expanded?.profile === "wandern") {
+    if (expanded?.profile === "wandern" || expanded?.profile === "spaziergang") {
+      needs.add("reisen");
+    }
+    if (entries.some((e) => e.profile === "wandern" || e.profile === "spaziergang")) {
       needs.add("reisen");
     }
 
@@ -316,7 +360,7 @@
     } else if (
       expanded?.profile &&
       !entryUsesSupplementFields(expanded.profile) &&
-      expanded.profile !== "wandern"
+      !isWalkProfile(expanded.profile)
     ) {
       groupSuggestions = await ensureGroupLabels(expanded.profile);
     } else {
@@ -336,10 +380,9 @@
   }
 
   $: activeProfile = journalProfileForHeading(activeHeading);
-  $: isSonstigesMode = activeHeading.trim().toLowerCase() === SONSTIGES_HEADING.toLowerCase();
   $: isWandernMode = false;
   $: isFeedDetailMode = false;
-  $: isSpecialFormMode = isSonstigesMode || isWandernMode || isFeedDetailMode;
+  $: isSpecialFormMode = isWandernMode || isFeedDetailMode;
   $: wandernPreviewMarkdown = isWandernMode
     ? renderWandernTemplate({
         titel: wandernTitel || calloutTitle,
@@ -355,11 +398,27 @@
   $: hasLueftungEntries = entries.some((e) => e.profile === "lueftung");
   $: hasHeizungEntries = entries.some((e) => e.profile === "heizung");
   $: hasGedankenEntries = entries.some((e) => e.profile === "gedanken");
+  $: hasSonstigesEntries = entries.some((e) => e.profile === "sonstiges");
   $: hasWandernEntries = entries.some((e) => e.profile === "wandern");
-  $: hasSupplementPhotoEntries = hasLueftungEntries || hasHeizungEntries || hasWandernEntries;
+  $: hasSpaziergangEntries = entries.some((e) => e.profile === "spaziergang");
+  $: hasReisenEntries = entries.some(
+    (e) =>
+      e.profile === "reisen" ||
+      (isWalkProfile(e.profile) && Boolean(e.reiseAssignment?.trim())),
+  );
+  $: hasSupplementPhotoEntries =
+    hasLueftungEntries ||
+    hasHeizungEntries ||
+    hasWandernEntries ||
+    hasSpaziergangEntries ||
+    hasReisenEntries;
   $: wandernMaxPhotos = Math.max(
     1,
     wandernLayout.maxPhotos ?? journalProfileById("wandern")?.maxPhotos ?? 3,
+  );
+  $: spaziergangMaxPhotos = Math.max(
+    1,
+    spaziergangLayout.maxPhotos ?? journalProfileById("spaziergang")?.maxPhotos ?? 3,
   );
   $: lueftungMaxPhotos = Math.max(
     1,
@@ -369,12 +428,18 @@
     1,
     feedDetailLayout.maxPhotos ?? journalProfileById("heizung")?.maxPhotos ?? 6,
   );
-  $: chips = isSonstigesMode
+  $: reisenMaxPhotos = Math.max(
+    1,
+    feedDetailLayout.maxPhotos ?? journalProfileById("reisen")?.maxPhotos ?? 3,
+  );
+  $: chips = hasSonstigesEntries
     ? chipsForHeading(SONSTIGES_HEADING, entryPrefixes)
     : hasGedankenEntries
       ? chipsForHeading("Gedanken", entryPrefixes)
-      : chipsForHeading(TAGEBUCH_HEADING, entryPrefixes);
-  $: bulkTemplates = templatesForHeading(isSonstigesMode ? SONSTIGES_HEADING : TAGEBUCH_HEADING, composerTemplates);
+      : hasReisenEntries || activeHeading.trim().toLowerCase() === "reisen"
+        ? chipsForHeading("Reisen", entryPrefixes)
+        : chipsForHeading(TAGEBUCH_HEADING, entryPrefixes);
+  $: bulkTemplates = templatesForHeading(activeHeading, composerTemplates);
   $: prefixMenuEnabled = chips.length > 0 || bulkTemplates.length > 0 || !!onInsertWeather;
   $: dateLabel = formatDayBubbleLabel(
     `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, "0")}-${String(currentDate.getDate()).padStart(2, "0")}`,
@@ -403,7 +468,6 @@
     modified = false;
     resetGroupLabelCache();
     onDateChange(currentDate);
-    const sonstigesMode = activeHeading.trim().toLowerCase() === SONSTIGES_HEADING.toLowerCase();
     try {
       if (calendarSync?.enabled) {
         void import("../../integrations/calendarAppointments")
@@ -418,38 +482,6 @@
           .catch((syncErr) => {
             console.warn("Universal Daily Note: Kalender-Sync beim Composer-Laden", syncErr);
           });
-      }
-
-      if (sonstigesMode) {
-        const file = await ensureDailyNoteFileForDate(app, currentDate, fallback);
-        const [headings, sonstigesData] = await Promise.all([
-          loadComposerSectionHeadings(app, currentDate, fallback, tagebuchSettings, {
-            excludedHeadings,
-            defaultHeading: activeHeading,
-            durationDays,
-          }),
-          loadSonstigesComposerData(app, file),
-        ]);
-        if (generation !== loadGeneration) return;
-        sectionHeadings = headings.length > 0 ? headings : [activeHeading];
-        if (!sectionHeadings.some((h) => h.toLowerCase() === activeHeading.toLowerCase())) {
-          sectionHeadings = [activeHeading, ...sectionHeadings];
-        }
-        filePath = file.path;
-        composerFile = file;
-        entries = [];
-        reiseSortOrder = {};
-        listPhotos = [];
-        calloutTitle = sonstigesData.calloutTitle;
-        sonstigesDetail = sonstigesData.detail;
-        sonstigesFeedKurz = sonstigesData.feedKurz;
-        sonstigesFeedTime = sonstigesData.feedTime || currentTime();
-        summary = readDailyNoteSummary(app, file) || "";
-        summaryTouched = Boolean(summary.trim());
-        newEntryText = "";
-        newEntryTime = currentTime();
-        maybeSyncGroupSuggestions();
-        return;
       }
 
       const [state, headings] = await Promise.all([
@@ -473,9 +505,6 @@
       listPhotos = [...state.photos];
       summary = state.summary;
       summaryTouched = Boolean(state.summary.trim());
-      sonstigesDetail = "";
-      sonstigesFeedKurz = "";
-      sonstigesFeedTime = "";
       newEntryText = "";
       newEntryTime = currentTime();
       maybeSyncGroupSuggestions();
@@ -532,7 +561,9 @@
             ? "Heizung"
             : profile === "wandern"
               ? "Wandern"
-              : activeHeading,
+              : profile === "spaziergang"
+                ? "Spaziergang"
+                : activeHeading,
       photoIndex,
       attachmentsFolder,
       wandernLayout,
@@ -543,6 +574,8 @@
         profile === "heizung" && supplementEntry ? heizungCalloutTitle(supplementEntry) : undefined,
       wandernEntryTitle:
         profile === "wandern" && supplementEntry ? wandernCalloutTitle(supplementEntry) : undefined,
+      spaziergangEntryTitle:
+        profile === "spaziergang" && supplementEntry ? spaziergangCalloutTitle(supplementEntry) : undefined,
     };
   }
 
@@ -634,10 +667,10 @@
       }
     }
 
-    if (supplementEntry?.profile === "wandern") {
+    if (supplementEntry?.profile === "reisen") {
       const photos = supplementEntry.supplementPhotos ?? [];
-      if (photos.length >= wandernMaxPhotos) {
-        new Notice(`Maximal ${wandernMaxPhotos} Fotos.`);
+      if (photos.length >= reisenMaxPhotos) {
+        new Notice(`Maximal ${reisenMaxPhotos} Fotos.`);
         return false;
       }
       templateBusy = true;
@@ -651,7 +684,34 @@
         markModified();
         return true;
       } catch (e) {
-        console.error("Universal Daily Note: Composer Wandern-Foto", e);
+        console.error("Universal Daily Note: Composer Reisen-Foto", e);
+        new Notice("Foto konnte nicht gespeichert werden.");
+        return false;
+      } finally {
+        templateBusy = false;
+      }
+    }
+
+    if (supplementEntry?.profile === "wandern" || supplementEntry?.profile === "spaziergang") {
+      const photos = supplementEntry.supplementPhotos ?? [];
+      const maxPhotos =
+        supplementEntry.profile === "spaziergang" ? spaziergangMaxPhotos : wandernMaxPhotos;
+      if (photos.length >= maxPhotos) {
+        new Notice(`Maximal ${maxPhotos} Fotos.`);
+        return false;
+      }
+      templateBusy = true;
+      try {
+        const path = await importJournalPhoto(
+          app,
+          selectedFile,
+          photoImportContext(photos.length, supplementEntry),
+        );
+        updateEntry(supplementEntry.id, { supplementPhotos: [...photos, path] });
+        markModified();
+        return true;
+      } catch (e) {
+        console.error("Universal Daily Note: Composer Spaziergang/Wandern-Foto", e);
         new Notice("Foto konnte nicht gespeichert werden.");
         return false;
       } finally {
@@ -697,20 +757,52 @@
     templateFileInput?.click();
   }
 
-  function addChipEntry(chip: ComposerChip) {
-    if (isSonstigesMode) {
-      sonstigesFeedTime = chip.defaultTime ?? currentTime();
-      const label = chip.template.replace(/:$/, "").trim();
-      if (!sonstigesFeedKurz.trim()) sonstigesFeedKurz = label;
-      if (!calloutTitle.trim() || calloutTitle.trim().toLowerCase() === SONSTIGES_HEADING.toLowerCase()) {
-        calloutTitle = label;
-      }
-      markModified();
-      return;
+  function defaultReiseAssignmentForNewEntry(): string {
+    if (expandedEntry?.profile === "reisen" && expandedEntry.context?.trim()) {
+      return expandedEntry.context.trim();
     }
+    if (expandedEntry?.reiseAssignment?.trim()) {
+      return expandedEntry.reiseAssignment.trim();
+    }
+    const reisenContexts = entries
+      .filter((e) => e.profile === "reisen" && e.context?.trim())
+      .map((e) => e.context!.trim());
+    if (reisenContexts.length === 1) return reisenContexts[0]!;
+    return "";
+  }
+
+  function addChipEntry(chip: ComposerChip) {
     const time = chip.defaultTime ?? currentTime();
     const { time: entryTime, body } = parseJournalEntryDisplay(buildChipEntryText(chip, time));
-    entries = [...entries, makeNewEntry(entryTime ?? time, body)];
+    const entry = makeNewEntry(entryTime ?? time, body);
+    const template = chip.template.trim().toLowerCase();
+    if (template.startsWith("wandern:")) {
+      entry.profile = "wandern";
+      const reise = defaultReiseAssignmentForNewEntry();
+      if (reise) entry.reiseAssignment = reise;
+      expandedEntryId = entry.id;
+    } else if (template.startsWith("spaziergang:")) {
+      entry.profile = "spaziergang";
+      const reise = defaultReiseAssignmentForNewEntry();
+      if (reise) entry.reiseAssignment = reise;
+      expandedEntryId = entry.id;
+    } else if (
+      hasReisenEntries ||
+      activeHeading.trim().toLowerCase() === "reisen"
+    ) {
+      const reisenTemplates = new Set([
+        "abfahrt:",
+        "etappe:",
+        "highlight:",
+        "ankunft:",
+        "unterkunft:",
+        "foto:",
+      ]);
+      if (reisenTemplates.has(template)) {
+        entry.profile = "reisen";
+      }
+    }
+    entries = [...entries, entry];
     markModified();
     if (!summaryTouched) {
       summary = suggestSummaryFromEntries(entries.map(composerEntryText));
@@ -776,18 +868,20 @@
           const next: Partial<ComposerEntry> = {
             profile: profileId,
             supplementDetail:
-              entryUsesSupplementFields(profileId) || profileId === "wandern" ? entry.supplementDetail : undefined,
+              entryUsesSupplementFields(profileId) || isWalkProfile(profileId)
+                ? entry.supplementDetail
+                : undefined,
             supplementPhotos:
-              profileId === "lueftung" || profileId === "heizung" || profileId === "wandern"
+              profileId === "lueftung" || profileId === "heizung" || isWalkProfile(profileId)
                 ? entry.supplementPhotos
                 : undefined,
-            supplementKurz: profileId === "wandern" ? entry.supplementKurz : undefined,
-            supplementTrackPath: profileId === "wandern" ? entry.supplementTrackPath : undefined,
-            reiseAssignment: profileId === "wandern" ? entry.reiseAssignment : undefined,
+            supplementKurz: isWalkProfile(profileId) ? entry.supplementKurz : undefined,
+            supplementTrackPath: isWalkProfile(profileId) ? entry.supplementTrackPath : undefined,
+            reiseAssignment: isWalkProfile(profileId) ? entry.reiseAssignment : undefined,
           };
-          if (profileId === "reisen" && entry.profile === "wandern" && entry.reiseAssignment?.trim()) {
+          if (profileId === "reisen" && isWalkProfile(entry.profile) && entry.reiseAssignment?.trim()) {
             next.context = entry.reiseAssignment.trim();
-          } else if (profileId === "wandern" && entry.profile === "reisen" && entry.context?.trim()) {
+          } else if (isWalkProfile(profileId) && entry.profile === "reisen" && entry.context?.trim()) {
             next.reiseAssignment = entry.context.trim();
           }
           updateEntry(entry.id, next);
@@ -800,6 +894,19 @@
 
   $: expandedEntry = expandedEntryId ? entries.find((e) => e.id === expandedEntryId) ?? null : null;
   $: expandedEntryId, maybeSyncGroupSuggestions();
+
+  async function scrollExpandedEntryIntoView(): Promise<void> {
+    if (!isMobile || !expandedEntryId || !composerRoot) return;
+    await tick();
+    const row = composerRoot.querySelector<HTMLElement>(`[data-composer-entry="${expandedEntryId}"]`);
+    if (!row) return;
+    const expand = row.querySelector<HTMLElement>(".udn-composerEntryExpand");
+    scrollInputIntoView(expand ?? row, composerRoot);
+  }
+
+  $: if (expandedEntryId) {
+    void scrollExpandedEntryIntoView();
+  }
 
   function expandSupplementEntry(entry: ComposerEntry) {
     if (entryExpandsOnFocus(entry.profile)) {
@@ -903,6 +1010,50 @@
     updateEntry(entryId, { supplementPhotos: photos });
   }
 
+  function onEntryReisenPhotosChange(entryId: string, photos: string[]) {
+    updateEntry(entryId, { supplementPhotos: photos });
+  }
+
+  function onReisenAddPhotoClick(entryId: string) {
+    onComposerAddPhotoClick(entryId);
+  }
+
+  async function onReisenAddVaultPhotoClick(entryId: string) {
+    const entry = entries.find((e) => e.id === entryId);
+    if (!entry) return;
+    const photos = entry.supplementPhotos ?? [];
+    if (photos.length >= reisenMaxPhotos) {
+      new Notice(`Maximal ${reisenMaxPhotos} Fotos.`);
+      return;
+    }
+    const path = await pickVaultImageFile(app);
+    if (!path) return;
+    updateEntry(entryId, { supplementPhotos: [...photos, path] });
+    markModified();
+    new Notice("Vault-Foto verknüpft — wird beim Speichern in Anhänge/Bilder verschoben.");
+  }
+
+  function onReisenRemovePhoto(entryId: string, index: number) {
+    const entry = entries.find((e) => e.id === entryId);
+    if (!entry) return;
+    onEntryReisenPhotosChange(
+      entryId,
+      (entry.supplementPhotos ?? []).filter((_, i) => i !== index),
+    );
+  }
+
+  function onReisenMovePhotoUp(entryId: string, index: number) {
+    const entry = entries.find((e) => e.id === entryId);
+    if (!entry) return;
+    onEntryReisenPhotosChange(entryId, movePhotoAtIndex(entry.supplementPhotos ?? [], index, -1));
+  }
+
+  function onReisenMovePhotoDown(entryId: string, index: number) {
+    const entry = entries.find((e) => e.id === entryId);
+    if (!entry) return;
+    onEntryReisenPhotosChange(entryId, movePhotoAtIndex(entry.supplementPhotos ?? [], index, 1));
+  }
+
   function onHeizungAddPhotoClick(entryId: string) {
     onComposerAddPhotoClick(entryId);
   }
@@ -943,9 +1094,6 @@
     onEntryHeizungPhotosChange(entryId, movePhotoAtIndex(entry.supplementPhotos ?? [], index, 1));
   }
 
-  function onEntryWandernTitelChange(entryId: string, value: string) {
-    updateEntry(entryId, { context: value });
-  }
 
   function onEntryWandernTrackChange(entryId: string, track: TrackMatch | null) {
     updateEntry(entryId, { supplementTrackPath: track?.path ?? "" });
@@ -994,6 +1142,29 @@
       date: currentDate,
       layout: wandernLayout,
     });
+  }
+
+  function walkCalloutTitle(entry: ComposerEntry): string {
+    return entry.profile === "spaziergang" ? spaziergangCalloutTitle(entry) : wandernCalloutTitle(entry);
+  }
+
+  function walkPreviewForEntry(entry: ComposerEntry): string {
+    if (entry.profile === "spaziergang") {
+      return renderSpaziergangTemplate({
+        titel: spaziergangCalloutTitle(entry),
+        kurz: entry.supplementKurz ?? "",
+        beschreibung: entry.supplementDetail ?? "",
+        track: trackMatchFromPath(entry.supplementTrackPath),
+        photos: entry.supplementPhotos ?? [],
+        date: currentDate,
+        layout: spaziergangLayout,
+      });
+    }
+    return wandernPreviewForEntry(entry);
+  }
+
+  function walkMaxPhotosForEntry(entry: ComposerEntry): number {
+    return entry.profile === "spaziergang" ? spaziergangMaxPhotos : wandernMaxPhotos;
   }
 
   function reiseGroupCount(reise: string): number {
@@ -1406,7 +1577,7 @@
       }
       const updated = applyWandernBulkFields(
         {
-          titel: entry.context?.trim() || wandernCalloutTitle(entry),
+          titel: wandernCalloutTitle(entry),
           kurz: entry.supplementKurz ?? "",
           beschreibung: entry.supplementDetail ?? "",
           track: trackMatchFromPath(entry.supplementTrackPath),
@@ -1588,22 +1759,6 @@
 
   async function persistComposerSave(): Promise<void> {
     const file = resolveComposerFile();
-    if (isSonstigesMode) {
-      await saveSonstigesComposerState(
-        app,
-        file,
-        summary,
-        currentDate,
-        {
-          calloutTitle,
-          detail: sonstigesDetail,
-          feedKurz: sonstigesFeedKurz,
-          feedTime: sonstigesFeedTime,
-        },
-        sonstigesFeedTime,
-      );
-      return;
-    }
     const releaseMetadataNotify = suppressVaultMetadataNotify();
     try {
       await traceComposerSave(app, "save:begin", file.path);
@@ -1631,8 +1786,12 @@
       await syncHeizungSupplements(app, file, entries, currentDate, feedDetailLayout);
       await traceComposerSave(app, "save:gedanken");
       await syncGedankenSupplements(app, file, entries);
+      await traceComposerSave(app, "save:sonstiges");
+      await syncSonstigesSupplements(app, file, entries);
       await traceComposerSave(app, "save:wandern");
       await syncWandernSupplements(app, file, entries, currentDate, wandernLayout);
+      await traceComposerSave(app, "save:spaziergang");
+      await syncSpaziergangSupplements(app, file, entries, currentDate, spaziergangLayout);
       await traceComposerSave(app, "save:calendar-overrides");
       await persistCalendarLinkOverrides(app, entries);
       await notifyVaultFileChanged(app, file);
@@ -1922,27 +2081,6 @@
       {/if}
 
       <div class="udn-composerSplitList">
-      {#if isSonstigesMode}
-        <SonstigesComposerFields
-          feedTime={sonstigesFeedTime}
-          feedKurz={sonstigesFeedKurz}
-          detail={sonstigesDetail}
-          {calloutTitle}
-          onFeedTimeChange={(value) => {
-            sonstigesFeedTime = value;
-            markModified();
-          }}
-          onFeedKurzChange={(value) => {
-            sonstigesFeedKurz = value;
-            markModified();
-          }}
-          onDetailChange={(value) => {
-            sonstigesDetail = value;
-            markModified();
-          }}
-          onFocus={onMobileInputFocus}
-        />
-      {:else}
       {#if !hasSupplementPhotoEntries}
       <PhotoCollageField
         {app}
@@ -1976,7 +2114,9 @@
             class:udn-composerEntry--lueftung={entry.profile === "lueftung"}
             class:udn-composerEntry--heizung={entry.profile === "heizung"}
             class:udn-composerEntry--gedanken={entry.profile === "gedanken"}
+            class:udn-composerEntry--sonstiges={entry.profile === "sonstiges"}
             class:udn-composerEntry--wandern={entry.profile === "wandern"}
+            class:udn-composerEntry--spaziergang={entry.profile === "spaziergang"}
             data-composer-entry={entry.id}
             on:click={(ev) => onComposerEntryRowClick(entry, ev)}
           >
@@ -1997,7 +2137,7 @@
             <JournalBodyInput
               {app}
               value={entry.body}
-              className="udn-timelineEntryEdit udn-composerEntryInput"
+              className="udn-timelineEntryEdit udn-composerEntryInput{entry.body.trim() ? '' : ' udn-composerEntryInput--empty'}"
               sourcePath={filePath}
               feedProfile={entry.profile}
               linkBubbles={Boolean(entry.calendarId) || /\[\[[^\]|]+\]\]/.test(entry.body)}
@@ -2018,9 +2158,18 @@
                   sourcePath={filePath}
                   reise={entry.context ?? ""}
                   detail={entry.supplementDetail ?? ""}
+                  photos={entry.supplementPhotos ?? []}
+                  maxPhotos={reisenMaxPhotos}
                   reiseOptions={reiseGroupSuggestions}
                   onReiseChange={(value) => onEntryReiseChange(entry.id, value)}
+                  onAddReiseOption={addReiseGroupLabel}
+                  onHideReiseOption={hideReiseGroupLabel}
                   onDetailChange={(value) => onEntrySupplementDetailChange(entry.id, value)}
+                  onAddPhotoClick={() => onReisenAddPhotoClick(entry.id)}
+                  onAddVaultPhotoClick={() => onReisenAddVaultPhotoClick(entry.id)}
+                  onRemovePhoto={(index) => onReisenRemovePhoto(entry.id, index)}
+                  onMovePhotoUp={(index) => onReisenMovePhotoUp(entry.id, index)}
+                  onMovePhotoDown={(index) => onReisenMovePhotoDown(entry.id, index)}
                   onFocus={onMobileInputFocus}
                 />
               </div>
@@ -2077,24 +2226,36 @@
                   onFocus={onMobileInputFocus}
                 />
               </div>
-            {:else if expandedEntryId === entry.id && entry.profile === "wandern" && !landscapeMobile}
+            {:else if expandedEntryId === entry.id && entry.profile === "sonstiges" && !landscapeMobile}
+              <div class="udn-composerEntryExpand udn-composerEntryExpand--sonstiges">
+                <SonstigesComposerFields
+                  {app}
+                  sourcePath={filePath}
+                  detail={entry.supplementDetail ?? ""}
+                  onDetailChange={(value) => onEntrySupplementDetailChange(entry.id, value)}
+                  onFocus={onMobileInputFocus}
+                />
+              </div>
+            {:else if expandedEntryId === entry.id && isWalkProfile(entry.profile) && !landscapeMobile}
               <div class="udn-composerEntryExpand udn-composerEntryExpand--wandern">
                 <WandernComposerFields
                   {app}
-                  titel={entry.context ?? wandernCalloutTitle(entry)}
-                  reise={entry.reiseAssignment ?? ""}
-                  reiseOptions={reiseGroupSuggestions}
+                  sourcePath={filePath}
+                  showReise={isWalkProfile(entry.profile)}
+                  reise={isWalkProfile(entry.profile) ? (entry.reiseAssignment ?? "") : ""}
+                  reiseOptions={isWalkProfile(entry.profile) ? reiseGroupSuggestions : []}
                   beschreibung={entry.supplementDetail ?? ""}
                   track={trackMatchFromPath(entry.supplementTrackPath)}
                   photos={entry.supplementPhotos ?? []}
-                  maxPhotos={wandernMaxPhotos}
+                  maxPhotos={walkMaxPhotosForEntry(entry)}
                   trackPickerOpen={wandernTrackPickerEntryId === entry.id}
                   trackPickerLoading={wandernTrackPickerLoading}
                   trackOptions={wandernTrackOptions}
-                  previewMarkdown={wandernPreviewForEntry(entry)}
+                  previewMarkdown={walkPreviewForEntry(entry)}
                   showPreview={false}
-                  onTitelChange={(value) => onEntryWandernTitelChange(entry.id, value)}
                   onReiseChange={(value) => onEntryWandernReiseChange(entry.id, value)}
+                  onAddReiseOption={addReiseGroupLabel}
+                  onHideReiseOption={hideReiseGroupLabel}
                   onBeschreibungChange={(value) => onEntrySupplementDetailChange(entry.id, value)}
                   onPickTrackClick={() => void openWandernTrackPicker(entry.id)}
                   onTrackOptionPick={(option) => {
@@ -2178,7 +2339,6 @@
           <button type="button" class={dk.btn} on:click={addFreeEntry} disabled={!newEntryText.trim()}>+</button>
         </div>
       {/if}
-      {/if}
       </div>
 
       {#if landscapeMobile && expandedEntry?.profile === "reisen"}
@@ -2189,9 +2349,18 @@
             sourcePath={filePath}
             reise={expandedEntry.context ?? ""}
             detail={expandedEntry.supplementDetail ?? ""}
+            photos={expandedEntry.supplementPhotos ?? []}
+            maxPhotos={reisenMaxPhotos}
             reiseOptions={reiseGroupSuggestions}
             onReiseChange={(value) => onEntryReiseChange(expandedEntry.id, value)}
+            onAddReiseOption={addReiseGroupLabel}
+            onHideReiseOption={hideReiseGroupLabel}
             onDetailChange={(value) => onEntrySupplementDetailChange(expandedEntry.id, value)}
+            onAddPhotoClick={() => onReisenAddPhotoClick(expandedEntry.id)}
+            onAddVaultPhotoClick={() => onReisenAddVaultPhotoClick(expandedEntry.id)}
+            onRemovePhoto={(index) => onReisenRemovePhoto(expandedEntry.id, index)}
+            onMovePhotoUp={(index) => onReisenMovePhotoUp(expandedEntry.id, index)}
+            onMovePhotoDown={(index) => onReisenMovePhotoDown(expandedEntry.id, index)}
             onFocus={onMobileInputFocus}
           />
         </div>
@@ -2251,25 +2420,38 @@
             onFocus={onMobileInputFocus}
           />
         </div>
-      {:else if landscapeMobile && expandedEntry?.profile === "wandern"}
+      {:else if landscapeMobile && expandedEntry?.profile === "sonstiges"}
+        <div class="udn-composerSplitDetail">
+          <p class="udn-composerSplitDetailTitle">{feedProfileLabel(expandedEntry.profile)}</p>
+          <SonstigesComposerFields
+            {app}
+            sourcePath={filePath}
+            detail={expandedEntry.supplementDetail ?? ""}
+            onDetailChange={(value) => onEntrySupplementDetailChange(expandedEntry.id, value)}
+            onFocus={onMobileInputFocus}
+          />
+        </div>
+      {:else if landscapeMobile && expandedEntry && isWalkProfile(expandedEntry.profile)}
         <div class="udn-composerSplitDetail">
           <p class="udn-composerSplitDetailTitle">{feedProfileLabel(expandedEntry.profile)}</p>
           <WandernComposerFields
             {app}
-            titel={expandedEntry.context ?? wandernCalloutTitle(expandedEntry)}
-            reise={expandedEntry.reiseAssignment ?? ""}
-            reiseOptions={reiseGroupSuggestions}
+            sourcePath={filePath}
+            showReise={isWalkProfile(expandedEntry.profile)}
+            reise={isWalkProfile(expandedEntry.profile) ? (expandedEntry.reiseAssignment ?? "") : ""}
+            reiseOptions={isWalkProfile(expandedEntry.profile) ? reiseGroupSuggestions : []}
             beschreibung={expandedEntry.supplementDetail ?? ""}
             track={trackMatchFromPath(expandedEntry.supplementTrackPath)}
             photos={expandedEntry.supplementPhotos ?? []}
-            maxPhotos={wandernMaxPhotos}
+            maxPhotos={walkMaxPhotosForEntry(expandedEntry)}
             trackPickerOpen={wandernTrackPickerEntryId === expandedEntry.id}
             trackPickerLoading={wandernTrackPickerLoading}
             trackOptions={wandernTrackOptions}
-            previewMarkdown={wandernPreviewForEntry(expandedEntry)}
+            previewMarkdown={walkPreviewForEntry(expandedEntry)}
             showPreview={false}
-            onTitelChange={(value) => onEntryWandernTitelChange(expandedEntry.id, value)}
             onReiseChange={(value) => onEntryWandernReiseChange(expandedEntry.id, value)}
+            onAddReiseOption={addReiseGroupLabel}
+            onHideReiseOption={hideReiseGroupLabel}
             onBeschreibungChange={(value) => onEntrySupplementDetailChange(expandedEntry.id, value)}
             onPickTrackClick={() => void openWandernTrackPicker(expandedEntry.id)}
             onTrackOptionPick={(option) => {

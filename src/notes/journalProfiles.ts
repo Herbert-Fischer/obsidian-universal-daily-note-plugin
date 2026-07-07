@@ -61,6 +61,15 @@ export const JOURNAL_PROFILES: JournalProfileDef[] = [
     maxPhotos: 3,
   },
   {
+    id: "spaziergang",
+    label: "Spaziergang",
+    kind: "detail",
+    hubLink: "Spaziergang-Tagebuch",
+    feedSuffix: "([[Spaziergang-Tagebuch]])",
+    photosFolder: "Calendar/Anhänge/Bilder",
+    maxPhotos: 3,
+  },
+  {
     id: "sonstiges",
     label: "Sonstiges",
     kind: "detail",

@@ -5,6 +5,7 @@ export type JournalLinkSegment =
 
 const WIKI_LINK_RE = /\[\[([^\]|#]+)(?:#([^\]|]+))?(?:\|([^\]]+))?\]\]/g;
 const MD_LINK_RE = /\[([^\]\n]+)\]\(([^)\s]+)\)/g;
+const BARE_URL_RE = /\b(https?:\/\/[^\s<>()]+|www\.[^\s<>()]+)\b/g;
 
 type LinkMatch = {
   index: number;
@@ -47,8 +48,26 @@ function markdownUrlMatches(text: string): LinkMatch[] {
   return out;
 }
 
+function bareUrlMatches(text: string): LinkMatch[] {
+  const out: LinkMatch[] = [];
+  for (const match of text.matchAll(BARE_URL_RE)) {
+    const index = match.index ?? 0;
+    let raw = (match[1] ?? "").trim();
+    if (!raw) continue;
+    // trim common trailing punctuation (markdown often wraps URLs in parentheses)
+    raw = raw.replace(/[)\].,;:!?]+$/g, "");
+    const href = raw.startsWith("www.") ? `https://${raw}` : raw;
+    out.push({
+      index,
+      end: index + (match[1] ?? "").length,
+      segment: { kind: "url", href, label: raw },
+    });
+  }
+  return out;
+}
+
 function nonOverlappingMatches(text: string): LinkMatch[] {
-  const sorted = [...wikiMatches(text), ...markdownUrlMatches(text)].sort(
+  const sorted = [...wikiMatches(text), ...markdownUrlMatches(text), ...bareUrlMatches(text)].sort(
     (a, b) => a.index - b.index || a.end - b.end,
   );
   const out: LinkMatch[] = [];
