@@ -1619,29 +1619,33 @@ body.is-mobile .udn-composer--mobile {
   flex: 1 1 0;
   min-height: 0;
   height: auto;
-  --udn-mobile-control: 28px;
+  --udn-mobile-control: 26px;
+  --udn-time-bubble-width: 3.1em;
+  --udn-mobile-font: var(--font-ui-smaller);
+  font-size: 0.9em;
+  line-height: 1.35;
   padding-bottom: calc(
     var(--udn-composer-dock-height, 0px) + var(--udn-vv-keyboard-inset, 0px) + env(safe-area-inset-bottom, 0px)
   );
 }
 
 body.is-mobile .udn-composerHead {
-  padding: 6px 8px 4px;
-  gap: 4px;
+  padding: 4px 6px 2px;
+  gap: 3px;
 }
 
 body.is-mobile .udn-composerHeadCompact {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   min-width: 0;
-  --udn-mobile-control: 28px;
+  --udn-mobile-control: 26px;
 }
 
 body.is-mobile .udn-composerHeadCompactTop {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   min-width: 0;
 }
 
@@ -1669,10 +1673,15 @@ body.is-mobile .udn-composerHeadCompact .dk-iconRoundBtn {
   min-height: var(--udn-mobile-control);
 }
 
+body.is-mobile .udn-composerHeadCompact .dk-iconRoundBtn svg {
+  width: 12px;
+  height: 12px;
+}
+
 body.is-mobile .udn-composerFilterBubbles {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   min-width: 0;
 }
 
@@ -1682,8 +1691,23 @@ body.is-mobile .udn-composer--mobile .udn-composerPrefixFilter {
   max-width: none;
   min-height: var(--udn-mobile-control);
   height: var(--udn-mobile-control);
-  padding: 0 8px;
+  padding: 0 5px 0 2px;
+  gap: 2px;
+  font-size: var(--font-ui-smaller);
+  line-height: 1;
   justify-content: center;
+}
+
+body.is-mobile .udn-composer--mobile .udn-composerHeadingFilter .udn-headingFilterIcon,
+body.is-mobile .udn-composer--mobile .udn-composerPrefixFilter .udn-headingFilterIcon {
+  width: 11px;
+  height: 11px;
+}
+
+body.is-mobile .udn-composer--mobile .udn-composerHeadingFilter .udn-headingFilterIcon svg,
+body.is-mobile .udn-composer--mobile .udn-composerPrefixFilter .udn-headingFilterIcon svg {
+  width: 11px;
+  height: 11px;
 }
 
 body.is-mobile .udn-composer--mobile .udn-composerPrefixFilter {
@@ -1717,21 +1741,21 @@ body.is-mobile .udn-composerMobileFoot {
 }
 
 body.is-mobile .udn-composer--mobile .udn-composerSection {
-  padding: 4px 8px;
-  gap: 4px;
+  padding: 2px 6px;
+  gap: 3px;
   flex: 1 1 0;
   min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   scroll-padding-bottom: calc(
-    var(--udn-composer-dock-height, 72px) + var(--udn-vv-keyboard-inset, 0px) + 8px
+    var(--udn-composer-dock-height, 60px) + var(--udn-vv-keyboard-inset, 0px) + 6px
   );
 }
 
 body.is-mobile .udn-composer--mobile .udn-composerCalloutTitle {
   flex-direction: row;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   margin-bottom: 0;
 }
 
@@ -1744,8 +1768,10 @@ body.is-mobile .udn-composer--mobile .udn-composerSummaryLabel {
 body.is-mobile .udn-composer--mobile .udn-composerSummaryInput {
   flex: 1 1 0;
   min-width: 0;
-  min-height: 30px;
-  font-size: var(--dk-font-body);
+  min-height: var(--udn-mobile-control);
+  height: var(--udn-mobile-control);
+  padding: 0 6px;
+  font-size: var(--font-ui-smaller);
 }
 
 .udn-composerHiddenFile {
@@ -1831,16 +1857,16 @@ body.is-mobile .udn-composer--mobile .udn-composerSummaryInput {
 
 body.is-mobile .udn-composerMobileDock .udn-composerAddRow--pinned {
   border-top: none;
-  padding: 6px 8px 4px;
+  padding: 4px 6px 2px;
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
 }
 
 body.is-mobile .udn-composerMobileDock .udn-composerFoot--mobile {
   border-top: none;
-  padding: 4px 8px 6px;
+  padding: 2px 6px 4px;
 }
 
 body.is-mobile .udn-composerPrefixPick {
@@ -1861,14 +1887,16 @@ body.is-mobile .udn-composerEntry.udn-outlineEntry {
   flex-direction: row;
   flex-wrap: nowrap;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   min-width: 0;
+  padding: 2px 0;
+  min-height: 24px;
 }
 
 body.is-mobile .udn-composer--mobile .udn-composerEntry.udn-outlineEntry.udn-composerEntry--expanded {
   flex-wrap: wrap;
   align-items: flex-start;
-  row-gap: 4px;
+  row-gap: 3px;
 }
 
 body.is-mobile .udn-composer--mobile .udn-composerEntry--expanded .udn-timeBubbleInput {
@@ -1912,24 +1940,28 @@ body.is-mobile .udn-composer--mobile .udn-composerEntry--expanded .udn-composerE
 
 body.is-mobile .udn-composer--mobile .udn-composerEntry .dk-input {
   width: auto;
-  min-height: 30px;
-  font-size: var(--dk-font-body);
+  min-height: var(--udn-mobile-control);
+  height: var(--udn-mobile-control);
+  padding: 0 4px;
+  font-size: var(--udn-mobile-font, var(--font-ui-smaller));
   border-radius: var(--dk-radius);
 }
 
 body.is-mobile .udn-composer--mobile .udn-composerEntry .udn-timeBubbleInput {
-  flex: 0 0 var(--udn-time-bubble-width, 5em);
-  width: var(--udn-time-bubble-width, 5em);
-  min-width: var(--udn-time-bubble-width, 5em);
-  max-width: var(--udn-time-bubble-width, 5em);
-  padding: 0 4px;
+  flex: 0 0 var(--udn-time-bubble-width, 3.1em);
+  width: var(--udn-time-bubble-width, 3.1em);
+  min-width: var(--udn-time-bubble-width, 3.1em);
+  max-width: var(--udn-time-bubble-width, 3.1em);
+  padding: 0 2px;
+  text-align: center;
 }
 
 body.is-mobile .udn-composer--mobile .udn-composerEntry .udn-timelineEntryBody {
   flex: 1 1 0;
   min-width: 0;
   max-width: 100%;
-  font-size: var(--dk-font-body);
+  font-size: var(--udn-mobile-font, var(--font-ui-smaller));
+  line-height: 1.3;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1941,7 +1973,9 @@ body.is-mobile .udn-composer--mobile .udn-composerEntry .udn-timelineEntryEdit {
   min-width: 0;
   max-width: 100%;
   width: 100%;
-  font-size: var(--dk-font-body);
+  min-height: var(--udn-mobile-control);
+  font-size: var(--udn-mobile-font, var(--font-ui-smaller));
+  line-height: 1.3;
 }
 
 body.is-mobile .udn-composer--mobile .udn-composerEntryRemove {
@@ -1956,44 +1990,48 @@ body.is-mobile .udn-composer--mobile .udn-composerEntryRemove {
 }
 
 body.is-mobile .udn-composerMobileDock .udn-timeBubbleInput {
-  flex: 0 0 var(--udn-time-bubble-width, 5em);
-  width: var(--udn-time-bubble-width, 5em);
-  min-width: var(--udn-time-bubble-width, 5em);
-  max-width: var(--udn-time-bubble-width, 5em);
+  flex: 0 0 var(--udn-time-bubble-width, 3.1em);
+  width: var(--udn-time-bubble-width, 3.1em);
+  min-width: var(--udn-time-bubble-width, 3.1em);
+  max-width: var(--udn-time-bubble-width, 3.1em);
 }
 
 body.is-mobile .udn-composerMobileDock .udn-composerAddInput {
   flex: 1 1 0;
   width: auto;
   min-width: 0;
-  font-size: var(--dk-font-body);
-  min-height: 32px;
-  padding: 4px 8px;
+  font-size: var(--font-ui-smaller);
+  min-height: var(--udn-mobile-control);
+  height: var(--udn-mobile-control);
+  padding: 0 6px;
 }
 
 body.is-mobile .udn-composerEntry--empty {
   font-size: var(--dk-font-caption);
-  padding: 6px 0;
+  padding: 4px 0;
 }
 
 body.is-mobile .udn-composerMobileDock .dk-btnPrimary {
-  min-width: 34px;
-  min-height: 34px;
-  padding: 0 10px;
+  min-width: var(--udn-mobile-control);
+  min-height: var(--udn-mobile-control);
+  width: var(--udn-mobile-control);
+  height: var(--udn-mobile-control);
+  padding: 0;
 }
 
 body.is-mobile .udn-composerFoot--mobile {
   flex-shrink: 0;
-  padding: 4px 8px;
-  gap: 6px;
+  padding: 2px 6px;
+  gap: 4px;
   justify-content: stretch;
 }
 
 body.is-mobile .udn-composerFoot--mobile .dk-btn,
 body.is-mobile .udn-composerFoot--mobile .dk-btnPrimary {
   flex: 1 1 0;
-  min-height: 32px;
-  padding: 4px 8px;
+  min-height: var(--udn-mobile-control);
+  height: var(--udn-mobile-control);
+  padding: 0 6px;
   font-size: var(--font-ui-smaller);
 }
 
@@ -2364,7 +2402,9 @@ body.is-mobile .udn-composerFoot--mobile .dk-btnPrimary {
 .udn-composerEntryExpand--reisen,
 .udn-composerEntryExpand--lueftung,
 .udn-composerEntryExpand--heizung,
-.udn-composerEntryExpand--wandern {
+.udn-composerEntryExpand--wandern,
+.udn-composerEntryExpand--sonstiges,
+.udn-composerEntryExpand--gedanken {
   padding-left: 0;
 }
 
@@ -2486,6 +2526,22 @@ body.is-mobile .udn-composerFoot--mobile .dk-btnPrimary {
   flex: 1 1 10rem;
   min-width: 0;
   max-width: 100%;
+}
+
+.udn-markdownDetailToolbarExtra {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 10rem;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.udn-markdownDetailToolbarThema,
+.udn-markdownDetailToolbarReise {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
 }
 
 .udn-markdownDetailReiseMenu--open {
@@ -2671,25 +2727,40 @@ body.is-mobile .udn-composerFoot--mobile .dk-btnPrimary {
   margin-top: 4px;
 }
 
-/* Mobile: compact typography */
-body.is-mobile .udn-composer--mobile {
-  --udn-mobile-control: 32px;
-  --udn-mobile-font: var(--font-ui-small);
-}
-
+/* Mobile: compact typography — aligned with Reise-Tagebuch landing (Pixel-class phones) */
 body.is-mobile .udn-composer--mobile .udn-composerEntryExpand {
   flex: 1 1 100%;
   width: 100%;
   max-width: 100%;
   padding-left: 0;
-  margin-top: 4px;
-  padding-top: 8px;
+  margin-top: 2px;
+  padding-top: 4px;
   border-top: 1px solid var(--background-modifier-border);
   box-sizing: border-box;
 }
 
+body.is-mobile .udn-composer--mobile .udn-profileBubble {
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+}
+
+body.is-mobile .udn-composer--mobile .udn-profileBubbleIcon svg {
+  width: 11px;
+  height: 11px;
+}
+
 body.is-mobile .udn-composer--mobile .udn-wandernForm,
+body.is-mobile .udn-composer--mobile .udn-reisenForm,
+body.is-mobile .udn-composer--mobile .udn-sonstigesForm,
+body.is-mobile .udn-composer--mobile .udn-gedankenForm {
+  gap: 6px;
+}
+
 body.is-mobile .udn-composer--mobile .udn-wandernForm .udn-markdownDetailField,
+body.is-mobile .udn-composer--mobile .udn-sonstigesForm .udn-markdownDetailField,
+body.is-mobile .udn-composer--mobile .udn-gedankenForm .udn-markdownDetailField,
+body.is-mobile .udn-composer--mobile .udn-reisenForm .udn-markdownDetailField,
 body.is-mobile .udn-composer--mobile .udn-wandernForm .udn-wandernTrack,
 body.is-mobile .udn-composer--mobile .udn-wandernForm .udn-photoCollageField,
 body.is-mobile .udn-composer--mobile .udn-wandernForm .udn-trackPreviewField,
@@ -2703,35 +2774,142 @@ body.is-mobile .udn-composer--mobile .udn-wandernForm .udn-wandernMediaField {
 body.is-mobile .udn-composer--mobile .udn-reisenReiseRow {
   flex-direction: row;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
 }
 
 body.is-mobile .udn-composer--mobile .udn-reisenReiseLabel {
   width: auto;
+  font-size: var(--font-ui-smallest);
 }
 
 body.is-mobile .udn-composer--mobile .udn-markdownDetailToolbar {
-  gap: 6px;
+  gap: 3px;
+  flex-wrap: wrap;
 }
 
 body.is-mobile .udn-composer--mobile .udn-markdownDetailToolbar .dk-btn {
-  min-width: 32px;
-  min-height: 32px;
-  padding: 4px 8px;
+  min-width: var(--udn-mobile-control);
+  min-height: var(--udn-mobile-control);
+  height: var(--udn-mobile-control);
+  padding: 0 5px;
+  font-size: var(--font-ui-smaller);
+}
+
+body.is-mobile .udn-composer--mobile .udn-markdownDetailToolbarReise {
+  min-height: var(--udn-mobile-control);
+  height: var(--udn-mobile-control);
+  font-size: var(--font-ui-smaller);
+}
+
+body.is-mobile .udn-composer--mobile .udn-markdownDetailReiseMenu,
+body.is-mobile .udn-composer--mobile .udn-markdownDetailReiseClear {
+  min-width: var(--udn-mobile-control);
+  min-height: var(--udn-mobile-control);
+  height: var(--udn-mobile-control);
 }
 
 body.is-mobile .udn-composer--mobile .udn-markdownDetailPreviewToggle {
   margin-left: 0;
+  min-height: var(--udn-mobile-control);
+  height: var(--udn-mobile-control);
+  font-size: var(--font-ui-smallest);
 }
 
 body.is-mobile .udn-composer--mobile .udn-markdownDetailInput,
 body.is-mobile .udn-composer--mobile .udn-markdownDetailPreview {
-  max-height: min(22vh, 8rem);
-  min-height: 3.5em;
+  max-height: min(18vh, 6.5rem);
+  min-height: 2.6em;
+  font-size: var(--font-ui-smaller);
+  line-height: 1.35;
 }
 
 body.is-mobile .udn-composer--mobile .udn-reisenDetailInput {
-  max-height: min(22vh, 8rem);
+  max-height: min(18vh, 6.5rem);
+}
+
+body.is-mobile .udn-composer--mobile .udn-wandernPhotosHead {
+  gap: 4px;
+}
+
+body.is-mobile .udn-composer--mobile .udn-wandernPhotosHead .dk-btn {
+  min-height: var(--udn-mobile-control);
+  height: var(--udn-mobile-control);
+  padding: 0 6px;
+  font-size: var(--font-ui-smallest);
+}
+
+body.is-mobile .udn-composer--mobile .udn-composerSummaryLabel,
+body.is-mobile .udn-composer--mobile .udn-wandernPhotosHead .udn-composerSummaryLabel {
+  font-size: var(--font-ui-smallest);
+}
+
+body.is-mobile .udn-composer--mobile .udn-wandernMediaStrip {
+  --udn-photo-row-height: 72px;
+  --udn-photo-thumb-width: min(34vw, 108px);
+  padding: 4px;
+  gap: 6px;
+}
+
+body.is-mobile .udn-composer--mobile .udn-wandernMediaStripTrack {
+  flex-basis: min(38vw, 120px);
+  width: min(38vw, 120px);
+}
+
+body.is-mobile .udn-composer--mobile .udn-photoStrip {
+  --udn-photo-row-height: 72px;
+  --udn-photo-thumb-width: min(34vw, 108px);
+  padding: 4px;
+  gap: 6px;
+  max-height: calc(var(--udn-photo-row-height) + 2.2rem);
+}
+
+body.is-mobile .udn-composer--mobile .udn-photoStripActions .dk-btn {
+  min-height: 22px;
+  height: 22px;
+  padding: 0 4px;
+  font-size: var(--font-ui-smallest);
+}
+
+body.is-mobile .udn-composer--mobile .udn-wandernTrackPicker {
+  max-height: 140px;
+  padding: 4px;
+}
+
+body.is-mobile .udn-composer--mobile .udn-wandernTrackOption {
+  padding: 4px 6px;
+}
+
+body.is-mobile .udn-composer--mobile .udn-wandernTrackOptionLabel {
+  font-size: var(--font-ui-smaller);
+}
+
+body.is-mobile .udn-composer--mobile .udn-wandernTrackEmpty,
+body.is-mobile .udn-composer--mobile .udn-wandernTrackPickerStatus {
+  font-size: var(--font-ui-smallest);
+  margin: 0;
+}
+
+body.is-mobile .udn-composer--mobile .udn-composerReiseGroupHead {
+  margin: 4px 0 2px;
+  padding: 2px 0;
+  gap: 4px;
+}
+
+body.is-mobile .udn-composer--mobile .udn-composerReiseGroupLabel {
+  font-size: var(--font-ui-smallest);
+}
+
+body.is-mobile .udn-composer--mobile .udn-composerReiseGroupHead .dk-btn {
+  min-height: 22px;
+  height: 22px;
+  padding: 0 6px;
+  font-size: var(--font-ui-smallest);
+}
+
+body.is-mobile .udn-composer--mobile .udn-wandernPreviewToggle .dk-btn {
+  min-height: var(--udn-mobile-control);
+  height: var(--udn-mobile-control);
+  font-size: var(--font-ui-smallest);
 }
 
 body.is-mobile .udn-composer--mobile .udn-composerEntry .dk-input,
@@ -2780,7 +2958,7 @@ body.is-mobile .udn-composerSplitList {
 }
 
 body.is-mobile .udn-photoStrip {
-  --udn-photo-thumb-width: min(38vw, 140px);
+  --udn-photo-thumb-width: min(34vw, 108px);
 }
 
 body.is-mobile .udn-composerSplitDetail {

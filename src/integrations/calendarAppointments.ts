@@ -15,6 +15,7 @@ import {
   withCalendarSyncMarker,
 } from "./calendarSyncMarker";
 import { UNIVERSAL_CALENDAR_PLUGIN_ID } from "./universalCalendar";
+import { isGarminActivityCalendarItem } from "./garminCalendarFilter";
 
 export {
   collectCalendarSyncIds,
@@ -85,6 +86,7 @@ function isCalendarItemVisible(item: CalendarItemLike, plugin: CalendarPluginLik
 /** Items eligible for daily-note Termin: timed CalDAV events/todos only (no vault markdown / invoices). */
 export function isSyncableCalendarItem(item: CalendarItemLike, _settings: CalendarSyncSettings): boolean {
   if (item.allDay) return false;
+  if (isGarminActivityCalendarItem(item)) return false;
   return item.source === "caldav_event" || item.source === "caldav_todo";
 }
 

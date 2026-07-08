@@ -23,9 +23,11 @@ import {
 import { dateFromDailyNoteFile } from "./integrations/universalCalendar";
 import { runInsertWeather } from "./weather/runInsertWeather";
 import { syncCalendarAppointmentsIntoDailyNote } from "./integrations/calendarAppointments";
+import { importGarminPendingActivities } from "./integrations/garminPendingImport";
 import { cleanupReisenCalendarSyncForRecentDays } from "./integrations/cleanupReisenCalendarSync";
 import { WEATHER_ICON, WEATHER_LABEL } from "./weather/weatherUi";
-import { registerTrack3dProcessor } from "./tracks/track3dView";
+import { registerTrack3dProcessor, mountTrack3dBlock, type Track3dBlockOptions } from "./tracks/track3dView";
+import { registerWalkTrackEnrichment } from "./tracks/walkTrackEnrichment";
 import { openPhotoLightbox, registerPhotoGalleryLightbox } from "./photos/photoLightbox";
 import { registerJournalMetaPostProcessor } from "./notes/journalMetaPostProcessor";
 
@@ -84,6 +86,7 @@ function mergeSettings(raw: Partial<UniversalDailyNoteSettings> | null): Univers
     tagebuchVerweise: { ...DEFAULT_SETTINGS.tagebuchVerweise, ...loaded.tagebuchVerweise },
     quickCapture: { ...DEFAULT_SETTINGS.quickCapture, ...loaded.quickCapture },
     calendarSync: { ...DEFAULT_SETTINGS.calendarSync, ...loaded.calendarSync },
+    garminSync: { ...DEFAULT_SETTINGS.garminSync, ...loaded.garminSync },
     calendarLinkOverrides: { ...DEFAULT_SETTINGS.calendarLinkOverrides, ...loaded.calendarLinkOverrides },
     weatherCapture: { ...DEFAULT_SETTINGS.weatherCapture, ...loaded.weatherCapture },
     composerTemplates: { ...DEFAULT_SETTINGS.composerTemplates, ...loaded.composerTemplates },
@@ -92,6 +95,7 @@ function mergeSettings(raw: Partial<UniversalDailyNoteSettings> | null): Univers
     composerWindow: { ...DEFAULT_SETTINGS.composerWindow, ...loaded.composerWindow },
     composer: { ...DEFAULT_SETTINGS.composer, ...loaded.composer },
     wandernLayout: { ...DEFAULT_SETTINGS.wandernLayout, ...loaded.wandernLayout },
+    spaziergangLayout: { ...DEFAULT_SETTINGS.spaziergangLayout, ...loaded.spaziergangLayout },
     tracks: { ...DEFAULT_SETTINGS.tracks, ...loaded.tracks },
     analytics: { ...DEFAULT_SETTINGS.analytics, ...loaded.analytics },
     outline: migrateOutline(loaded.outline),
@@ -107,11 +111,15 @@ export default class UniversalDailyNotePlugin extends Plugin {
   lastAutoComposerDateKey: string | null = null;
   /** Gallery lightbox with arrow navigation (also used from Dataview views). */
   openPhotoLightbox = openPhotoLightbox;
+  /** GPX 3D block for Dataview Tagebuch views. */
+  mountTrack3dBlock = (container: HTMLElement, options: Track3dBlockOptions) =>
+    mountTrack3dBlock(this.app, container, options);
 
   async onload() {
     await this.loadSettings();
 
     registerTrack3dProcessor(this);
+    registerWalkTrackEnrichment(this);
     registerPhotoGalleryLightbox(this);
     registerJournalMetaPostProcessor(this);
 
@@ -292,6 +300,26 @@ export default class UniversalDailyNotePlugin extends Plugin {
     });
 
     this.addCommand({
+      id: "import-garmin-pending-activities",
+      name: "Garmin-Aktivitäten aus pending.json importieren",
+      icon: "footprints",
+      callback: async () => {
+        const imported = await importGarminPendingActivities(this.app, {
+          settings: this.settings.garminSync,
+          fallback: this.settings.dailyNoteFallback,
+          wandernLayout: this.settings.wandernLayout,
+          spaziergangLayout: this.settings.spaziergangLayout,
+          dailyNotesFolder: this.settings.tagebuchVerweise.dailyNotesFolder,
+        });
+        if (imported > 0) {
+          new Notice(`${imported} Garmin-Aktivität${imported === 1 ? "" : "en"} importiert.`);
+        } else {
+          new Notice("Keine neuen Garmin-Aktivitäten in pending.json.");
+        }
+      },
+    });
+
+    this.addCommand({
       id: "cleanup-reisen-calendar-sync",
       name: "Kalender-Termine aus Reisen bereinigen",
       icon: "brush",
@@ -352,6 +380,19 @@ export default class UniversalDailyNotePlugin extends Plugin {
     this.app.workspace.onLayoutReady(() => {
       if (this.settings.openPanelOnEnable) {
         void activateDailyPanel(this.app);
+      }
+      if (Platform.isDesktop && this.settings.garminSync.enabled && this.settings.garminSync.syncOnLoad) {
+        void importGarminPendingActivities(this.app, {
+          settings: this.settings.garminSync,
+          fallback: this.settings.dailyNoteFallback,
+          wandernLayout: this.settings.wandernLayout,
+          spaziergangLayout: this.settings.spaziergangLayout,
+          dailyNotesFolder: this.settings.tagebuchVerweise.dailyNotesFolder,
+        }).then((imported) => {
+          if (imported > 0) {
+            new Notice(`${imported} Garmin-Aktivität${imported === 1 ? "" : "en"} importiert.`);
+          }
+        });
       }
     });
   }

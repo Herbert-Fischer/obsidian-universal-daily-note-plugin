@@ -42,6 +42,35 @@ describe("spaziergangLayout", () => {
     expect(out).toContain("![[Calendar/Attachments/a.jpg]]");
   });
 
+  it("renders track3d inside default nested callout template", () => {
+    const out = renderSpaziergangTemplate({
+      titel: "Spaziergang: Parkrunde",
+      kurz: "",
+      beschreibung: "Runde",
+      track: {
+        path: "Calendar/Anhänge/GPX/park.gpx",
+        name: "park.gpx",
+        distanceKm: 2,
+        durationSec: 1800,
+        startLabel: null,
+        endLabel: null,
+      },
+      photos: [],
+      date: new Date(2026, 6, 7),
+      layout: {
+        template: "",
+        maxPhotos: 3,
+        track3dEnabled: true,
+        track3dHeight: 280,
+        track3dElevationExaggeration: 4,
+      },
+    });
+    expect(out).toContain("```udn-track-3d");
+    expect(out).toContain("path: Calendar/Anhänge/GPX/park.gpx");
+    const trackLine = out.split("\n").find((line) => line.includes("```udn-track-3d"));
+    expect(trackLine).toMatch(/^> > > ```udn-track-3d/);
+  });
+
   it("uses default template when settings template empty", () => {
     const out = renderSpaziergangTemplate({
       titel: "Spaziergang",

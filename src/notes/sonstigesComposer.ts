@@ -187,9 +187,7 @@ function sortSonstigesEntries(entries: SonstigesSyncEntry[]): SonstigesSyncEntry
 }
 
 export function renderSonstigesSectionBody(entries: SonstigesSyncEntry[]): string[] {
-  const sonstigesEntries = entries.filter(
-    (e) => e.profile === "sonstiges" && e.entryId?.trim() && e.supplementDetail?.trim(),
-  );
+  const sonstigesEntries = entries.filter((e) => e.profile === "sonstiges" && e.entryId?.trim());
   if (sonstigesEntries.length === 0) return [];
 
   const out: string[] = [];

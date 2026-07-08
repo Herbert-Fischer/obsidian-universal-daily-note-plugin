@@ -162,6 +162,22 @@ describe("calendar appointment journal lines", () => {
     ]);
   });
 
+  it("excludes garmin activity events from sync", () => {
+    expect(
+      isSyncableCalendarItem(
+        {
+          id: "caldav:event:garmin-99@denkarium",
+          source: "caldav_event",
+          title: "🥾 Wandern: Test",
+          start: new Date(2026, 6, 7, 9, 0, 0, 0),
+          allDay: false,
+          raw: { uid: "garmin-99@denkarium" },
+        },
+        DEFAULT_SYNC_SETTINGS,
+      ),
+    ).toBe(false);
+  });
+
   it("filters all-day and markdown in getCalendarItemsForDay", () => {
     const items = getCalendarItemsForDay(
       { plugins: { plugins: { "universal-calendar": { store: { getItemsForDay: () => [
@@ -171,6 +187,14 @@ describe("calendar appointment journal lines", () => {
           title: "Arzt",
           start: new Date(2026, 5, 22, 9, 30, 0, 0),
           allDay: false,
+        },
+        {
+          id: "caldav:event:garmin-99@denkarium",
+          source: "caldav_event",
+          title: "🥾 Wandern: Test",
+          start: new Date(2026, 5, 22, 11, 0, 0, 0),
+          allDay: false,
+          raw: { uid: "garmin-99@denkarium" },
         },
         {
           id: "evt-allday",

@@ -55,6 +55,20 @@ function afterCalendarMerge(vaultPath: string): TimelineEntry[] {
 }
 
 describe("reisen outline filter integration", () => {
+  it("includes spaziergang with reise assignment in reisen filter without Reisen section", () => {
+    const lines = [
+      "## Tagebuch",
+      "",
+      '> - 11:00 Spaziergang: Bassgeige <!-- udn-entry:{"id":"sp1","profile":"spaziergang","context":"Spaziergang: Bassgeige","reise":"Mamas 90ter Geburtstag"} -->',
+      "",
+    ];
+    const entries = loadTagebuchEntries(lines);
+    const filtered = applyFeedFiltersToEntries(entries, "Tagebuch", ["reisen"], "", false);
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0]?.feedProfile).toBe("spaziergang");
+    expect(filtered[0]?.text).toContain("Spaziergang");
+  });
+
   it("finds reisen entries in 2026-06-01 daily note", () => {
     const text = readFileSync("/vault/Calendar/Notes/2026-06-01.md", "utf8");
     const lines = text.split("\n");
@@ -63,7 +77,7 @@ describe("reisen outline filter integration", () => {
     expect(reisen.length).toBeGreaterThan(0);
     const filtered = applyFeedFiltersToEntries(entries, "Tagebuch", ["reisen"], "", false);
     expect(filtered.length).toBeGreaterThan(0);
-    expect(filtered.every((e) => e.feedProfile === "reisen")).toBe(true);
+    expect(filtered.some((e) => e.feedProfile === "reisen")).toBe(true);
   });
 
   it("finds reisen entries in 2026-06-10 daily note", () => {

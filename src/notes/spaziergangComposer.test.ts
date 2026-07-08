@@ -228,5 +228,107 @@ describe("spaziergangComposer", () => {
     expect(disk).not.toContain("orphan");
     expect(disk).not.toContain("Verwaist");
   });
+
+  it("does not create Spaziergang section when no spaziergang entries", async () => {
+    let disk = [
+      "## Tagebuch",
+      "",
+      "> [!tagebuch-ref] 03.07.2026",
+      "> - 10:00 Aufstehen",
+      "",
+    ].join("\n");
+
+    const app = {
+      workspace: { getLeavesOfType: () => [] },
+      metadataCache: { trigger: () => {} },
+      vault: {
+        adapter: {
+          read: async () => disk,
+          write: async (_path: string, content: string) => {
+            disk = content;
+          },
+        },
+      },
+    } as unknown as App;
+
+    await syncSpaziergangSupplements(app, mockFile("2026-07-03.md"), [
+      {
+        id: "line-1",
+        line: 1,
+        time: "10:00",
+        body: "Aufstehen",
+        rawLine: "- 10:00 Aufstehen",
+        profile: "tagebuch",
+      },
+    ], new Date("2026-07-03"), {
+      template: "> [!person-walking]+ {{titel}}\n> {{kurz}}\n> {{beschreibung}}",
+      photosFolder: "Calendar/Anhänge/Bilder",
+      tracksFolder: "Calendar/Anhänge/GPX",
+      maxPhotos: 3,
+      track3dEnabled: false,
+      track3dHeight: 200,
+      track3dElevationExaggeration: 4,
+    });
+
+    expect(disk).not.toContain("## Spaziergang");
+  });
+
+  it("removes empty Spaziergang section when entries are gone", async () => {
+    let disk = [
+      "## Tagebuch",
+      "",
+      "> [!tagebuch-ref] 03.07.2026",
+      "> - 10:00 Aufstehen",
+      "",
+      "## Spaziergang",
+      "",
+      "> [!person-walking]+ Alt",
+      "> alt",
+      spaziergangEntryMetaComment({
+        entryId: "old",
+        titel: "Alt",
+        kurz: "alt",
+        beschreibung: "alt",
+        trackPath: "",
+        track: "",
+      }),
+      "",
+    ].join("\n");
+
+    const app = {
+      workspace: { getLeavesOfType: () => [] },
+      metadataCache: { trigger: () => {} },
+      vault: {
+        adapter: {
+          read: async () => disk,
+          write: async (_path: string, content: string) => {
+            disk = content;
+          },
+        },
+      },
+    } as unknown as App;
+
+    await syncSpaziergangSupplements(app, mockFile("2026-07-03.md"), [
+      {
+        id: "line-1",
+        line: 1,
+        time: "10:00",
+        body: "Aufstehen",
+        rawLine: "- 10:00 Aufstehen",
+        profile: "tagebuch",
+      },
+    ], new Date("2026-07-03"), {
+      template: "> [!person-walking]+ {{titel}}\n> {{kurz}}\n> {{beschreibung}}",
+      photosFolder: "Calendar/Anhänge/Bilder",
+      tracksFolder: "Calendar/Anhänge/GPX",
+      maxPhotos: 3,
+      track3dEnabled: false,
+      track3dHeight: 200,
+      track3dElevationExaggeration: 4,
+    });
+
+    expect(disk).not.toContain("## Spaziergang");
+    expect(disk).not.toContain("Alt");
+  });
 });
 

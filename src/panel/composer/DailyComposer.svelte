@@ -82,6 +82,11 @@
   } from "../../notes/wandernLayout";
   import { renderSpaziergangTemplate } from "../../notes/spaziergangLayout";
   import { reverseGeocode, getCurrentPosition } from "../../weather/openMeteo";
+  import {
+    clearComposerDraft,
+    peekComposerDraft,
+    saveComposerDraft,
+  } from "./composerDraftCache";
 
   export let app: App;
   export let date: Date;
@@ -109,6 +114,7 @@
   }) => void = () => {};
   export let timeFormat = "HH:mm";
   export let onClose: () => void = () => {};
+  export let onRegisterCloseGuard: (guard: () => boolean) => void = () => {};
   export let onSaved: (date: Date) => void = () => {};
   export let onDateChange: (d: Date) => void = () => {};
   export let onHeadingChange: (heading: string) => void = () => {};
@@ -135,6 +141,12 @@
 
   function isWalkProfile(profile: FeedProfile | undefined): boolean {
     return entryUsesWandernFields(profile);
+  }
+
+  function showReiseForEntry(entry: Pick<ComposerEntry, "profile" | "reiseAssignment">): boolean {
+    if (isWalkProfile(entry.profile)) return true;
+    if (entry.profile !== "sonstiges") return false;
+    return hasReisenEntries || Boolean(entry.reiseAssignment?.trim());
   }
 
   function entryExpandsOnFocus(profile: FeedProfile | undefined): boolean {
@@ -226,6 +238,7 @@
   const groupLabelsInflight: Partial<Record<FeedProfile, Promise<string[]>>> = {};
   let lastGroupProfileSignature = "";
   let summaryDebounce: ReturnType<typeof setTimeout> | null = null;
+  let draftDebounce: ReturnType<typeof setTimeout> | null = null;
 
   function scheduleSummaryFromEntries(): void {
     if (summaryTouched) return;
@@ -296,30 +309,40 @@
     return groupLabelsInflight[profile]!;
   }
 
-  function persistReiseGroupLabels(patch: ComposerGroupLabelListSettings): void {
-    composerGroupLabels = { ...composerGroupLabels, reisen: patch };
+  function persistGroupLabels(profile: FeedProfile, patch: ComposerGroupLabelListSettings): void {
+    composerGroupLabels = { ...composerGroupLabels, [profile]: patch };
     onPersistSideEffects({ composerGroupLabels });
     resetGroupLabelCache();
     void syncGroupSuggestions();
   }
 
-  function addReiseGroupLabel(label: string): void {
+  function addGroupLabel(profile: FeedProfile, label: string): void {
     const trimmed = label.trim();
     if (!trimmed) return;
-    const current = composerGroupLabels.reisen ?? { extra: [], hidden: [] };
+    const current = composerGroupLabels[profile] ?? { extra: [], hidden: [] };
     const extra = [...new Set([...(current.extra ?? []), trimmed])];
     const hidden = (current.hidden ?? []).filter((h) => h.trim().toLowerCase() !== trimmed.toLowerCase());
-    persistReiseGroupLabels({ extra, hidden });
+    persistGroupLabels(profile, { extra, hidden });
   }
 
-  function hideReiseGroupLabel(label: string): void {
+  function hideGroupLabel(profile: FeedProfile, label: string): void {
     const trimmed = label.trim();
     if (!trimmed) return;
-    const current = composerGroupLabels.reisen ?? { extra: [], hidden: [] };
+    const current = composerGroupLabels[profile] ?? { extra: [], hidden: [] };
     const hidden = [...new Set([...(current.hidden ?? []), trimmed])];
     const extra = (current.extra ?? []).filter((h) => h.trim().toLowerCase() !== trimmed.toLowerCase());
-    persistReiseGroupLabels({ extra, hidden });
+    persistGroupLabels(profile, { extra, hidden });
   }
+
+  // Backwards-friendly naming for existing callsites
+  const addReiseGroupLabel = (label: string) => addGroupLabel("reisen", label);
+  const hideReiseGroupLabel = (label: string) => hideGroupLabel("reisen", label);
+  const addWartungGroupLabel = (label: string) => addGroupLabel("lueftung", label);
+  const hideWartungGroupLabel = (label: string) => hideGroupLabel("lueftung", label);
+  const addVorfallGroupLabel = (label: string) => addGroupLabel("heizung", label);
+  const hideVorfallGroupLabel = (label: string) => hideGroupLabel("heizung", label);
+  const addThemaGroupLabel = (label: string) => addGroupLabel("gedanken", label);
+  const hideThemaGroupLabel = (label: string) => hideGroupLabel("gedanken", label);
 
   async function syncGroupSuggestions() {
     const needs = new Set<FeedProfile>();
@@ -347,6 +370,12 @@
       needs.add("reisen");
     }
     if (entries.some((e) => e.profile === "wandern" || e.profile === "spaziergang")) {
+      needs.add("reisen");
+    }
+    if (
+      entries.some((e) => e.profile === "sonstiges" && e.reiseAssignment?.trim()) ||
+      (hasReisenEntries && entries.some((e) => e.profile === "sonstiges"))
+    ) {
       needs.add("reisen");
     }
 
@@ -452,14 +481,71 @@
       onLandscapeChange();
       landscapeMq.addEventListener("change", onLandscapeChange);
     }
+    onRegisterCloseGuard(() => confirmDiscardChanges());
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden" && modified) {
+        persistComposerDraft();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
     void reload();
     updateNavButtons();
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   });
 
   onDestroy(() => {
     landscapeMq?.removeEventListener("change", onLandscapeChange);
     detachDockObserver?.();
+    if (draftDebounce) clearTimeout(draftDebounce);
   });
+
+  function composerDateKey(date: Date): string {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  }
+
+  function snapshotComposerDraft() {
+    return {
+      dateKey: composerDateKey(currentDate),
+      heading: activeHeading,
+      entries: entries.map((entry) => ({ ...entry })),
+      summary,
+      calloutTitle,
+      listPhotos: [...listPhotos],
+      reiseSortOrder: { ...reiseSortOrder },
+      summaryTouched,
+      newEntryText,
+      newEntryTime,
+      wandernTitel,
+    };
+  }
+
+  function persistComposerDraft() {
+    if (!modified) return;
+    saveComposerDraft(snapshotComposerDraft());
+  }
+
+  function scheduleComposerDraftSave() {
+    if (draftDebounce) clearTimeout(draftDebounce);
+    draftDebounce = setTimeout(() => {
+      draftDebounce = null;
+      persistComposerDraft();
+    }, 400);
+  }
+
+  function applyComposerDraft(draftSnapshot: ReturnType<typeof snapshotComposerDraft>) {
+    entries = draftSnapshot.entries.map((entry) => ({ ...entry }));
+    summary = draftSnapshot.summary;
+    calloutTitle = draftSnapshot.calloutTitle;
+    listPhotos = [...draftSnapshot.listPhotos];
+    reiseSortOrder = { ...draftSnapshot.reiseSortOrder };
+    summaryTouched = draftSnapshot.summaryTouched;
+    newEntryText = draftSnapshot.newEntryText;
+    newEntryTime = draftSnapshot.newEntryTime;
+    wandernTitel = draftSnapshot.wandernTitel;
+    modified = true;
+  }
 
   async function reload() {
     const generation = ++loadGeneration;
@@ -499,12 +585,18 @@
       }
       filePath = state.file.path;
       composerFile = state.file;
-      entries = state.entries.map((e) => ({ ...e }));
-      reiseSortOrder = { ...state.reisenSortOrders };
-      calloutTitle = state.calloutTitle;
-      listPhotos = [...state.photos];
-      summary = state.summary;
-      summaryTouched = Boolean(state.summary.trim());
+      const restoredDraft = peekComposerDraft(composerDateKey(currentDate), activeHeading);
+      if (restoredDraft) {
+        applyComposerDraft(restoredDraft);
+        new Notice("Composer-Entwurf wiederhergestellt.");
+      } else {
+        entries = state.entries.map((e) => ({ ...e }));
+        reiseSortOrder = { ...state.reisenSortOrders };
+        calloutTitle = state.calloutTitle;
+        listPhotos = [...state.photos];
+        summary = state.summary;
+        summaryTouched = Boolean(state.summary.trim());
+      }
       newEntryText = "";
       newEntryTime = currentTime();
       maybeSyncGroupSuggestions();
@@ -547,6 +639,7 @@
 
   function markModified() {
     modified = true;
+    scheduleComposerDraftSave();
   }
 
   function photoImportContext(photoIndex: number, supplementEntry?: ComposerEntry) {
@@ -877,11 +970,12 @@
                 : undefined,
             supplementKurz: isWalkProfile(profileId) ? entry.supplementKurz : undefined,
             supplementTrackPath: isWalkProfile(profileId) ? entry.supplementTrackPath : undefined,
-            reiseAssignment: isWalkProfile(profileId) ? entry.reiseAssignment : undefined,
+            reiseAssignment:
+              isWalkProfile(profileId) || profileId === "sonstiges" ? entry.reiseAssignment : undefined,
           };
-          if (profileId === "reisen" && isWalkProfile(entry.profile) && entry.reiseAssignment?.trim()) {
+          if (profileId === "reisen" && (isWalkProfile(entry.profile) || entry.profile === "sonstiges") && entry.reiseAssignment?.trim()) {
             next.context = entry.reiseAssignment.trim();
-          } else if (isWalkProfile(profileId) && entry.profile === "reisen" && entry.context?.trim()) {
+          } else if ((isWalkProfile(profileId) || profileId === "sonstiges") && entry.profile === "reisen" && entry.context?.trim()) {
             next.reiseAssignment = entry.context.trim();
           }
           updateEntry(entry.id, next);
@@ -917,7 +1011,13 @@
   function onComposerEntryRowClick(entry: ComposerEntry, ev: MouseEvent) {
     if (!entryExpandsOnFocus(entry.profile)) return;
     const target = ev.target as HTMLElement;
-    if (target.closest(".udn-composerEntryRemove, .udn-profileBubble")) return;
+    if (
+      target.closest(
+        ".udn-composerEntryRemove, .udn-profileBubble, .udn-composerEntryExpand, .udn-markdownDetailToolbar, .udn-markdownDetailField",
+      )
+    ) {
+      return;
+    }
     expandedEntryId = entry.id;
   }
 
@@ -1235,15 +1335,22 @@
     markModified();
   }
 
+  function confirmDiscardChanges(): boolean {
+    if (!modified) return true;
+    if (!confirm("Ungespeicherte Änderungen verwerfen?")) return false;
+    clearComposerDraft();
+    return true;
+  }
+
   async function shiftDate(delta: number) {
-    if (modified && !confirm("Ungespeicherte Änderungen verwerfen?")) return;
+    if (!confirmDiscardChanges()) return;
     currentDate = addLocalDays(currentDate, delta);
     onDateChange(currentDate);
     await reload();
   }
 
   async function goToday() {
-    if (modified && !confirm("Ungespeicherte Änderungen verwerfen?")) return;
+    if (!confirmDiscardChanges()) return;
     currentDate = normalizeLocalDay(new Date());
     onDateChange(currentDate);
     await reload();
@@ -1251,7 +1358,7 @@
 
   async function selectHeading(heading: string) {
     if (heading.toLowerCase() === activeHeading.toLowerCase()) return;
-    if (modified && !confirm("Ungespeicherte Änderungen verwerfen?")) return;
+    if (!confirmDiscardChanges()) return;
     activeHeading = heading;
     onHeadingChange(heading);
     await reload();
@@ -1724,10 +1831,6 @@
     return texts;
   }
 
-  function composerDateKey(date: Date): string {
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-  }
-
   async function syncCalendarAfterSave(savedDate: Date): Promise<void> {
     if (!calendarSync?.enabled) return;
     if (calendarSync.syncOnOutlineLoad) return;
@@ -1825,6 +1928,7 @@
       await traceComposerSave(app, "save:done");
       saved = true;
       modified = false;
+      clearComposerDraft();
       markComposerSaved(composerDateKey(savedDate));
       onClose();
       await traceComposerSave(app, "save:after-close");
@@ -2184,6 +2288,8 @@
                   maxPhotos={lueftungMaxPhotos}
                   wartungOptions={wartungGroupSuggestions}
                   onWartungChange={(value) => onEntryWartungChange(entry.id, value)}
+                  onAddWartungOption={addWartungGroupLabel}
+                  onHideWartungOption={hideWartungGroupLabel}
                   onDetailChange={(value) => onEntrySupplementDetailChange(entry.id, value)}
                   onAddPhotoClick={() => onLueftungAddPhotoClick(entry.id)}
                   onAddVaultPhotoClick={() => onLueftungAddVaultPhotoClick(entry.id)}
@@ -2204,6 +2310,8 @@
                   maxPhotos={heizungMaxPhotos}
                   vorfallOptions={vorfallGroupSuggestions}
                   onVorfallChange={(value) => onEntryVorfallChange(entry.id, value)}
+                  onAddVorfallOption={addVorfallGroupLabel}
+                  onHideVorfallOption={hideVorfallGroupLabel}
                   onDetailChange={(value) => onEntrySupplementDetailChange(entry.id, value)}
                   onAddPhotoClick={() => onHeizungAddPhotoClick(entry.id)}
                   onAddVaultPhotoClick={() => onHeizungAddVaultPhotoClick(entry.id)}
@@ -2222,6 +2330,8 @@
                   detail={entry.supplementDetail ?? ""}
                   themaOptions={themaGroupSuggestions}
                   onThemaChange={(value) => onEntryThemaChange(entry.id, value)}
+                  onAddThemaOption={addThemaGroupLabel}
+                  onHideThemaOption={hideThemaGroupLabel}
                   onDetailChange={(value) => onEntrySupplementDetailChange(entry.id, value)}
                   onFocus={onMobileInputFocus}
                 />
@@ -2232,6 +2342,12 @@
                   {app}
                   sourcePath={filePath}
                   detail={entry.supplementDetail ?? ""}
+                  showReise={showReiseForEntry(entry)}
+                  reise={entry.reiseAssignment ?? ""}
+                  reiseOptions={reiseGroupSuggestions}
+                  onReiseChange={(value) => onEntryWandernReiseChange(entry.id, value)}
+                  onAddReiseOption={addReiseGroupLabel}
+                  onHideReiseOption={hideReiseGroupLabel}
                   onDetailChange={(value) => onEntrySupplementDetailChange(entry.id, value)}
                   onFocus={onMobileInputFocus}
                 />
@@ -2376,6 +2492,8 @@
             maxPhotos={lueftungMaxPhotos}
             wartungOptions={wartungGroupSuggestions}
             onWartungChange={(value) => onEntryWartungChange(expandedEntry.id, value)}
+            onAddWartungOption={addWartungGroupLabel}
+            onHideWartungOption={hideWartungGroupLabel}
             onDetailChange={(value) => onEntrySupplementDetailChange(expandedEntry.id, value)}
             onAddPhotoClick={() => onLueftungAddPhotoClick(expandedEntry.id)}
             onAddVaultPhotoClick={() => onLueftungAddVaultPhotoClick(expandedEntry.id)}
@@ -2397,6 +2515,8 @@
             maxPhotos={heizungMaxPhotos}
             vorfallOptions={vorfallGroupSuggestions}
             onVorfallChange={(value) => onEntryVorfallChange(expandedEntry.id, value)}
+            onAddVorfallOption={addVorfallGroupLabel}
+            onHideVorfallOption={hideVorfallGroupLabel}
             onDetailChange={(value) => onEntrySupplementDetailChange(expandedEntry.id, value)}
             onAddPhotoClick={() => onHeizungAddPhotoClick(expandedEntry.id)}
             onAddVaultPhotoClick={() => onHeizungAddVaultPhotoClick(expandedEntry.id)}
@@ -2416,6 +2536,8 @@
             detail={expandedEntry.supplementDetail ?? ""}
             themaOptions={themaGroupSuggestions}
             onThemaChange={(value) => onEntryThemaChange(expandedEntry.id, value)}
+            onAddThemaOption={addThemaGroupLabel}
+            onHideThemaOption={hideThemaGroupLabel}
             onDetailChange={(value) => onEntrySupplementDetailChange(expandedEntry.id, value)}
             onFocus={onMobileInputFocus}
           />
@@ -2427,6 +2549,12 @@
             {app}
             sourcePath={filePath}
             detail={expandedEntry.supplementDetail ?? ""}
+            showReise={showReiseForEntry(expandedEntry)}
+            reise={expandedEntry.reiseAssignment ?? ""}
+            reiseOptions={reiseGroupSuggestions}
+            onReiseChange={(value) => onEntryWandernReiseChange(expandedEntry.id, value)}
+            onAddReiseOption={addReiseGroupLabel}
+            onHideReiseOption={hideReiseGroupLabel}
             onDetailChange={(value) => onEntrySupplementDetailChange(expandedEntry.id, value)}
             onFocus={onMobileInputFocus}
           />

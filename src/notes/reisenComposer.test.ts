@@ -176,7 +176,7 @@ describe("reisenComposer", () => {
     expect(disk).not.toContain("Verwaist");
   });
 
-  it("includes wandern entries with reise assignment in ## Reisen", async () => {
+  it("does not include wandern entries in ## Reisen", async () => {
     const body = await renderReisenSectionBody(mockApp(), [
       {
         entryId: "knvh",
@@ -189,13 +189,10 @@ describe("reisenComposer", () => {
       },
     ]);
     const joined = body.join("\n");
-    expect(joined).toContain("Bläsis Mühle");
-    expect(joined).toContain('"reise":"Mamas 90ter Geburtstag"');
-    expect(joined).toContain('"entryId":"knvh"');
-    expect(joined).toContain("Rundweg mit Aussicht");
+    expect(joined).toBe("");
   });
 
-  it("includes spaziergang entries with reise assignment in ## Reisen", async () => {
+  it("does not include spaziergang entries in ## Reisen", async () => {
     const body = await renderReisenSectionBody(mockApp(), [
       {
         entryId: "sp1",
@@ -208,9 +205,7 @@ describe("reisenComposer", () => {
       },
     ]);
     const joined = body.join("\n");
-    expect(joined).toContain("Heidküppel");
-    expect(joined).toContain('"reise":"Sommer 2026"');
-    expect(joined).toContain("Runde mit Hund");
+    expect(joined).toBe("");
   });
 
   it("merges reise assignment into wandern composer entries", () => {

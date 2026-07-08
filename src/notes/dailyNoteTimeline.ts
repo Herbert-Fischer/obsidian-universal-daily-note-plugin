@@ -604,6 +604,17 @@ function cleanJournalLine(raw: string): string {
     .replace(/^[-*+]\s+/, "");
 }
 
+function entryReiseAssignment(entry: TimelineEntry): string {
+  const meta = parseEntryMetaComment(cleanJournalLine(entry.rawLine));
+  return meta?.reise?.trim() ?? "";
+}
+
+function entryMatchesReisenAssignment(entry: TimelineEntry): boolean {
+  const profile = effectiveFeedProfile(entry.feedProfile, entry.feedContext);
+  if (profile !== "wandern" && profile !== "spaziergang" && profile !== "sonstiges") return false;
+  return Boolean(entryReiseAssignment(entry));
+}
+
 export function applyFeedFiltersToEntries(
   entries: TimelineEntry[],
   journalHeading: string,
@@ -626,9 +637,11 @@ export function applyFeedFiltersToEntries(
   });
 
   if (feedProfileFilters.length > 0) {
-    const matches = inScope.filter((entry) =>
-      entryMatchesFeedProfileFilters(entry.feedProfile, entry.feedContext, feedProfileFilters),
-    );
+    const includeReiseAssignments = feedProfileFilters.includes("reisen");
+    const matches = inScope.filter((entry) => {
+      if (entryMatchesFeedProfileFilters(entry.feedProfile, entry.feedContext, feedProfileFilters)) return true;
+      return includeReiseAssignments && entryMatchesReisenAssignment(entry);
+    });
     if (matches.length === 0) return [];
     if (!includeRestOfTagebuch) return matches;
     const rest = inScope.filter(
@@ -718,8 +731,13 @@ function resolveTripLabelForDay(
 ): string | null {
   const reisenContexts = new Map<string, number>();
   for (const entry of entries) {
-    if (effectiveFeedProfile(entry.feedProfile, entry.feedContext) !== "reisen") continue;
-    const ctx = entry.feedContext?.trim();
+    const profile = effectiveFeedProfile(entry.feedProfile, entry.feedContext);
+    const ctx =
+      profile === "reisen"
+        ? entry.feedContext?.trim()
+        : profile === "wandern" || profile === "spaziergang" || profile === "sonstiges"
+          ? entryReiseAssignment(entry)
+          : "";
     if (!ctx) continue;
     reisenContexts.set(ctx, (reisenContexts.get(ctx) ?? 0) + 1);
   }
@@ -1474,6 +1492,11 @@ function overlayReisenTimelineEntries(lines: string[], entries: TimelineEntry[])
   const reisenContext = reisenContextByEntryId(lines);
   const reisenByTitle = reisenSupplementMatchesByTitle(lines);
   return entries.map((entry) => {
+    const activeProfile = effectiveFeedProfile(entry.feedProfile, entry.feedContext);
+    // Keep explicit non-Reisen profile overlays (e.g. Spaziergang/Wandern) untouched.
+    if (activeProfile && activeProfile !== "tagebuch" && activeProfile !== "reisen") {
+      return entry;
+    }
     if (entry.entryId && reisenIds.has(entry.entryId)) {
       return {
         ...entry,
@@ -1483,7 +1506,7 @@ function overlayReisenTimelineEntries(lines: string[], entries: TimelineEntry[])
         calloutId: entry.entryId,
       };
     }
-    if (effectiveFeedProfile(entry.feedProfile, entry.feedContext) === "reisen") {
+    if (activeProfile === "reisen") {
       return entry;
     }
     const { body } = parseJournalEntryDisplay(entry.text);
@@ -1591,9 +1614,10 @@ async function loadDayFromFile(
   } else if (headingLower === "reisen") {
     entries = extractReisenJournalLines(lines);
     if (entries.length === 0) {
-      entries = loadTagebuchTimelineEntries(lines).filter((entry) =>
-        entryMatchesFeedProfileFilters(entry.feedProfile, entry.feedContext, ["reisen"]),
-      );
+      entries = loadTagebuchTimelineEntries(lines).filter((entry) => {
+        if (entryMatchesFeedProfileFilters(entry.feedProfile, entry.feedContext, ["reisen"])) return true;
+        return entryMatchesReisenAssignment(entry);
+      });
     }
   } else if (headingLower === "lüftung" || headingLower === "lueftung") {
     entries = extractJournalLines(lines, "Lüftung");

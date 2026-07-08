@@ -79,8 +79,22 @@ function wikiLinksInText(text: string): string[] {
   return links;
 }
 
+function walkContextFromBody(text: string, prefix: "wandern" | "spaziergang"): string {
+  const detail = text.replace(new RegExp(`^${prefix}:\\s*`, "i"), "").trim();
+  return detail || "";
+}
+
 /** Infer profile/context from feed line body when no metadata comment exists. */
 export function inferFeedMetadataFromLine(text: string): FeedMetadata {
+  const trimmed = text.trim();
+  const lower = trimmed.toLowerCase();
+  if (lower.startsWith("spaziergang:")) {
+    return { profile: "spaziergang", context: walkContextFromBody(trimmed, "spaziergang") };
+  }
+  if (lower.startsWith("wandern:")) {
+    return { profile: "wandern", context: walkContextFromBody(trimmed, "wandern") };
+  }
+
   const links = wikiLinksInText(text);
   for (const link of links) {
     const profile = HUB_LINK_PROFILE[link];

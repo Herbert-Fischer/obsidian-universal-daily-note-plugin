@@ -21,6 +21,14 @@ export type CalendarSyncSettings = {
   includeMarkdownNotes: boolean;
 };
 
+export type GarminSyncSettings = {
+  enabled: boolean;
+  /** Manifest written by universal-garmin-sync (host cron) */
+  pendingManifestPath: string;
+  /** Desktop: import pending activities on plugin load */
+  syncOnLoad: boolean;
+};
+
 export type ComposerWindowSettings = {
   x: number | null;
   y: number | null;
@@ -141,6 +149,7 @@ export type UniversalDailyNoteSettings = {
   tagebuchVerweise: TagebuchVerweiseSettings;
   quickCapture: QuickCaptureSettings;
   calendarSync: CalendarSyncSettings;
+  garminSync: GarminSyncSettings;
   /** User-edited Termin text per calendar event id (vault-only, no CalDAV back-sync). */
   calendarLinkOverrides: Record<string, string>;
   weatherCapture: WeatherCaptureSettings;
@@ -202,6 +211,11 @@ export const DEFAULT_SETTINGS: UniversalDailyNoteSettings = {
     syncOnOutlineLoad: true,
     includeMarkdownNotes: false,
   },
+  garminSync: {
+    enabled: true,
+    pendingManifestPath: "Calendar/.garmin/pending.json",
+    syncOnLoad: true,
+  },
   calendarLinkOverrides: {},
   weatherCapture: {
     updateFrontmatter: true,
@@ -243,7 +257,7 @@ export const DEFAULT_SETTINGS: UniversalDailyNoteSettings = {
   spaziergangLayout: {
     template: "",
     maxPhotos: 3,
-    track3dEnabled: false,
+    track3dEnabled: true,
     track3dHeight: 400,
     track3dElevationExaggeration: 4,
     photosFolder: "Calendar/Anhänge/Bilder",

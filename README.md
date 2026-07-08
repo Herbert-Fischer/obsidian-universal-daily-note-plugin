@@ -55,7 +55,9 @@ Plugin-spezifisch: `obsidian-daily-notes-interface`.
 | `notes/composerTemplates.ts` | Kontext-Vorlagen (Typischer Tag / Reisetag / Wanderung) |
 | `notes/*Composer.ts` | Profil-Sync (Reisen, Wandern, Heizung, Lüftung, Gedanken, Sonstiges) |
 | `tracks/gpxImport.ts` | GPX/TCX-Import für Reise-Etappen und Wander-/Spaziergang-Tracks |
-| `integrations/garminSync.ts` | *(geplant)* Import aus `Calendar/.garmin/pending.json` |
+| `integrations/garminCalendarFilter.ts` | Garmin-CalDAV-Termine vom Kalender-Sync ausschließen |
+| `integrations/garminSync.ts` | Garmin-Import + Entfernen doppelter `Termin:`-Zeilen |
+| `integrations/garminPendingImport.ts` | Import aus `Calendar/.garmin/pending.json` |
 
 ## Composer-Vorlagen
 
@@ -112,20 +114,22 @@ Einstellungen: **Track-Ordner** (`tracks.folder`, Default `Calendar/Tracks`) und
 
 Vault-Doku: [[Atlas/Technologien/Obsidian Plugins/Universal Daily Note/Plugin — Detail Garmin Sync CalDAV und Thunderbird|Garmin Sync — CalDAV & Thunderbird]].
 
-### Geplant: Garmin vollautomatisch + Thunderbird-Kalender
+### Garmin vollautomatisch + Thunderbird-Kalender
 
-Drei-Stufen-Architektur (noch **nicht implementiert**):
+Drei-Stufen-Architektur:
 
-1. **Lokaler Cron** (`scripts/garmin-sync/`) — holt neue Garmin-Aktivitäten (Wandern/Spaziergang), lädt GPX ins Vault, schreibt `Calendar/.garmin/pending.json`.
-2. **All-INKL CalDAV** — eigener Kalender **„Aktivitäten“**: zeitgebundene VEVENTs (`UID: garmin-{id}@denkarium`) für **Thunderbird** (CalDAV-Abo).
-3. **Plugin-Importer** (`src/integrations/garminSync.ts`, geplant) — liest `pending.json`, schreibt vollautomatisch `## Tagebuch` + `## Wandern` / `## Spaziergang` inkl. Track (Marker `<!-- udn-garmin:{id} -->`).
+1. **Lokaler Cron** ([**universal-garmin-sync**](https://github.com/denkarium/universal-garmin-sync)) — Host-Repo `~/SoftwareEntwicklung/universal-garmin-sync`; holt Garmin-Aktivitäten (Wandern/Spaziergang), GPX ins Vault, `Calendar/.garmin/pending.json`, optional CalDAV auf All-INKL „Aktivitäten“. Siehe [`docs/garmin-sync-integration.md`](docs/garmin-sync-integration.md).
+2. **All-INKL CalDAV** — zeitgebundene VEVENTs (`UID: garmin-{id}@denkarium`) für **Thunderbird** (CalDAV-Abo).
+3. **Plugin-Importer** ([`src/integrations/garminSync.ts`](src/integrations/garminSync.ts) + [`garminPendingImport.ts`](src/integrations/garminPendingImport.ts)) — liest `pending.json`, schreibt `## Tagebuch` + `## Wandern` / `## Spaziergang` inkl. Track (Marker `<!-- udn-garmin:{id} -->`).
 
-Der bestehende **Kalender-Sync** (Hauptkalender → `Termin:`-Zeilen) bleibt unverändert; Garmin-Aktivitäten laufen über den separaten Aktivitäten-Kalender und den geplanten Garmin-Importer — **kein Doppel-Eintrag**.
+Der bestehende **Kalender-Sync** (Hauptkalender → `Termin:`-Zeilen) **importiert keine Garmin-Aktivitäten** (`garmin-*@denkarium` UID oder Kategorien Wandern/Spaziergang werden in [`calendarAppointments.ts`](src/integrations/calendarAppointments.ts) ausgeschlossen). Daily Notes für Wanderungen/Spaziergänge kommen über `garminSync.ts` + `pending.json` — der entfernt vor dem Import passende `Termin:`-Duplikate.
+
+**Wichtig:** Den All-INKL-Kalender **„Aktivitäten“** nur in **Thunderbird** abonnieren — **nicht** in Universal Calendar eintragen (sonst erscheinen Termine in der Monatsansicht, werden aber nicht mehr als `Termin:` importiert).
 
 | System | Rolle |
 |--------|--------|
 | Garmin Uhr | Quelle (GPS, Zeit, Distanz) |
-| Cron-Script | Sync-Motor (GPX, pending.json, CalDAV-PUT) |
+| Cron-Script | **universal-garmin-sync** (eigenes Repo, Host-only) |
 | All-INKL „Aktivitäten“ | Thunderbird-Kalenderansicht |
 | Obsidian Vault | Tagebuch, GPX, 3D-Track, Composer-Nachbearbeitung |
 

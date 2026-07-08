@@ -435,6 +435,38 @@ export function spaziergangSupplementMatchesByTitle(lines: string[]): Map<string
   return out;
 }
 
+function replaceSpaziergangSectionBody(
+  lines: string[],
+  bodyLines: string[],
+  entryIds: Set<string>,
+): string[] {
+  const range = extractSectionRange(lines, SPAZIERGANG_HEADING);
+  if (!range) {
+    if (bodyLines.length === 0) return lines;
+    const next = [...lines];
+    if (next.length > 0 && next[next.length - 1] !== "") next.push("");
+    next.push(`## ${SPAZIERGANG_HEADING}`, "");
+    next.push(...bodyLines);
+    return next;
+  }
+  if (bodyLines.length === 0) {
+    return [...lines.slice(0, range.start), ...lines.slice(range.end)];
+  }
+
+  const existingSection = lines.slice(range.start + 1, range.end);
+  const cleanedExisting = removeOrphanCallouts(existingSection, entryIds);
+  const managedStart = cleanedExisting.findIndex((l) => isManagedCalloutStart(l, SPAZIERGANG_HEADING));
+  const preserved = managedStart >= 0 ? cleanedExisting.slice(0, managedStart) : [];
+
+  return [
+    ...lines.slice(0, range.start + 1),
+    ...preserved,
+    ...(preserved.length > 0 ? [""] : []),
+    ...bodyLines,
+    ...lines.slice(range.end),
+  ];
+}
+
 export async function syncSpaziergangSupplements(
   app: App,
   file: TFile,
@@ -442,29 +474,37 @@ export async function syncSpaziergangSupplements(
   date: Date,
   layout: WandernLayoutSettings,
 ): Promise<boolean> {
-  const spaziergangEntries = entries.filter(entryIsSpaziergang);
-  const entryIds = new Set(spaziergangEntries.map((e) => e.entryId).filter(Boolean) as string[]);
+  const spaziergangEntries = entries
+    .filter((entry) => entryIsSpaziergang(entry) && entry.entryId?.trim())
+    .map((entry) => ({
+      entryId: entry.entryId,
+      time: entry.time,
+      body: entry.body,
+      context: entry.context,
+      profile: entry.profile,
+      supplementDetail: entry.supplementDetail,
+      supplementPhotos: entry.supplementPhotos,
+      supplementKurz: entry.supplementKurz,
+      supplementTrackPath: entry.supplementTrackPath,
+      reiseAssignment: entry.reiseAssignment,
+    })) as SpaziergangSyncEntry[];
+  const entryIds = new Set(spaziergangEntries.map((e) => e.entryId!));
   const profile = journalProfileById("spaziergang");
   if (!profile) return false;
 
-  const nextBody = await renderSpaziergangSectionBody(app, spaziergangEntries as SpaziergangSyncEntry[], date, layout);
+  const nextBody =
+    spaziergangEntries.length > 0
+      ? await renderSpaziergangSectionBody(app, spaziergangEntries, date, layout)
+      : [];
 
-  await processVaultFile(app, file, (content) => {
-    let lines = content.split("\n");
-    lines = ensureSectionHeading(lines, SPAZIERGANG_HEADING);
-    const range = extractSectionRange(lines, SPAZIERGANG_HEADING);
-    if (!range) return content;
-
-    const before = lines.slice(0, range.start + 1);
-    const after = lines.slice(range.end);
-
-    const existingSection = lines.slice(range.start + 1, range.end);
-    const cleanedExisting = removeOrphanCallouts(existingSection, entryIds);
-    const managedStart = cleanedExisting.findIndex((l) => isManagedCalloutStart(l, SPAZIERGANG_HEADING));
-    const preserved = managedStart >= 0 ? cleanedExisting.slice(0, managedStart) : [];
-
-    const merged = [...before, ...preserved, ...(preserved.length > 0 ? [""] : []), ...nextBody, ...after];
-    return merged.join("\n");
+  await processVaultFile(app, file, (raw) => {
+    let lines = raw.split("\n");
+    if (nextBody.length > 0) {
+      lines = ensureSectionHeading(lines, SPAZIERGANG_HEADING);
+    }
+    lines = replaceSpaziergangSectionBody(lines, nextBody, entryIds);
+    const content = lines.join("\n");
+    return content.endsWith("\n") || content.length === 0 ? content : `${content}\n`;
   });
 
   // Mark meta cache

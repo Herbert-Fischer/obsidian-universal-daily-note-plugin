@@ -9,6 +9,7 @@ import { dateFromDailyNoteFile } from "../../integrations/universalCalendar";
 import { getMainAreaActiveMarkdownFile } from "../../tagebuchVerweise/mainPageFile";
 import { runInsertWeather } from "../../weather/runInsertWeather";
 import { attachComposerDrag, applyComposerWindowPosition } from "./composerDrag";
+import { clearComposerDraft } from "./composerDraftCache";
 
 export type ComposerOpenFocus = {
   line?: number;
@@ -33,6 +34,7 @@ export class DailyComposerModal extends Modal {
   private detachViewport: (() => void) | null = null;
   private detachKeyboard: (() => void) | null = null;
   private detachDrag: (() => void) | null = null;
+  private closeGuard: (() => boolean) | null = null;
   private readonly isMobile = Platform.isMobile;
 
   constructor(
@@ -60,9 +62,16 @@ export class DailyComposerModal extends Modal {
   private focusEntryLine?: number;
   private focusEntryId?: string;
 
+  close(): void {
+    if (this.closeGuard && !this.closeGuard()) return;
+    clearComposerDraft();
+    super.close();
+  }
+
   onOpen(): void {
     const { contentEl, modalEl } = this;
     contentEl.empty();
+    this.blockBackdropClose();
     modalEl.addClass("udn-composerModal");
     if (this.isMobile) {
       modalEl.addClass("udn-composerModal--mobile");
@@ -113,6 +122,9 @@ export class DailyComposerModal extends Modal {
         initialFocusEntryLine: this.focusEntryLine ?? null,
         initialFocusEntryId: this.focusEntryId ?? null,
         onClose: () => this.close(),
+        onRegisterCloseGuard: (guard: () => boolean) => {
+          this.closeGuard = guard;
+        },
         onSaved: () => {
           this.onSaved?.(this.currentDate);
         },
@@ -151,6 +163,14 @@ export class DailyComposerModal extends Modal {
           this.detachKeyboard = attachComposerMobileKeyboard(composerRoot, modalEl, contentEl);
         }
       });
+    }
+  }
+
+  /** Keep the composer open when the user clicks elsewhere in Obsidian (nav, editor, …). */
+  private blockBackdropClose(): void {
+    const bg = this.containerEl.querySelector(".modal-bg");
+    if (bg instanceof HTMLElement) {
+      bg.addEventListener("click", (ev) => ev.stopImmediatePropagation(), { capture: true });
     }
   }
 

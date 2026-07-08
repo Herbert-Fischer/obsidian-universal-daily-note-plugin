@@ -7,7 +7,7 @@ export type JournalEntryMeta = {
   id: string;
   profile?: FeedProfile;
   context?: string;
-  /** Optional Reise-Zuordnung bei Profil wandern (zusätzlich zur Wanderung in context). */
+  /** Optional Reise-Zuordnung bei Profil wandern, spaziergang oder sonstiges. */
   reise?: string;
   callout?: string;
 };
@@ -117,7 +117,7 @@ export function entryMetaFromProfile(
     id,
     ...(prof ? { profile: prof } : {}),
     ...(ctx ? { context: ctx } : {}),
-    ...((prof === "wandern" || prof === "spaziergang") && trip ? { reise: trip } : {}),
+    ...((prof === "wandern" || prof === "spaziergang" || prof === "sonstiges") && trip ? { reise: trip } : {}),
     ...(callout?.trim() ? { callout: callout.trim() } : {}),
   };
 }

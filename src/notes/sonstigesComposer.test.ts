@@ -62,7 +62,7 @@ describe("sonstigesComposer", () => {
     ).toBe("Lilien von Otto");
   });
 
-  it("skips supplements without detail", () => {
+  it("renders callout shell when detail is empty", () => {
     const body = renderSonstigesSectionBody([
       {
         entryId: "a1",
@@ -79,9 +79,46 @@ describe("sonstigesComposer", () => {
       },
     ]);
     const joined = body.join("\n");
-    expect(joined).not.toContain("Kurz ohne Detail");
+    expect(joined).toContain("[!notes] Kurz ohne Detail");
     expect(joined).toContain("[!notes] Mit Detail");
     expect(joined).toContain("Ausarbeitung");
+  });
+
+  it("does not create Sonstiges section when no sonstiges entries", async () => {
+    let disk = [
+      "---",
+      "---",
+      "",
+      "## Tagebuch",
+      "> - 10:00 Aufstehen",
+      "",
+    ].join("\n");
+
+    const app = {
+      workspace: { getLeavesOfType: () => [] },
+      metadataCache: { trigger: () => {} },
+      vault: {
+        adapter: {
+          read: async () => disk,
+          write: async (_path: string, content: string) => {
+            disk = content;
+          },
+        },
+      },
+    } as unknown as App;
+
+    await syncSonstigesSupplements(app, mockFile("2026-07-02.md"), [
+      {
+        id: "line-1",
+        line: 1,
+        time: "10:00",
+        body: "Aufstehen",
+        rawLine: "- 10:00 Aufstehen",
+        profile: "tagebuch",
+      },
+    ]);
+
+    expect(disk).not.toContain("## Sonstiges");
   });
 
   it("roundtrips supplements into composer entries", () => {

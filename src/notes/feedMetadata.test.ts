@@ -25,6 +25,21 @@ describe("feedMetadata", () => {
     expect(meta.profile).toBe("heizung");
   });
 
+  it("infers spaziergang and wandern from line prefixes", () => {
+    expect(inferFeedMetadataFromLine("Spaziergang: Dorfrunde")).toEqual({
+      profile: "spaziergang",
+      context: "Dorfrunde",
+    });
+    expect(inferFeedMetadataFromLine("Wandern: Alpen")).toEqual({
+      profile: "wandern",
+      context: "Alpen",
+    });
+    expect(inferFeedMetadataFromLine("Spaziergang:")).toEqual({
+      profile: "spaziergang",
+      context: "",
+    });
+  });
+
   it("resolves metadata from bullet text", () => {
     const meta = resolveFeedMetadata(
       "- 12:00 Filter gewechselt ([[Lüftungs-Tagebuch]])",

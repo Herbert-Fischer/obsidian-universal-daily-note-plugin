@@ -183,6 +183,14 @@ function localDayKey(d: Date): string {
   return `${y}-${String(m).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
+function profileFromJournalBody(body: string): FeedProfile | undefined {
+  const trimmed = body.trim();
+  const lower = trimmed.toLowerCase();
+  if (lower.startsWith("spaziergang:")) return "spaziergang";
+  if (lower.startsWith("wandern:")) return "wandern";
+  return undefined;
+}
+
 function entryToComposer(entry: TimelineEntry): ComposerEntry {
   const rawText = entry.rawLine
     .trim()
@@ -193,16 +201,27 @@ function entryToComposer(entry: TimelineEntry): ComposerEntry {
   const calendarId = parseCalendarSyncId(stripped.body) ?? undefined;
   const displayBody = stripCalendarSyncMarker(body);
   const meta = stripped.meta;
-  const profile =
+  let profile =
     meta?.profile && meta.profile !== "tagebuch"
       ? meta.profile
       : entry.feedProfile && entry.feedProfile !== "tagebuch"
         ? entry.feedProfile
         : undefined;
-  const context = meta?.context?.trim() || entry.feedContext?.trim() || undefined;
+  if (!profile) {
+    profile = profileFromJournalBody(displayBody);
+  }
+  let context = meta?.context?.trim() || entry.feedContext?.trim() || undefined;
+  if (!context && profile === "spaziergang") {
+    const detail = displayBody.replace(/^spaziergang:\s*/i, "").trim();
+    if (detail) context = detail;
+  }
+  if (!context && profile === "wandern") {
+    const detail = displayBody.replace(/^wandern:\s*/i, "").trim();
+    if (detail) context = detail;
+  }
   const entryId = meta?.id || entry.entryId || (profile || context ? generateEntryId() : undefined);
   const reiseAssignment =
-    profile === "wandern" || profile === "spaziergang"
+    profile === "wandern" || profile === "spaziergang" || profile === "sonstiges"
       ? meta?.reise?.trim() || undefined
       : undefined;
   return {
@@ -297,12 +316,16 @@ export function composerEntryText(
       entry.profile === "heizung" ||
       entry.profile === "gedanken" ||
       entry.profile === "wandern" ||
-      entry.profile === "spaziergang") &&
+      entry.profile === "spaziergang" ||
+      entry.profile === "sonstiges") &&
     (entry.supplementDetail?.trim() ||
       entry.supplementKurz?.trim() ||
       entry.supplementTrackPath?.trim() ||
       (entry.supplementPhotos?.length ?? 0) > 0 ||
-      ((entry.profile === "wandern" || entry.profile === "spaziergang") && entry.reiseAssignment?.trim())) &&
+      ((entry.profile === "wandern" || entry.profile === "spaziergang" || entry.profile === "sonstiges") &&
+        entry.reiseAssignment?.trim()) ||
+      (entry.profile === "sonstiges" && entry.entryId?.trim()) ||
+      ((entry.profile === "wandern" || entry.profile === "spaziergang") && entry.entryId?.trim())) &&
     entry.entryId
       ? entry.entryId
       : entry.calloutId;

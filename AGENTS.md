@@ -57,4 +57,5 @@ npm test   # src/**/*.test.ts — fallback path helpers
 - [Obsidian plugin guidelines](https://docs.obsidian.md/Plugins/Releasing/Plugin+guidelines)
 - [Obsidian API](https://docs.obsidian.md)
 - User-facing docs: `README.md`
-- Vault docs (Garmin/CalDAV/Thunderbird, geplant): `Atlas/Technologien/Obsidian Plugins/Universal Daily Note/Plugin — Detail Garmin Sync CalDAV und Thunderbird.md`
+- Vault docs (Garmin/CalDAV/Thunderbird): `Atlas/Technologien/Obsidian Plugins/Universal Daily Note/Plugin — Detail Garmin Sync CalDAV und Thunderbird.md`
+- Host cron (separate repo): [**universal-garmin-sync**](https://github.com/denkarium/universal-garmin-sync) — develop on Linux host, not in dev container. Plugin bridge: [`docs/garmin-sync-integration.md`](docs/garmin-sync-integration.md).

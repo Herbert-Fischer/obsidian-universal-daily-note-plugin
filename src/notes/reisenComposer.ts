@@ -68,8 +68,7 @@ export type ReisenSyncEntry = Pick<
 
 export function entryQualifiesForReisenSection(entry: Pick<ComposerEntry, "profile" | "reiseAssignment" | "entryId">): boolean {
   if (!entry.entryId?.trim()) return false;
-  if (entry.profile === "reisen") return true;
-  return walkProfileWithReise(entry.profile) && Boolean(entry.reiseAssignment?.trim());
+  return entry.profile === "reisen";
 }
 
 function reiseGroupKey(entry: ReisenSyncEntry): string {
@@ -279,7 +278,7 @@ export async function renderReisenSectionBody(
   entries: ReisenSyncEntry[],
   sortModes: Record<string, ReisenSortOrder> = {},
 ): Promise<string[]> {
-  const reisenEntries = entries.filter((e) => e.entryId?.trim());
+  const reisenEntries = entries.filter((e) => e.entryId?.trim() && e.profile === "reisen");
   if (reisenEntries.length === 0) return [];
 
   const byReise = new Map<string, ReisenSyncEntry[]>();

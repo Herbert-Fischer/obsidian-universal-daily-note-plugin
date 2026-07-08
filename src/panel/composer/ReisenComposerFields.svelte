@@ -32,14 +32,15 @@
     {sourcePath}
     value={detail}
     ariaLabel="Erläuterung"
-    showReise={true}
-    {reise}
-    {reiseOptions}
-    reisePlaceholder="Reise"
-    reiseAriaLabel="Reise"
-    onReiseChange={onReiseChange}
-    onAddReiseOption={onAddReiseOption}
-    onHideReiseOption={onHideReiseOption}
+    showAssignment={true}
+    assignment={reise}
+    assignmentOptions={reiseOptions}
+    assignmentPlaceholder="Reise"
+    assignmentAriaLabel="Reise"
+    assignmentMenuLabel="Reise wählen oder verwalten"
+    onAssignmentChange={onReiseChange}
+    onAddAssignmentOption={onAddReiseOption}
+    onHideAssignmentOption={onHideReiseOption}
     onValueChange={onDetailChange}
     onFocus={focusTarget}
   />

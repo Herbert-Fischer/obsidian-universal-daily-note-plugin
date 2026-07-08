@@ -10,30 +10,39 @@
   export let placeholder = "Markdown: **fett**, *kursiv*, - Listen, [[Links]]…";
   export let ariaLabel = "Erläuterung";
   export let rows = 5;
-  export let showReise = false;
-  export let reise = "";
-  export let reiseOptions: string[] = [];
-  export let reisePlaceholder = "Zuordnung zu einer Reise (optional)";
-  export let reiseAriaLabel = "Zuordnung zu einer Reise (optional)";
-  export let onReiseChange: (value: string) => void = () => {};
-  export let onAddReiseOption: (value: string) => void = () => {};
-  export let onHideReiseOption: (value: string) => void = () => {};
+  export let showAssignment = false;
+  export let assignment = "";
+  export let assignmentOptions: string[] = [];
+  export let assignmentPlaceholder = "Zuordnung (optional)";
+  export let assignmentAriaLabel = "Zuordnung (optional)";
+  export let assignmentMenuLabel = "Zuordnung wählen oder verwalten";
+  export let onAssignmentChange: (value: string) => void = () => {};
+  export let onAddAssignmentOption: (value: string) => void = () => {};
+  export let onHideAssignmentOption: (value: string) => void = () => {};
   export let onValueChange: (value: string) => void = () => {};
   export let onFocus: (el: HTMLElement) => void = () => {};
 
-  const reiseDatalistId = `udn-reise-toolbar-${Math.random().toString(36).slice(2, 9)}`;
+  const assignmentDatalistId = `udn-assignment-toolbar-${Math.random().toString(36).slice(2, 9)}`;
 
-  let reiseInputEl: HTMLInputElement | undefined;
-  let reiseMenuAnchorEl: HTMLDivElement | undefined;
+  let fieldRoot: HTMLDivElement | undefined;
+  let assignmentInputEl: HTMLInputElement | undefined;
+  let assignmentMenuAnchorEl: HTMLDivElement | undefined;
   let textareaEl: HTMLTextAreaElement | undefined;
   let previewEl: HTMLDivElement | undefined;
   let previewComponent: Component | null = null;
   let showPreview = false;
-  let showReiseMenu = false;
+  let showAssignmentMenu = false;
   let draft = value;
+  let savedSelectionStart = 0;
+  let savedSelectionEnd = 0;
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-  $: if (value !== draft && document.activeElement !== textareaEl) {
+  function focusInsideField(): boolean {
+    const active = document.activeElement;
+    return Boolean(active && fieldRoot?.contains(active));
+  }
+
+  $: if (value !== draft && !focusInsideField()) {
     draft = value;
   }
 
@@ -85,19 +94,42 @@
     }
   }
 
+  function rememberSelection(): void {
+    if (!textareaEl) return;
+    savedSelectionStart = textareaEl.selectionStart ?? 0;
+    savedSelectionEnd = textareaEl.selectionEnd ?? 0;
+  }
+
+  function selectionRange(): [number, number] {
+    if (document.activeElement === textareaEl && textareaEl) {
+      return [textareaEl.selectionStart ?? 0, textareaEl.selectionEnd ?? 0];
+    }
+    return [savedSelectionStart, savedSelectionEnd];
+  }
+
   function applyEdit(next: string, selectionStart: number, selectionEnd: number): void {
     draft = next;
-    scheduleParentSync();
+    savedSelectionStart = selectionStart;
+    savedSelectionEnd = selectionEnd;
+    flushToParent();
     void tick().then(() => {
       textareaEl?.focus();
       textareaEl?.setSelectionRange(selectionStart, selectionEnd);
     });
   }
 
+  function stop(ev: Event): void {
+    ev.preventDefault();
+    ev.stopPropagation();
+  }
+
+  function onToolbarPointerDown(ev: Event): void {
+    stop(ev);
+    rememberSelection();
+  }
+
   function wrapSelection(before: string, after = before): void {
-    if (!textareaEl) return;
-    const start = textareaEl.selectionStart ?? 0;
-    const end = textareaEl.selectionEnd ?? 0;
+    const [start, end] = selectionRange();
     const selected = draft.slice(start, end);
     const next = draft.slice(0, start) + before + selected + after + draft.slice(end);
     const cursor = start + before.length + selected.length + after.length;
@@ -105,9 +137,7 @@
   }
 
   function prefixLines(prefix: string): void {
-    if (!textareaEl) return;
-    const start = textareaEl.selectionStart ?? 0;
-    const end = textareaEl.selectionEnd ?? 0;
+    const [start, end] = selectionRange();
     const block = draft.slice(start, end);
     const lines = block.length > 0 ? block.split("\n") : [""];
     const formatted = lines.map((line) => (line.startsWith(prefix) ? line : `${prefix}${line}`)).join("\n");
@@ -116,9 +146,7 @@
   }
 
   function insertWikiLink(): void {
-    if (!textareaEl) return;
-    const start = textareaEl.selectionStart ?? 0;
-    const end = textareaEl.selectionEnd ?? 0;
+    const [start, end] = selectionRange();
     const selected = draft.slice(start, end);
     const insertion = selected ? `[[${selected}]]` : "[[]]";
     const next = draft.slice(0, start) + insertion + draft.slice(end);
@@ -141,6 +169,7 @@
   }
 
   function onBlur(): void {
+    rememberSelection();
     flushToParent();
   }
 
@@ -148,110 +177,169 @@
     onFocus(ev.currentTarget as HTMLElement);
   }
 
-  function onReiseInput(ev: Event): void {
-    onReiseChange((ev.currentTarget as HTMLInputElement).value.trim());
+  function onAssignmentInput(ev: Event): void {
+    onAssignmentChange((ev.currentTarget as HTMLInputElement).value.trim());
   }
 
-  function clearReise(): void {
-    onReiseChange("");
+  function clearAssignment(): void {
+    onAssignmentChange("");
   }
 
-  $: reiseTrimmed = reise.trim();
-  $: reiseKnown = reiseOptions.some((o) => o.trim().toLowerCase() === reiseTrimmed.toLowerCase());
+  $: assignmentTrimmed = assignment.trim();
+  $: assignmentKnown = assignmentOptions.some((o) => o.trim().toLowerCase() === assignmentTrimmed.toLowerCase());
 
   function onDocumentPointerDown(ev: PointerEvent): void {
-    if (!showReiseMenu || !reiseMenuAnchorEl) return;
-    if (reiseMenuAnchorEl.contains(ev.target as Node)) return;
-    showReiseMenu = false;
+    if (!showAssignmentMenu || !assignmentMenuAnchorEl) return;
+    if (assignmentMenuAnchorEl.contains(ev.target as Node)) return;
+    showAssignmentMenu = false;
   }
 
-  function toggleReiseMenu(ev: MouseEvent): void {
+  function toggleAssignmentMenu(ev: MouseEvent): void {
     ev.preventDefault();
     ev.stopPropagation();
-    showReiseMenu = !showReiseMenu;
+    showAssignmentMenu = !showAssignmentMenu;
   }
 
-  function selectReise(option: string): void {
-    onReiseChange(option);
-    showReiseMenu = false;
+  function selectAssignment(option: string): void {
+    onAssignmentChange(option);
+    showAssignmentMenu = false;
   }
 
-  function removeReiseOption(option: string, ev: MouseEvent): void {
+  function removeAssignmentOption(option: string, ev: MouseEvent): void {
     ev.preventDefault();
     ev.stopPropagation();
-    onHideReiseOption(option);
+    onHideAssignmentOption(option);
   }
 
-  function saveReiseOption(): void {
-    if (!reiseTrimmed || reiseKnown) return;
-    onAddReiseOption(reiseTrimmed);
+  function saveAssignmentOption(): void {
+    if (!assignmentTrimmed || assignmentKnown) return;
+    onAddAssignmentOption(assignmentTrimmed);
   }
+
+  $: previewToggleSolo = !showAssignment && !$$slots.toolbarExtra;
 </script>
 
-<div class="udn-markdownDetailField">
+<div class="udn-markdownDetailField" bind:this={fieldRoot}>
   <div class="udn-markdownDetailToolbar" role="toolbar" aria-label="Markdown formatieren">
-    <button type="button" class={dk.btn} title="Fett" on:click={() => wrapSelection("**")} disabled={showPreview}>
+    <button
+      type="button"
+      class={dk.btn}
+      title="Fett"
+      on:mousedown={onToolbarPointerDown}
+      on:click={(ev) => {
+        stop(ev);
+        wrapSelection("**");
+      }}
+      disabled={showPreview}
+    >
       <strong>B</strong>
     </button>
-    <button type="button" class={dk.btn} title="Kursiv" on:click={() => wrapSelection("*")} disabled={showPreview}>
+    <button
+      type="button"
+      class={dk.btn}
+      title="Kursiv"
+      on:mousedown={onToolbarPointerDown}
+      on:click={(ev) => {
+        stop(ev);
+        wrapSelection("*");
+      }}
+      disabled={showPreview}
+    >
       <em>I</em>
     </button>
-    <button type="button" class={dk.btn} title="Liste" on:click={() => prefixLines("- ")} disabled={showPreview}>
+    <button
+      type="button"
+      class={dk.btn}
+      title="Liste"
+      on:mousedown={onToolbarPointerDown}
+      on:click={(ev) => {
+        stop(ev);
+        prefixLines("- ");
+      }}
+      disabled={showPreview}
+    >
       •
     </button>
-    <button type="button" class={dk.btn} title="Wiki-Link" on:click={insertWikiLink} disabled={showPreview}>
+    <button
+      type="button"
+      class={dk.btn}
+      title="Wiki-Link"
+      on:mousedown={onToolbarPointerDown}
+      on:click={(ev) => {
+        stop(ev);
+        insertWikiLink();
+      }}
+      disabled={showPreview}
+    >
       [[ ]]
     </button>
-    {#if showReise}
-      <div class="udn-markdownDetailReiseWrap" bind:this={reiseMenuAnchorEl}>
+    {#if $$slots.toolbarExtra}
+      <div class="udn-markdownDetailToolbarExtra">
+        <slot name="toolbarExtra" />
+      </div>
+    {/if}
+    {#if showAssignment}
+      <div class="udn-markdownDetailReiseWrap" bind:this={assignmentMenuAnchorEl}>
         <input
-          bind:this={reiseInputEl}
+          bind:this={assignmentInputEl}
           type="text"
           class="{dk.input} udn-markdownDetailToolbarReise udn-reisenReiseInput"
-          value={reise}
-          list={reiseDatalistId}
-          placeholder={reisePlaceholder}
-          on:input={onReiseInput}
+          value={assignment}
+          list={assignmentDatalistId}
+          placeholder={assignmentPlaceholder}
+          on:input={onAssignmentInput}
           on:focus={focusTarget}
-          aria-label={reiseAriaLabel}
+          aria-label={assignmentAriaLabel}
         />
         <button
           type="button"
           class="{dk.btn} udn-markdownDetailReiseMenu"
-          class:udn-markdownDetailReiseMenu--open={showReiseMenu}
-          title="Reise wählen oder verwalten"
-          aria-label="Reise wählen oder verwalten"
-          aria-expanded={showReiseMenu}
-          on:click={toggleReiseMenu}
+          class:udn-markdownDetailReiseMenu--open={showAssignmentMenu}
+          title={assignmentMenuLabel}
+          aria-label={assignmentMenuLabel}
+          aria-expanded={showAssignmentMenu}
+          on:click={(ev) => {
+            stop(ev);
+            toggleAssignmentMenu(ev);
+          }}
         >▼</button>
-        {#if reise.trim()}
+        {#if assignment.trim()}
           <button
             type="button"
             class="{dk.btn} udn-markdownDetailReiseClear"
-            title="Reise-Zuordnung löschen"
-            aria-label="Reise-Zuordnung löschen"
-            on:click={clearReise}
+            title="Zuordnung löschen"
+            aria-label="Zuordnung löschen"
+            on:click={(ev) => {
+              stop(ev);
+              clearAssignment();
+            }}
           >×</button>
         {/if}
-        {#if showReiseMenu}
-          <div class="udn-reiseMenu" role="menu" aria-label="Gespeicherte Reisen">
-            {#if reiseOptions.length === 0}
-              <div class="udn-reiseMenuEmpty">Keine gespeicherten Reisen</div>
+        {#if showAssignmentMenu}
+          <div class="udn-reiseMenu" role="menu" aria-label={assignmentMenuLabel}>
+            {#if assignmentOptions.length === 0}
+              <div class="udn-reiseMenuEmpty">Keine gespeicherten Einträge</div>
             {:else}
-              {#each reiseOptions as option (option)}
+              {#each assignmentOptions as option (option)}
                 <div class="udn-reiseMenuRow" role="none">
                   <button
                     type="button"
                     class="udn-reiseMenuPick"
                     role="menuitem"
-                    on:click={() => selectReise(option)}
+                    on:click={(ev) => {
+                      stop(ev);
+                      selectAssignment(option);
+                    }}
                   >{option}</button>
                   <button
                     type="button"
                     class="udn-reiseMenuRemove"
                     title="Aus Liste entfernen"
                     aria-label="Aus Liste entfernen"
-                    on:click={(ev) => removeReiseOption(option, ev)}
+                    on:click={(ev) => {
+                      stop(ev);
+                      removeAssignmentOption(option, ev);
+                    }}
                   >×</button>
                 </div>
               {/each}
@@ -260,17 +348,20 @@
               <button
                 type="button"
                 class="{dk.btn} udn-reiseMenuSave"
-                disabled={!reiseTrimmed || reiseKnown}
-                on:click={saveReiseOption}
+                disabled={!assignmentTrimmed || assignmentKnown}
+                on:click={(ev) => {
+                  stop(ev);
+                  saveAssignmentOption();
+                }}
               >
-                {reiseTrimmed ? `„${reiseTrimmed}" speichern` : "Neue Reise speichern…"}
+                {assignmentTrimmed ? `„${assignmentTrimmed}" speichern` : "Neuen Eintrag speichern…"}
               </button>
             </div>
           </div>
         {/if}
       </div>
-      <datalist id={reiseDatalistId}>
-        {#each reiseOptions as option (option)}
+      <datalist id={assignmentDatalistId}>
+        {#each assignmentOptions as option (option)}
           <option value={option} />
         {/each}
       </datalist>
@@ -278,8 +369,12 @@
     <button
       type="button"
       class="{dk.btn} udn-markdownDetailPreviewToggle"
-      class:udn-markdownDetailPreviewToggle--solo={!showReise}
-      on:click={togglePreview}
+      class:udn-markdownDetailPreviewToggle--solo={previewToggleSolo}
+      on:mousedown={onToolbarPointerDown}
+      on:click={(ev) => {
+        stop(ev);
+        void togglePreview();
+      }}
     >
       {showPreview ? "Bearbeiten" : "Vorschau"}
     </button>
@@ -299,6 +394,9 @@
       on:input={onInput}
       on:focus={focusTarget}
       on:blur={onBlur}
+      on:select={rememberSelection}
+      on:keyup={rememberSelection}
+      on:click={rememberSelection}
     ></textarea>
   {/if}
 </div>
