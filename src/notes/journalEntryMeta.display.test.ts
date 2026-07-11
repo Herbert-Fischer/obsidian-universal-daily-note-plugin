@@ -12,4 +12,14 @@ describe("stripJournalLineForDisplay", () => {
     const line = "13:30 Termin <!-- udn-cal:caldav:event:abc -->";
     expect(stripJournalLineForDisplay(line)).toBe("13:30 Termin");
   });
+
+  it("removes managed callout markers like [!fire]+", () => {
+    const line = "[!fire]+ jährliche Heizungswartung ([[Heizung]])";
+    expect(stripJournalLineForDisplay(line)).toBe("jährliche Heizungswartung ([[Heizung]])");
+  });
+
+  it("removes callout markers with leading blockquote", () => {
+    const line = "> [!wind]+ Filterwechsel ([[Lüftung]])";
+    expect(stripJournalLineForDisplay(line)).toBe("Filterwechsel ([[Lüftung]])");
+  });
 });

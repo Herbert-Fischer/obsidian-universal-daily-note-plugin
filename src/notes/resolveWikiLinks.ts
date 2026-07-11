@@ -233,10 +233,22 @@ function parseWikiLinkToken(token: string): { page: string; heading?: string; al
   return { page: page.trim(), heading: heading?.trim(), alias: alias?.trim() };
 }
 
-const TRAILING_LINKS_ONLY_RE = /^([^[\]]+?)\s{2,}((?:\[\[[^\]]+\]\]\s*)+)$/;
+const TRAILING_SEPARATOR_RE = /\s{2,}(?:\[\[[^\]]+\]\]\s*)+$/;
 
-function isTrailingLinksOnlyFormat(text: string): boolean {
-  return TRAILING_LINKS_ONLY_RE.test(text.trim());
+function hasFormattedTrailingLinks(text: string): boolean {
+  return TRAILING_SEPARATOR_RE.test(text.trim());
+}
+
+function stripRepeatedTrailingAliases(leading: string, trailing: string[]): string {
+  let prose = leading.replace(/\s+/g, " ").trim();
+  for (const token of trailing) {
+    const alias = parseWikiLinkToken(token).alias?.trim();
+    if (!alias) continue;
+    const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const repeat = new RegExp(`(?:\\s+${escaped}){2,}$`, "i");
+    prose = prose.replace(repeat, "").trimEnd();
+  }
+  return prose;
 }
 
 /**
@@ -253,29 +265,49 @@ export function formatTerminProseWithTrailingLinks(
   if (!trimmed) return trimmed;
 
   const vaultIndex = index ?? buildVaultLinkIndex(app);
-  const linksInOrder: string[] = [];
-  const seen = new Set<string>();
-
-  if (isTrailingLinksOnlyFormat(trimmed)) {
-    const match = TRAILING_LINKS_ONLY_RE.exec(trimmed);
-    const prose = match?.[1]?.replace(/\s+/g, " ").trim() ?? "";
-    const trailingBlock = match?.[2] ?? "";
-    for (const token of trailingBlock.match(/\[\[[^\]]+\]\]/g) ?? []) {
+  if (hasFormattedTrailingLinks(trimmed)) {
+    const split = splitTrailingWikiLinkBlock(trimmed);
+    const linksInOrder: string[] = [];
+    const seen = new Set<string>();
+    for (const token of split.trailing) {
       const { page, heading, alias } = parseWikiLinkToken(token);
       collectCanonicalLink(app, page, heading, alias, sourcePath, vaultIndex, linksInOrder, seen);
     }
+    const prose = stripRepeatedTrailingAliases(split.leading, split.trailing);
     if (linksInOrder.length === 0) return prose;
     return `${prose}   ${linksInOrder.join(" ")}`;
   }
 
+  const linksInOrder: string[] = [];
+  const seen = new Set<string>();
+
   if (!trimmed.includes("[[")) return trimmed;
 
-  const prose = trimmed
-    .replace(WIKI_LINK_RE, (_full, page: string, heading: string | undefined, alias: string | undefined) =>
-      collectCanonicalLink(app, page, heading, alias, sourcePath, vaultIndex, linksInOrder, seen),
-    )
-    .replace(/\s+/g, " ")
-    .trim();
+  let prose = "";
+  let lastIndex = 0;
+  const re = new RegExp(WIKI_LINK_RE.source, WIKI_LINK_RE.flags);
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(trimmed)) !== null) {
+    const [full, page, heading, alias] = match;
+    prose += trimmed.slice(lastIndex, match.index);
+    const label = collectCanonicalLink(
+      app,
+      page,
+      heading,
+      alias,
+      sourcePath,
+      vaultIndex,
+      linksInOrder,
+      seen,
+    );
+    const before = prose.trimEnd();
+    if (!before.toLowerCase().endsWith(label.toLowerCase())) {
+      prose += label;
+    }
+    lastIndex = match.index + full.length;
+  }
+  prose += trimmed.slice(lastIndex);
+  prose = prose.replace(/\s+/g, " ").trim();
 
   if (linksInOrder.length === 0) return prose;
   return `${prose}   ${linksInOrder.join(" ")}`;
@@ -291,18 +323,23 @@ export function isUnresolvedWikiLink(app: App, dest: string, sourcePath = ""): b
 const TERM_PREFIX = /^termin:\s*/i;
 
 /** Resolve Termin lines: plain names in text, canonical `[[Ziel|Alias]]` links at the end. */
-export function resolveJournalBodyWikiLinks(app: App, body: string, sourcePath = ""): string {
+export function resolveJournalBodyWikiLinks(
+  app: App,
+  body: string,
+  sourcePath = "",
+  index?: VaultLinkIndex,
+): string {
   const trimmed = body.trim();
   if (!trimmed.includes("[[")) return body;
-  const index = buildVaultLinkIndex(app);
+  const vaultIndex = index ?? buildVaultLinkIndex(app);
 
   if (TERM_PREFIX.test(trimmed)) {
     const rest = trimmed.replace(TERM_PREFIX, "");
-    const resolved = formatTerminProseWithTrailingLinks(app, rest, sourcePath, index);
+    const resolved = formatTerminProseWithTrailingLinks(app, rest, sourcePath, vaultIndex);
     return resolved === rest ? body : `Termin: ${resolved}`;
   }
 
-  const resolved = resolveWikiLinksInText(app, trimmed, sourcePath, index);
+  const resolved = resolveWikiLinksInText(app, trimmed, sourcePath, vaultIndex);
   return resolved === trimmed ? body : resolved;
 }
 

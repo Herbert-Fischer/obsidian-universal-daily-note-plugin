@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { migrateDailyNoteContent } from "./migrateDailyNote";
+import { DAILY_NOTE_VAULT_NAV_BLOCK, migrateDailyNoteContent } from "./migrateDailyNote";
 
 describe("migrateDailyNoteContent", () => {
-  it("converts legacy bullets and keeps mfh nav callout", () => {
+  it("converts legacy bullets and inserts Vault-Nav", () => {
     const input = `---
 fileClass: Daily Notes
 Erstellt: 2026-04-25
@@ -20,8 +20,9 @@ Zusammenfassung: Test
     const out = migrateDailyNoteContent(input, "2026-04-25")!;
     expect(out).toContain("Erstellt:\n  2026-04-25");
     expect(out).toContain('Up: "[[Tagebuch]]"');
-    expect(out).toContain("[!mfh]+");
-    expect(out).toContain("dv.current().up");
+    expect(out).toContain(DAILY_NOTE_VAULT_NAV_BLOCK);
+    expect(out).not.toContain("[!mfh]+");
+    expect(out).not.toContain("dv.current().up");
     expect(out).toContain("> [!tagebuch-ref] 25.04.2026");
     expect(out).toContain("> - 08:10 Aufstehen");
     expect(out).toContain("- [ ] Task");
@@ -38,7 +39,8 @@ Zusammenfassung:
 > - 07:10 Aufstehen
 `;
     const out = migrateDailyNoteContent(input, "2026-06-23")!;
-    expect(out).toContain("[!mfh]+");
+    expect(out).toContain("Vault-Nav.view");
+    expect(out).not.toContain("[!mfh]+");
     expect(out).toContain("## Tagebuch");
     expect(out).toContain("> [!tagebuch-ref] 23.06.2026");
     expect(out).toContain("> - 07:10 Aufstehen");
@@ -57,7 +59,7 @@ Zusammenfassung:
 - Freitext
 `;
     const out = migrateDailyNoteContent(input, "2026-04-25")!;
-    expect(out).toContain("[!mfh]+");
+    expect(out).toContain("Vault-Nav.view");
     expect(out).toContain("> [!notes] Sonstiges");
     expect(out).toContain("> - Freitext");
   });

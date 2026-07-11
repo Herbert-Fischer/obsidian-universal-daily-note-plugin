@@ -1,4 +1,5 @@
 import type { App } from "obsidian";
+import { TFile } from "obsidian";
 import type { DailyNoteFallbackSettings, GarminSyncSettings, WandernLayoutSettings } from "../settings";
 import {
   importGarminActivityIntoDailyNote,
@@ -64,10 +65,20 @@ export async function readGarminPendingManifest(
 ): Promise<GarminPendingManifest | null> {
   const path = manifestPath.trim();
   if (!path) return null;
-  const exists = await app.vault.adapter.exists(path);
-  if (!exists) return null;
-  const raw = await app.vault.adapter.read(path);
-  return parseGarminPendingManifest(raw);
+  // Host cron writes pending.json outside Obsidian — adapter.read avoids stale TFile cache.
+  if (await app.vault.adapter.exists(path)) {
+    try {
+      const raw = await app.vault.adapter.read(path);
+      return parseGarminPendingManifest(raw);
+    } catch {
+      /* fall through to vault.read */
+    }
+  }
+  const file = app.vault.getAbstractFileByPath(path);
+  if (file instanceof TFile) {
+    return parseGarminPendingManifest(await app.vault.read(file));
+  }
+  return null;
 }
 
 export async function writeGarminPendingManifest(
@@ -104,23 +115,56 @@ export async function importGarminPendingActivities(
   const manifestPath = settings.pendingManifestPath.trim();
   if (!manifestPath) return 0;
 
+  const exists = await app.vault.adapter.exists(manifestPath);
   const manifest = await readGarminPendingManifest(app, manifestPath);
-  if (!manifest || manifest.activities.length === 0) return 0;
+  if (!manifest) {
+    console.info("Universal Daily Note: Garmin-Import — pending.json nicht lesbar", manifestPath, {
+      exists,
+    });
+    return 0;
+  }
+  if (manifest.activities.length === 0) {
+    console.info(
+      "Universal Daily Note: Garmin-Import — keine ausstehenden Aktivitäten",
+      manifestPath,
+      exists ? "(Datei vorhanden, activities leer — vermutlich bereits importiert)" : "",
+    );
+    return 0;
+  }
+
+  console.info(
+    "Universal Daily Note: Garmin-Import start",
+    manifest.activities.length,
+    "Aktivität(en)",
+    manifestPath,
+  );
 
   const remaining: GarminPendingActivity[] = [];
   let imported = 0;
 
   for (const activity of manifest.activities) {
-    const ok = await importGarminActivityIntoDailyNote(app, {
-      activity,
-      fallback,
-      wandernLayout,
-      spaziergangLayout,
-      dailyNotesFolder,
-    });
-    if (ok) {
-      imported += 1;
-    } else {
+    try {
+      const ok = await importGarminActivityIntoDailyNote(app, {
+        activity,
+        fallback,
+        wandernLayout,
+        spaziergangLayout,
+        dailyNotesFolder,
+      });
+      console.info(
+        "Universal Daily Note: Garmin-Import",
+        activity.garminId,
+        ok ? "ok" : "übersprungen",
+        activity.date,
+        activity.profile,
+      );
+      if (ok) {
+        imported += 1;
+      } else {
+        remaining.push(activity);
+      }
+    } catch (error) {
+      console.error("Universal Daily Note: Garmin-Import", activity.garminId, error);
       remaining.push(activity);
     }
   }

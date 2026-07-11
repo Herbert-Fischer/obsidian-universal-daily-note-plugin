@@ -112,6 +112,20 @@ export function calloutTypesForHeading(heading: string): string[] {
 
 const CALLOUT_TITLE = /^>\s*\[!([^\]|]+)(?:\|([^\]]*))?\]([+-])?\s*(.*)$/;
 
+/** Inline callout marker without leading `>` (after journalLineCell / cleanJournalLine). */
+const INLINE_CALLOUT_MARKER = /^\[!([^\]|]+)(?:\|([^\]]*))?\]([+-])?\s*(.*)$/;
+
+/** Remove Obsidian callout syntax from journal display text (Outline / Verweise). */
+export function stripCalloutMarkerFromDisplay(text: string): string {
+  let rest = text.trim().replace(/^>\s*/, "");
+  const m = rest.match(INLINE_CALLOUT_MARKER);
+  if (!m) return rest;
+  const fromPipe = m[2]?.trim();
+  const fromRest = (m[4]?.trim() ?? "");
+  const inner = fromPipe || fromRest;
+  return inner || rest;
+}
+
 /** Trip name from a Reisen callout title line (e.g. „Mamas 90ter Geburtstag“). */
 export function parseReisenTripLabel(calloutLine: string): string | null {
   const m = calloutLine.trim().match(CALLOUT_TITLE);

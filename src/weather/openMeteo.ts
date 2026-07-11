@@ -6,6 +6,9 @@ export type GeoPlace = {
   placeName: string;
   admin1?: string;
   country?: string;
+  locality?: string;
+  county?: string;
+  landscape?: string;
 };
 
 export type CurrentWeather = {
@@ -114,25 +117,52 @@ type NominatimAddress = {
   municipality?: string;
   state?: string;
   country?: string;
+  county?: string;
+  region?: string;
+  state_district?: string;
 };
+
+/** Extract landscape name from Nominatim address (region, district, or parenthetical suffix). */
+export function landscapeFromNominatimAddress(address: NominatimAddress): string | undefined {
+  const region = address.region?.trim();
+  if (region) return region;
+  const district = address.state_district?.trim();
+  if (district) return district;
+  for (const key of ["municipality", "village", "town", "city"] as const) {
+    const val = address[key]?.trim();
+    if (!val) continue;
+    const match = val.match(/\(([^)]+)\)\s*$/);
+    if (match?.[1]?.trim()) return match[1].trim();
+  }
+  return undefined;
+}
+
+function stripParentheticalSuffix(name: string): string {
+  return name.replace(/\s*\([^)]+\)\s*$/, "").trim();
+}
 
 /** Map Nominatim reverse-geocode address fields to Open-Meteo-style place parts. */
 export function nominatimAddressToPlaceFields(address: NominatimAddress): {
   name: string;
   admin1?: string;
   country?: string;
+  county?: string;
+  landscape?: string;
 } {
-  const name =
+  const rawName =
     address.village ??
     address.town ??
     address.city ??
     address.hamlet ??
     address.municipality ??
     "";
+  const name = stripParentheticalSuffix(rawName);
   return {
     name,
     admin1: address.state,
     country: address.country,
+    county: address.county?.trim() || undefined,
+    landscape: landscapeFromNominatimAddress(address),
   };
 }
 
@@ -151,7 +181,7 @@ export async function reverseGeocode(latitude: number, longitude: number): Promi
     const url =
       `https://nominatim.openstreetmap.org/reverse?lat=${encodeURIComponent(String(latitude))}` +
       `&lon=${encodeURIComponent(String(longitude))}` +
-      `&format=json&accept-language=de&addressdetails=1`;
+      `&format=json&accept-language=de&addressdetails=1&zoom=10`;
     const res = await requestUrl({
       url,
       headers: { "User-Agent": NOMINATIM_USER_AGENT },
@@ -160,14 +190,22 @@ export async function reverseGeocode(latitude: number, longitude: number): Promi
 
     const data = res.json as { address?: NominatimAddress };
     const fields = data.address ? nominatimAddressToPlaceFields(data.address) : null;
-    if (!fields?.name) return coordFallback();
+    if (!fields || (!fields.admin1 && !fields.name && !fields.county)) return coordFallback();
+
+    const locality = fields.name || stripParentheticalSuffix(data.address?.municipality ?? "") || fields.county || "";
+    const placeName = locality
+      ? formatPlaceName({ name: locality, admin1: fields.admin1, country: fields.country })
+      : [fields.county, fields.admin1, fields.country].filter(Boolean).join(", ");
 
     return {
       latitude,
       longitude,
-      placeName: formatPlaceName(fields),
+      placeName,
       admin1: fields.admin1,
       country: fields.country,
+      locality: locality || undefined,
+      county: fields.county,
+      landscape: fields.landscape,
     };
   } catch {
     return coordFallback();

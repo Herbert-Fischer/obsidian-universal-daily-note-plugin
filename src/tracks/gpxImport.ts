@@ -1,5 +1,4 @@
 import { TFile, type App, type TAbstractFile } from "obsidian";
-import type { TracksSettings } from "../settings";
 
 export type TrackMatch = {
   path: string;
@@ -120,7 +119,7 @@ function formatCoord(p: GpxPoint | null): string | null {
   return `${p.lat.toFixed(4)}°, ${p.lon.toFixed(4)}°`;
 }
 
-function formatDuration(sec: number | null): string | null {
+export function formatDuration(sec: number | null): string | null {
   if (sec == null || sec <= 0) return null;
   const h = Math.floor(sec / 3600);
   const m = Math.floor((sec % 3600) / 60);
@@ -191,10 +190,9 @@ async function trackMatchFromFile(app: App, file: TFile): Promise<TrackMatch> {
 export async function findTracksForDay(
   app: App,
   date: Date,
-  settings: TracksSettings,
+  folder: string,
 ): Promise<TrackMatch[]> {
-  if (!settings.enabled) return [];
-  const folderPath = settings.folder.trim().replace(/^\/+|\/+$/g, "");
+  const folderPath = folder.trim().replace(/^\/+|\/+$/g, "");
   if (!folderPath) return [];
 
   const root = app.vault.getAbstractFileByPath(folderPath);
@@ -216,12 +214,8 @@ export async function findTracksForDay(
   return matches.sort((a, b) => a.name.localeCompare(b.name, "de"));
 }
 
-export async function findAllTracksInFolder(
-  app: App,
-  settings: TracksSettings,
-): Promise<TrackMatch[]> {
-  if (!settings.enabled) return [];
-  const folderPath = settings.folder.trim().replace(/^\/+|\/+$/g, "");
+export async function findAllTracksInFolder(app: App, folder: string): Promise<TrackMatch[]> {
+  const folderPath = folder.trim().replace(/^\/+|\/+$/g, "");
   if (!folderPath) return [];
 
   const root = app.vault.getAbstractFileByPath(folderPath);

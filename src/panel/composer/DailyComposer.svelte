@@ -3,7 +3,7 @@
   import type { App } from "obsidian";
   import { Menu, Notice, setIcon, TFile } from "obsidian";
   import { dk } from "@denkarium/obsidian-lib-ui";
-  import type { DailyNoteFallbackSettings, TagebuchVerweiseSettings, CalendarSyncSettings, ComposerTemplatesSettings, ComposerGroupLabelListSettings, TracksSettings, WandernLayoutSettings, FeedDetailLayoutSettings } from "../../settings";
+  import type { DailyNoteFallbackSettings, TagebuchVerweiseSettings, CalendarSyncSettings, ComposerTemplatesSettings, ComposerGroupLabelListSettings, WandernLayoutSettings, FeedDetailLayoutSettings } from "../../settings";
   import { DEFAULT_SETTINGS } from "../../settings";
   import { addLocalDays, formatTimeLocal, normalizeLocalDay } from "../dateUtils";
   import { formatDayBubbleLabel } from "../formatDayBubble";
@@ -16,6 +16,8 @@
     loadComposerState,
     saveComposerState,
     suggestSummaryFromEntries,
+    syncWalkEntryContexts,
+    walkContextFromTimelineBody,
     type ComposerChip,
     type ComposerEntry,
   } from "../../notes/dailyComposer";
@@ -35,6 +37,7 @@
     type ComposerTemplatePack,
   } from "../../notes/composerTemplates";
   import { findAllTracksInFolder, findTracksForDay, formatTrackSummary, type TrackMatch } from "../../tracks/gpxImport";
+  import { resolveTracksFolder, tracksFolderForTemplatePack } from "../../tracks/resolveTracksFolder";
   import { trackPickOptionsForDay, type TrackPickOption } from "../../tracks/trackPickModal";
   import { importJournalPhoto, maxPhotosForHeading } from "../../notes/photoImport";
   import {
@@ -87,6 +90,7 @@
     peekComposerDraft,
     saveComposerDraft,
   } from "./composerDraftCache";
+  import ComposerTimeInput from "./ComposerTimeInput.svelte";
 
   export let app: App;
   export let date: Date;
@@ -101,7 +105,6 @@
   export let composerTemplates: ComposerTemplatesSettings = DEFAULT_SETTINGS.composerTemplates;
   export let composerGroupLabels: Partial<Record<FeedProfile, ComposerGroupLabelListSettings>> =
     DEFAULT_SETTINGS.composerGroupLabels;
-  export let tracksSettings: TracksSettings = DEFAULT_SETTINGS.tracks;
   export let wandernLayout: WandernLayoutSettings = DEFAULT_SETTINGS.wandernLayout;
   export let spaziergangLayout: WandernLayoutSettings = DEFAULT_SETTINGS.spaziergangLayout;
   export let feedDetailLayout: FeedDetailLayoutSettings = DEFAULT_SETTINGS.feedDetailLayout;
@@ -141,6 +144,28 @@
 
   function isWalkProfile(profile: FeedProfile | undefined): boolean {
     return entryUsesWandernFields(profile);
+  }
+
+  function walkTracksFolder(profile: FeedProfile | undefined): string {
+    return resolveTracksFolder(wandernLayout, spaziergangLayout, profile);
+  }
+
+  async function loadTrackPickOptions(folder: string): Promise<TrackPickOption[] | null> {
+    const folderPath = folder.trim();
+    if (!folderPath) {
+      new Notice("Kein GPX-Ordner in den Plugin-Einstellungen hinterlegt.");
+      return null;
+    }
+
+    const dayTracks = await findTracksForDay(app, currentDate, folderPath);
+    const allTracks = await findAllTracksInFolder(app, folderPath);
+    const dayPaths = new Set(dayTracks.map((t) => t.path));
+    const otherTracks = allTracks.filter((t) => !dayPaths.has(t.path));
+    if (dayTracks.length === 0 && otherTracks.length === 0) {
+      new Notice(`Keine GPX-Dateien in „${folderPath}“ gefunden.`);
+      return null;
+    }
+    return trackPickOptionsForDay(dayTracks, otherTracks);
   }
 
   function showReiseForEntry(entry: Pick<ComposerEntry, "profile" | "reiseAssignment">): boolean {
@@ -556,18 +581,19 @@
     onDateChange(currentDate);
     try {
       if (calendarSync?.enabled) {
-        void import("../../integrations/calendarAppointments")
-          .then(({ syncCalendarAppointmentsIntoDailyNote }) =>
-            syncCalendarAppointmentsIntoDailyNote(app, {
-              date: currentDate,
-              fallback,
-              settings: calendarSync,
-              oncePerSession: true,
-            }),
-          )
-          .catch((syncErr) => {
-            console.warn("Universal Daily Note: Kalender-Sync beim Composer-Laden", syncErr);
+        try {
+          const { syncCalendarAppointmentsIntoDailyNote } = await import(
+            "../../integrations/calendarAppointments"
+          );
+          await syncCalendarAppointmentsIntoDailyNote(app, {
+            date: currentDate,
+            fallback,
+            settings: calendarSync,
+            oncePerSession: true,
           });
+        } catch (syncErr) {
+          console.warn("Universal Daily Note: Kalender-Sync beim Composer-Laden", syncErr);
+        }
       }
 
       const [state, headings] = await Promise.all([
@@ -1204,25 +1230,20 @@
       wandernTrackPickerEntryId = null;
       return;
     }
-    if (!tracksSettings.enabled) {
-      new Notice("GPX-Tracks sind in den Einstellungen deaktiviert.");
-      return;
-    }
+
+    const entry = entries.find((e) => e.id === entryId);
+    const folder = walkTracksFolder(entry?.profile);
 
     wandernTrackPickerEntryId = entryId;
     wandernTrackPickerLoading = true;
     wandernTrackOptions = [];
     try {
-      const dayTracks = await findTracksForDay(app, currentDate, tracksSettings);
-      const allTracks = await findAllTracksInFolder(app, tracksSettings);
-      const dayPaths = new Set(dayTracks.map((t) => t.path));
-      const otherTracks = allTracks.filter((t) => !dayPaths.has(t.path));
-      if (dayTracks.length === 0 && otherTracks.length === 0) {
-        new Notice(`Keine GPX-Dateien in „${tracksSettings.folder}“ gefunden.`);
+      const options = await loadTrackPickOptions(folder);
+      if (!options) {
         wandernTrackPickerEntryId = null;
         return;
       }
-      wandernTrackOptions = trackPickOptionsForDay(dayTracks, otherTracks);
+      wandernTrackOptions = options;
     } catch (e) {
       console.error("Universal Daily Note: GPX-Tracks laden", e);
       new Notice("GPX-Tracks konnten nicht geladen werden.");
@@ -1448,8 +1469,9 @@
 
     let onlyMissing = true;
     let selectedTrack: TrackMatch | null = null;
-    if (pack.actions?.includes("track") && tracksSettings.enabled) {
-      const tracks = await findTracksForDay(app, currentDate, tracksSettings);
+    const templateTracksFolder = tracksFolderForTemplatePack(pack.id, wandernLayout, spaziergangLayout);
+    if (pack.actions?.includes("track") && templateTracksFolder.trim()) {
+      const tracks = await findTracksForDay(app, currentDate, templateTracksFolder);
       if (tracks.length === 1) {
         selectedTrack = tracks[0]!;
       } else if (tracks.length > 1) {
@@ -1507,25 +1529,19 @@
       wandernTrackPickerOpen = false;
       return;
     }
-    if (!tracksSettings.enabled) {
-      new Notice("GPX-Tracks sind in den Einstellungen deaktiviert.");
-      return;
-    }
+
+    const folder = walkTracksFolder("wandern");
 
     wandernTrackPickerOpen = true;
     wandernTrackPickerLoading = true;
     wandernTrackOptions = [];
     try {
-      const dayTracks = await findTracksForDay(app, currentDate, tracksSettings);
-      const allTracks = await findAllTracksInFolder(app, tracksSettings);
-      const dayPaths = new Set(dayTracks.map((t) => t.path));
-      const otherTracks = allTracks.filter((t) => !dayPaths.has(t.path));
-      if (dayTracks.length === 0 && otherTracks.length === 0) {
-        new Notice(`Keine GPX-Dateien in „${tracksSettings.folder}“ gefunden.`);
+      const options = await loadTrackPickOptions(folder);
+      if (!options) {
         wandernTrackPickerOpen = false;
         return;
       }
-      wandernTrackOptions = trackPickOptionsForDay(dayTracks, otherTracks);
+      wandernTrackOptions = options;
     } catch (e) {
       console.error("Universal Daily Note: GPX-Tracks laden", e);
       new Notice("GPX-Tracks konnten nicht geladen werden.");
@@ -1774,7 +1790,7 @@
         calloutTitle,
         calendarSync,
         templateSettings: composerTemplates,
-        tracksSettings,
+        tracksFolder: tracksFolderForTemplatePack(pack.id, wandernLayout, spaziergangLayout),
         lastLocation: weatherLastLocation,
         filePath,
         linkOverrides: calendarLinkOverrides,
@@ -1865,7 +1881,7 @@
     const releaseMetadataNotify = suppressVaultMetadataNotify();
     try {
       await traceComposerSave(app, "save:begin", file.path);
-      entries = dedupeSupplementProfileEntries(entries);
+      entries = syncWalkEntryContexts(dedupeSupplementProfileEntries(entries));
       const dateKey = composerDateKey(currentDate);
       const entryTexts = collectEntryTextsForSave();
       await traceComposerSave(app, "save:tagebuch");
@@ -1948,12 +1964,16 @@
     }
   }
 
+  function onNewEntryTimeChange(time: string) {
+    newEntryTime = time;
+  }
+
   async function openInEditor() {
     await openOrCreateDailyNoteForDate(app, currentDate, fallback);
   }
 
-  function onEntryTimeInput(id: string, ev: Event) {
-    updateEntry(id, { time: (ev.currentTarget as HTMLInputElement).value });
+  function onEntryTimeChange(id: string, time: string) {
+    updateEntry(id, { time });
   }
 
   function openComposerWikiLink(dest: string) {
@@ -1961,7 +1981,13 @@
   }
 
   function onEntryBodyInput(id: string, body: string) {
-    updateEntry(id, { body });
+    const entry = entries.find((e) => e.id === id);
+    const patch: Partial<ComposerEntry> = { body };
+    if (entry && isWalkProfile(entry.profile)) {
+      const context = walkContextFromTimelineBody(body);
+      if (context) patch.context = context;
+    }
+    updateEntry(id, patch);
   }
 
   function applyNewEntryWikiLink(next: string, cursor: number) {
@@ -2213,6 +2239,7 @@
           {/if}
           <li
             class="udn-outlineEntry udn-composerEntry"
+            class:udn-composerEntry--stacked={isMobile}
             class:udn-composerEntry--expanded={expandedEntryId === entry.id}
             class:udn-composerEntry--reisen={entry.profile === "reisen"}
             class:udn-composerEntry--lueftung={entry.profile === "lueftung"}
@@ -2224,14 +2251,12 @@
             data-composer-entry={entry.id}
             on:click={(ev) => onComposerEntryRowClick(entry, ev)}
           >
-            <input
-              type="text"
-              class="{dk.input} udn-timeBubble udn-timeBubbleInput"
+            <ComposerTimeInput
+              {isMobile}
               value={entry.time}
-              placeholder="HH:mm"
-              aria-label="Zeit"
-              on:input={(ev) => onEntryTimeInput(entry.id, ev)}
-              on:focus={(ev) => onComposerEntryFocus(entry, ev)}
+              ariaLabel="Zeit"
+              onChange={(time) => onEntryTimeChange(entry.id, time)}
+              onFocus={(ev) => onComposerEntryFocus(entry, ev)}
             />
             <ProfileBubble
               profile={entry.profile}
@@ -2637,13 +2662,12 @@
   {#if !loading && !loadError && isMobile && !isSpecialFormMode}
     <div class="udn-composerMobileDock" bind:this={mobileDock}>
       <div class="udn-composerAddRow udn-composerAddRow--pinned">
-        <input
-          type="text"
-          class="{dk.input} udn-timeBubble udn-timeBubbleInput"
-          bind:value={newEntryTime}
-          placeholder="HH:mm"
-          aria-label="Zeit für neuen Eintrag"
-          on:focus={onMobileInputFocus}
+        <ComposerTimeInput
+          {isMobile}
+          value={newEntryTime}
+          ariaLabel="Zeit für neuen Eintrag"
+          onChange={onNewEntryTimeChange}
+          onFocus={onMobileInputFocus}
         />
         <input
           type="text"

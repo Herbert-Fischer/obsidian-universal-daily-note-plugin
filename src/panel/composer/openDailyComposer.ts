@@ -93,7 +93,7 @@ export class DailyComposerModal extends Modal {
     }
     contentEl.addClass("udn-composerModalContent");
 
-    const { outline, dailyNoteFallback, tagebuchVerweise, quickCapture, composerTemplates, tracks, weatherCapture } =
+    const { outline, dailyNoteFallback, tagebuchVerweise, quickCapture, composerTemplates, weatherCapture } =
       this.plugin.settings;
 
     this.component = new DailyComposer({
@@ -111,7 +111,6 @@ export class DailyComposerModal extends Modal {
         calendarLinkOverrides: this.plugin.settings.calendarLinkOverrides ?? DEFAULT_SETTINGS.calendarLinkOverrides,
         composerTemplates: composerTemplates ?? DEFAULT_SETTINGS.composerTemplates,
         composerGroupLabels: this.plugin.settings.composerGroupLabels ?? DEFAULT_SETTINGS.composerGroupLabels,
-        tracksSettings: tracks ?? DEFAULT_SETTINGS.tracks,
         wandernLayout: this.plugin.settings.wandernLayout ?? DEFAULT_SETTINGS.wandernLayout,
         spaziergangLayout: this.plugin.settings.spaziergangLayout ?? DEFAULT_SETTINGS.spaziergangLayout,
         feedDetailLayout: this.plugin.settings.feedDetailLayout ?? DEFAULT_SETTINGS.feedDetailLayout,

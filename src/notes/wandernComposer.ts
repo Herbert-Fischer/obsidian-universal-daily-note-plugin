@@ -20,6 +20,9 @@ import {
 } from "./photoCollage";
 import type { TrackMatch } from "../tracks/gpxImport";
 import { formatTrackSummary } from "../tracks/gpxImport";
+import { enrichEntryMetaWithTrackGeo, loadGeocodeCache } from "../tracks/gpxGeo";
+import { parseWalkEntryGeoFields, type WalkEntryGeoFields } from "./walkEntryGeo";
+import { resolveWalkBeschreibung } from "./walkStatsBeschreibung";
 import {
   parseWandernMetaLine,
   renderWandernTemplate,
@@ -40,7 +43,7 @@ export type WandernEntryMeta = {
   track: string;
   fotos?: string[];
   layout?: PhotoCollageLayout | "";
-};
+} & WalkEntryGeoFields;
 
 export type WandernSupplement = {
   titel: string;
@@ -94,6 +97,7 @@ export function parseWandernEntryMetaLine(line: string): WandernEntryMeta | null
       track: parsed.track?.trim() ?? "",
       fotos: Array.isArray(parsed.fotos) ? parsed.fotos.map((f) => stripPhotoEmbed(String(f))) : undefined,
       layout: (parsed.layout as PhotoCollageLayout | "") ?? "",
+      ...parseWalkEntryGeoFields(parsed as Record<string, unknown>),
     };
   } catch {
     return null;
@@ -285,7 +289,11 @@ async function normalizeWandernSyncEntry(
   const data: WandernComposerData = {
     titel,
     kurz: entry.supplementKurz?.trim() ?? "",
-    beschreibung: entry.supplementDetail?.trim() ?? "",
+    beschreibung: resolveWalkBeschreibung(
+      entry.supplementDetail?.trim() ?? "",
+      entry.supplementKurz?.trim() ?? "",
+      track,
+    ),
     track,
     photos: normalizedPhotos,
   };
@@ -309,6 +317,7 @@ export async function renderWandernSectionBody(
   if (wandernEntries.length === 0) return [];
 
   const out: string[] = [];
+  let geoCache = await loadGeocodeCache(app);
   for (const entry of sortWandernEntries(wandernEntries)) {
     const { data, layoutClass } = await normalizeWandernSyncEntry(app, entry, date, layout);
     const template = layout.template.trim();
@@ -330,18 +339,23 @@ export async function renderWandernSectionBody(
     });
     out.push(...rendered.split("\n"));
     const legacyMeta = wandernMetaFromData(data, layoutClass);
-    out.push(
-      `> ${wandernEntryMetaComment({
-        entryId: entry.entryId!,
-        titel: data.titel,
-        kurz: data.kurz,
-        beschreibung: data.beschreibung,
-        trackPath: data.track?.path ?? "",
-        track: data.track ? formatTrackSummary(data.track) : "",
-        fotos: legacyMeta.fotos,
-        layout: layoutClass,
-      })}`,
+    const baseMeta: WandernEntryMeta = {
+      entryId: entry.entryId!,
+      titel: data.titel,
+      kurz: data.kurz,
+      beschreibung: data.beschreibung,
+      trackPath: data.track?.path ?? "",
+      track: data.track ? formatTrackSummary(data.track) : "",
+      fotos: legacyMeta.fotos,
+      layout: layoutClass,
+    };
+    const { meta: enrichedMeta, cache: nextCache } = await enrichEntryMetaWithTrackGeo(
+      app,
+      baseMeta,
+      geoCache,
     );
+    geoCache = nextCache;
+    out.push(`> ${wandernEntryMetaComment(enrichedMeta)}`);
     out.push("");
   }
   return out;
@@ -436,7 +450,11 @@ export function mergeWandernSupplementsIntoEntries(
       return {
         ...entry,
         supplementKurz: sup.kurz || entry.supplementKurz,
-        supplementDetail: sup.beschreibung || entry.supplementDetail,
+        supplementDetail: resolveWalkBeschreibung(
+          sup.beschreibung,
+          sup.kurz || entry.supplementKurz || "",
+          trackMatchFromPath(sup.trackPath),
+        ) || entry.supplementDetail,
         supplementPhotos: sup.photos.length > 0 ? sup.photos : entry.supplementPhotos,
         supplementTrackPath: sup.trackPath || entry.supplementTrackPath,
         context: entry.context?.trim() || (sup.titel.toLowerCase() !== "wandern" ? sup.titel : entry.context),
@@ -452,7 +470,11 @@ export function mergeWandernSupplementsIntoEntries(
       return {
         ...entry,
         supplementKurz: legacy.kurz || entry.supplementKurz,
-        supplementDetail: legacy.beschreibung || entry.supplementDetail,
+        supplementDetail: resolveWalkBeschreibung(
+          legacy.beschreibung,
+          legacy.kurz || entry.supplementKurz || "",
+          trackMatchFromPath(legacy.trackPath),
+        ) || entry.supplementDetail,
         supplementPhotos: legacy.photos.length > 0 ? legacy.photos : entry.supplementPhotos,
         supplementTrackPath: legacy.trackPath || entry.supplementTrackPath,
         context: entry.context?.trim() || (legacy.titel.toLowerCase() !== "wandern" ? legacy.titel : entry.context),

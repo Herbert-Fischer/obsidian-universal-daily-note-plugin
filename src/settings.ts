@@ -75,12 +75,6 @@ export type FeedDetailLayoutSettings = {
   maxPhotos: number;
 };
 
-export type TracksSettings = {
-  enabled: boolean;
-  /** Vault folder with GPX/TCX files (YYYY-MM-DD in filename) */
-  folder: string;
-};
-
 export type QuickCaptureSettings = {
   enabled: boolean;
   timeFormat: string;
@@ -161,7 +155,6 @@ export type UniversalDailyNoteSettings = {
   composer: ComposerSettings;
   wandernLayout: WandernLayoutSettings;
   spaziergangLayout: WandernLayoutSettings;
-  tracks: TracksSettings;
   analytics: AnalyticsSettings;
   outline: OutlineSettings;
   sections: SectionsSettings;
@@ -262,10 +255,6 @@ export const DEFAULT_SETTINGS: UniversalDailyNoteSettings = {
     track3dElevationExaggeration: 4,
     photosFolder: "Calendar/Anhänge/Bilder",
     tracksFolder: "Calendar/Anhänge/GPX",
-  },
-  tracks: {
-    enabled: true,
-    folder: "Calendar/Tracks",
   },
   analytics: {
     enabled: false,

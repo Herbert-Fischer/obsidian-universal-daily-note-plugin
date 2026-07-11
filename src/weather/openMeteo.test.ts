@@ -36,6 +36,25 @@ describe("nominatimAddressToPlaceFields", () => {
       name: "Gersfeld",
       admin1: "Hessen",
       country: "Deutschland",
+      county: undefined,
+      landscape: "Rhön",
+    });
+  });
+
+  it("extracts county from nominatim address", () => {
+    expect(
+      nominatimAddressToPlaceFields({
+        town: "Pfronten",
+        county: "Landkreis Ostallgäu",
+        state: "Bayern",
+        country: "Deutschland",
+      }),
+    ).toEqual({
+      name: "Pfronten",
+      admin1: "Bayern",
+      country: "Deutschland",
+      county: "Landkreis Ostallgäu",
+      landscape: undefined,
     });
   });
 

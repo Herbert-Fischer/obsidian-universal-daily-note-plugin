@@ -28,8 +28,11 @@ import { cleanupReisenCalendarSyncForRecentDays } from "./integrations/cleanupRe
 import { WEATHER_ICON, WEATHER_LABEL } from "./weather/weatherUi";
 import { registerTrack3dProcessor, mountTrack3dBlock, type Track3dBlockOptions } from "./tracks/track3dView";
 import { registerWalkTrackEnrichment } from "./tracks/walkTrackEnrichment";
+import { registerWalkCalloutStatsEnrichment } from "./tracks/walkCalloutStatsEnrichment";
 import { openPhotoLightbox, registerPhotoGalleryLightbox } from "./photos/photoLightbox";
 import { registerJournalMetaPostProcessor } from "./notes/journalMetaPostProcessor";
+import { registerProfileCalloutIcons } from "./notes/profileIcons";
+import { runBackfillTrackRegionsCommand } from "./commands/backfillTrackRegions";
 
 function migrateCollapsed(raw: Partial<Record<string, boolean>> | undefined): Record<SectionId, boolean> {
   const merged = { ...DEFAULT_SECTIONS_COLLAPSED, ...raw };
@@ -96,7 +99,6 @@ function mergeSettings(raw: Partial<UniversalDailyNoteSettings> | null): Univers
     composer: { ...DEFAULT_SETTINGS.composer, ...loaded.composer },
     wandernLayout: { ...DEFAULT_SETTINGS.wandernLayout, ...loaded.wandernLayout },
     spaziergangLayout: { ...DEFAULT_SETTINGS.spaziergangLayout, ...loaded.spaziergangLayout },
-    tracks: { ...DEFAULT_SETTINGS.tracks, ...loaded.tracks },
     analytics: { ...DEFAULT_SETTINGS.analytics, ...loaded.analytics },
     outline: migrateOutline(loaded.outline),
     sections: {
@@ -118,8 +120,10 @@ export default class UniversalDailyNotePlugin extends Plugin {
   async onload() {
     await this.loadSettings();
 
+    registerProfileCalloutIcons();
     registerTrack3dProcessor(this);
     registerWalkTrackEnrichment(this);
+    registerWalkCalloutStatsEnrichment(this);
     registerPhotoGalleryLightbox(this);
     registerJournalMetaPostProcessor(this);
 
@@ -312,10 +316,19 @@ export default class UniversalDailyNotePlugin extends Plugin {
           dailyNotesFolder: this.settings.tagebuchVerweise.dailyNotesFolder,
         });
         if (imported > 0) {
-          new Notice(`${imported} Garmin-Aktivität${imported === 1 ? "" : "en"} importiert.`);
+          new Notice(`${imported} Garmin-Aktivität${imported === 1 ? "" : "en"} importiert bzw. aktualisiert.`);
         } else {
-          new Notice("Keine neuen Garmin-Aktivitäten in pending.json.");
+          new Notice("Keine Garmin-Aktivitäten aus pending.json verarbeitet (Details in der Konsole).");
         }
+      },
+    });
+
+    this.addCommand({
+      id: "backfill-track-regions",
+      name: "Outdoor-Strecken: Region aus GPX nachtragen",
+      icon: "map-pin",
+      callback: async () => {
+        await runBackfillTrackRegionsCommand(this.app);
       },
     });
 

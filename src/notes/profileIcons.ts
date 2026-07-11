@@ -1,4 +1,5 @@
 import type { FeedProfile } from "./feedMetadata";
+import { addIcon } from "obsidian";
 
 const PROFILE_ICON_NAMES: Partial<Record<FeedProfile, string>> = {
   reisen: "compass",
@@ -30,6 +31,12 @@ export const PROFILE_ICON_SVG: Record<string, string> = {
   lightbulb: `${SVG_OPEN}<path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>`,
   "more-horizontal": `${SVG_OPEN}<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>`,
 };
+
+/** Register custom Lucide gaps for callout `--callout-icon` (e.g. Spaziergang). */
+export function registerProfileCalloutIcons(): void {
+	const svg = PROFILE_ICON_SVG["person-walking"];
+	if (svg) addIcon("person-walking", svg);
+}
 
 /** Render a profile chip icon with inline SVG (reliable in plugin + Dataview). */
 export function renderProfileIcon(container: HTMLElement, iconName: string): void {

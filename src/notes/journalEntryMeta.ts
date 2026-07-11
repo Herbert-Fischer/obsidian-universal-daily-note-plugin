@@ -1,5 +1,6 @@
 import type { FeedProfile } from "./feedMetadata";
 import { normalizeFeedProfile } from "./feedMetadata";
+import { stripCalloutMarkerFromDisplay } from "./journalCallout";
 
 export const ENTRY_META_PREFIX = "<!-- udn-entry:";
 
@@ -78,9 +79,10 @@ export function stripManagedJournalMetaComments(text: string): string {
   return text.replace(UDN_META_COMMENT_RE, " ").replace(/\s{2,}/g, " ").trim();
 }
 
-/** Display text for outline / Verweise (no udn-entry or other plugin comments). */
+/** Display text for outline / Verweise (no udn-entry, callout markers, or plugin comments). */
 export function stripJournalLineForDisplay(text: string): string {
-  return stripManagedJournalMetaComments(stripEntryMeta(text).body);
+  const withoutMeta = stripManagedJournalMetaComments(stripEntryMeta(text).body);
+  return stripCalloutMarkerFromDisplay(withoutMeta);
 }
 
 export function formatEntryMetaComment(meta: JournalEntryMeta): string {

@@ -13,6 +13,7 @@ import {
   parseJournalEntryDisplay,
   sortJournalEntryTexts,
 } from "../notes/parseJournalEntryDisplay";
+import { mergeWalkStatsIntoBeschreibung } from "../notes/walkStatsBeschreibung";
 import { formatTrackSummary } from "../tracks/gpxImport";
 import { syncWandernSupplements } from "../notes/wandernComposer";
 import { syncSpaziergangSupplements } from "../notes/spaziergangComposer";
@@ -71,8 +72,8 @@ function activityBodyTitle(activity: GarminPendingActivity): string {
 }
 
 function trackSummaryFromActivity(activity: GarminPendingActivity): string {
-  if (activity.distanceKm == null && activity.durationSec == null) return "";
-  return formatTrackSummary({
+  const parts: string[] = [];
+  const summary = formatTrackSummary({
     path: activity.gpxPath ?? "",
     name: activity.gpxPath?.split("/").pop() ?? "",
     distanceKm: activity.distanceKm ?? null,
@@ -80,6 +81,11 @@ function trackSummaryFromActivity(activity: GarminPendingActivity): string {
     startLabel: null,
     endLabel: null,
   });
+  if (summary) parts.push(summary);
+  if (activity.elevationGainM != null && activity.elevationGainM > 0) {
+    parts.push(`${Math.round(activity.elevationGainM)} m ↑`);
+  }
+  return parts.join(" · ");
 }
 
 function titlesMatchForGarminDedup(terminTitle: string, activity: GarminPendingActivity): boolean {
@@ -152,16 +158,56 @@ export function mergeGarminJournalEntries(
   return sortJournalEntryTexts(replaced);
 }
 
-function enrichEntryForGarminImport(
+export function findComposerEntryForGarminActivity(
+  entries: ComposerEntry[],
+  activity: GarminPendingActivity,
+): ComposerEntry | undefined {
+  const garminId = activity.garminId.trim();
+  const byMarker = entries.find((entry) => entryMatchesGarminActivity(entry, garminId));
+  if (byMarker) return byMarker;
+
+  const bodyTitle = activityBodyTitle(activity);
+  const activityCore = normalizeGarminMatchTitle(bodyTitle);
+  const startTime = activity.startTime.trim();
+
+  return entries.find((entry) => {
+    if (entry.profile !== activity.profile) return false;
+    if (startTime && entry.time.trim() && entry.time.trim() !== startTime) return false;
+    const candidate = normalizeGarminMatchTitle(
+      entry.context?.trim() || `${profilePrefix(activity.profile)} ${entry.body}`.trim(),
+    );
+    if (!candidate || !activityCore) return false;
+    return (
+      candidate === activityCore ||
+      candidate.includes(activityCore) ||
+      activityCore.includes(candidate)
+    );
+  });
+}
+
+function entryMatchesGarminActivity(entry: ComposerEntry, garminId: string): boolean {
+  if (entry.garminSyncId === garminId) return true;
+  return parseGarminSyncId(composerEntryText(entry)) === garminId;
+}
+
+export function enrichEntryForGarminImport(
   entry: ComposerEntry,
   activity: GarminPendingActivity,
 ): ComposerEntry {
   const kurz = trackSummaryFromActivity(activity);
+  const statsSource = {
+    distanceKm: activity.distanceKm,
+    durationSec: activity.durationSec,
+    elevationGainM: activity.elevationGainM,
+  };
+  const beschreibung = mergeWalkStatsIntoBeschreibung(entry.supplementDetail ?? "", statsSource);
   return {
     ...entry,
+    garminSyncId: activity.garminId.trim(),
     profile: activity.profile,
     context: activityBodyTitle(activity),
     supplementKurz: kurz || entry.supplementKurz,
+    supplementDetail: beschreibung,
     supplementTrackPath: activity.gpxPath?.trim() || entry.supplementTrackPath,
     entryId: entry.entryId ?? generateEntryId(),
   };
@@ -187,31 +233,56 @@ export async function importGarminActivityIntoDailyNote(
   const state = await loadComposerState(app, date, fallback, heading, dailyNotesFolder);
   const existing = state.entries.map(composerEntryText);
   const garminId = activity.garminId.trim();
+  const matchedEntry = findComposerEntryForGarminActivity(state.entries, activity);
 
   const merged = mergeGarminJournalEntries(existing, activity);
 
-  const changed =
+  const journalChanged =
     merged.length !== existing.length || merged.some((line, index) => line !== existing[index]);
-  if (!changed) return false;
+  const alreadyImported = collectGarminSyncIds(existing).has(garminId) || matchedEntry != null;
+  if (!journalChanged && !alreadyImported) return false;
 
-  await saveComposerState(
-    app,
-    {
-      file: state.file,
-      journalHeading: heading,
-      calloutTitle: state.calloutTitle,
-      summary: state.summary,
-      dateKey: state.dateKey,
-      photos: state.photos,
-    },
-    merged,
-  );
+  if (journalChanged) {
+    await saveComposerState(
+      app,
+      {
+        file: state.file,
+        journalHeading: heading,
+        calloutTitle: state.calloutTitle,
+        summary: state.summary,
+        dateKey: state.dateKey,
+        photos: state.photos,
+      },
+      merged,
+    );
+  }
 
-  const refreshed = await loadComposerState(app, date, fallback, heading, dailyNotesFolder);
+  const refreshed = journalChanged
+    ? await loadComposerState(app, date, fallback, heading, dailyNotesFolder)
+    : state;
+  const targetEntry =
+    findComposerEntryForGarminActivity(refreshed.entries, activity) ?? matchedEntry;
   const syncEntries = refreshed.entries.map((entry) => {
-    if (parseGarminSyncId(composerEntryText(entry)) !== garminId) return entry;
-    return enrichEntryForGarminImport(entry, activity);
+    if (targetEntry) {
+      if (entry.id !== targetEntry.id) return entry;
+      return enrichEntryForGarminImport({ ...entry, garminSyncId: garminId }, activity);
+    }
+    if (!entryMatchesGarminActivity(entry, garminId)) return entry;
+    return enrichEntryForGarminImport({ ...entry, garminSyncId: garminId }, activity);
   });
+
+  const enrichedEntry = targetEntry
+    ? syncEntries.find((entry) => entry.id === targetEntry.id)
+    : syncEntries.find((entry) => entryMatchesGarminActivity(entry, garminId));
+  if (!enrichedEntry) {
+    console.warn("Universal Daily Note: Garmin-Import — kein Composer-Eintrag", {
+      garminId,
+      date: activity.date,
+      file: state.file.path,
+      entryCount: refreshed.entries.length,
+    });
+    return false;
+  }
 
   if (activity.profile === "wandern") {
     await syncWandernSupplements(app, state.file, syncEntries, date, wandernLayout);

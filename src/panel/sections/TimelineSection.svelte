@@ -116,6 +116,12 @@ import { isWikiLinkSuggestOpen } from "../wikiLinkInputSuggest";
   let editTime = "";
   let editBody = "";
   let editInput: HTMLInputElement | undefined;
+  let activeOutlineMenu: Menu | null = null;
+
+  function dismissOutlineMenu(): void {
+    activeOutlineMenu?.hide();
+    activeOutlineMenu = null;
+  }
 
   $: pageSize = Math.max(1, outlineSettings?.pageSize ?? 10);
   $: showTimeBubbles = outlineSettings?.showTimeBubbles ?? true;
@@ -456,15 +462,20 @@ import { isWikiLinkSuggestOpen } from "../wikiLinkInputSuggest";
 
   function openRangeMenu() {
     if (!rangeBtn) return;
+    dismissOutlineMenu();
     const modes: OutlineRangeMode[] = ["scroll", "month", "week"];
     const menu = new Menu();
     for (const mode of modes) {
       menu.addItem((item) => {
         item.setTitle(outlineRangeModeLabel(mode));
         item.setChecked(mode === rangeMode);
-        item.onClick(() => selectRangeMode(mode));
+        item.onClick(() => {
+          selectRangeMode(mode);
+          dismissOutlineMenu();
+        });
       });
     }
+    activeOutlineMenu = menu;
     const rect = rangeBtn.getBoundingClientRect();
     menu.showAtPosition({ x: rect.left, y: rect.bottom + 4 });
   }
@@ -488,6 +499,7 @@ import { isWikiLinkSuggestOpen } from "../wikiLinkInputSuggest";
 
   function openSectionFilterMenu() {
     if (!filterBtn) return;
+    dismissOutlineMenu();
     const menu = new Menu();
     for (const profile of OUTLINE_PROFILE_FILTER_OPTIONS) {
       menu.addItem((item) => {
@@ -495,7 +507,7 @@ import { isWikiLinkSuggestOpen } from "../wikiLinkInputSuggest";
         item.setChecked(feedProfileFilters.includes(profile));
         item.onClick(() => {
           toggleSectionFilter(profile);
-          void tick().then(() => openSectionFilterMenu());
+          dismissOutlineMenu();
         });
       });
     }
@@ -506,10 +518,11 @@ import { isWikiLinkSuggestOpen } from "../wikiLinkInputSuggest";
         item.setChecked(includeRestOfTagebuch);
         item.onClick(() => {
           toggleIncludeRestOfTagebuch();
-          void tick().then(() => openSectionFilterMenu());
+          dismissOutlineMenu();
         });
       });
     }
+    activeOutlineMenu = menu;
     const rect = filterBtn.getBoundingClientRect();
     menu.showAtPosition({ x: rect.left, y: rect.bottom + 4 });
   }
@@ -589,6 +602,7 @@ import { isWikiLinkSuggestOpen } from "../wikiLinkInputSuggest";
     updateWeatherButton();
     updateTaskComposerButton();
     return () => {
+      dismissOutlineMenu();
       scrollHost?.removeEventListener("scroll", onListScroll);
       scrollHost = null;
     };

@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { afterUpdate, onMount } from "svelte";
+  import { afterUpdate, onDestroy, onMount } from "svelte";
   import type { App } from "obsidian";
   import { Menu, setIcon, TFile } from "obsidian";
-  import { dk, sidebarMenuAction, sidebarPointerAction } from "@denkarium/obsidian-lib-ui";
+  import { dk, sidebarMenuAction } from "@denkarium/obsidian-lib-ui";
   import { panelTapAction } from "../panelTapAction";
   import type { Writable } from "svelte/store";
   import type {
@@ -15,12 +15,11 @@
   import { findTagebuchVerweise, type TagebuchVerweisEntry } from "../../tagebuchVerweise/tagebuchVerweise";
   import { formatTargetPageLabel } from "../../tagebuchVerweise/mainPageFile";
   import { openPathInMainPane, openWikiLinkInMain } from "../../notes/openInMainPane";
-import { parseJournalLinks } from "../../notes/parseJournalLinks";
-import { parseJournalEntryDisplay } from "../../notes/parseJournalEntryDisplay";
-import { stripJournalLineForDisplay } from "../../notes/journalEntryMeta";
-  import { feedLinkBubbleClass } from "../../notes/feedEntryDisplay";
+  import { stripJournalLineForDisplay } from "../../notes/journalEntryMeta";
   import { journalProfileForHeading } from "../../notes/journalProfiles";
   import { entryHueFromIndex, formatDayBubbleLabel } from "../formatDayBubble";
+  import type { TimelineDay, TimelineEntry } from "../../notes/dailyNoteTimeline";
+  import TimelineOutlineEntry from "./TimelineOutlineEntry.svelte";
   import type { PanelStore } from "../panelStore";
   import type { CalendarSyncContext, OutlineRangeMode } from "../../integrations/calendarRange";
   import { outlineRangeModeLabel, resolveOutlineDateBounds } from "../../integrations/calendarRange";
@@ -96,7 +95,6 @@ import { stripJournalLineForDisplay } from "../../notes/journalEntryMeta";
       : isAllJournalHeadings(journalHeading)
         ? baselineHeadings
         : [journalHeading, ...baselineHeadings];
-  $: showSectionLabels = isAllJournalHeadings(journalHeading);
   $: headingMenuItems = [
     ALL_JOURNAL_HEADINGS,
     ...dropdownHeadings.filter((h) => !isAllJournalHeadings(h)),
@@ -173,6 +171,32 @@ import { stripJournalLineForDisplay } from "../../notes/journalEntryMeta";
     return count === 1 ? "1 Verweis" : `${count} Verweise`;
   }
 
+  function verweisToTimelineEntry(ref: TagebuchVerweisEntry): TimelineEntry {
+    const text = stripJournalLineForDisplay(ref.line);
+    return {
+      line: ref.sourceLine,
+      text,
+      rawLine: ref.line,
+      section: ref.section,
+      feedProfile: journalProfileForHeading(ref.section ?? "")?.id,
+      feedContext: "",
+    };
+  }
+
+  function refDayToTimelineDay(day: RefDayGroup): TimelineDay {
+    return {
+      dateKey: day.dateKey,
+      label: day.label,
+      filePath: day.filePath,
+      summary: day.summary,
+      entries: day.entries.map(verweisToTimelineEntry),
+    };
+  }
+
+  function openRefEntry(day: TimelineDay, entry: TimelineEntry) {
+    void openPathInMainPane(app, day.filePath, entry.line);
+  }
+
   async function reload(file: TFile | null) {
     const generation = ++loadGeneration;
     targetLabel = file ? formatTargetPageLabel(file) : "";
@@ -228,6 +252,13 @@ import { stripJournalLineForDisplay } from "../../notes/journalEntryMeta";
     void openWikiLinkInMain(app, dest, sourcePath);
   }
 
+  let activeOutlineMenu: Menu | null = null;
+
+  function dismissOutlineMenu(): void {
+    activeOutlineMenu?.hide();
+    activeOutlineMenu = null;
+  }
+
   function selectRangeMode(mode: OutlineRangeMode) {
     if (mode === rangeMode) return;
     onOutlinePatch({ rangeMode: mode });
@@ -235,15 +266,20 @@ import { stripJournalLineForDisplay } from "../../notes/journalEntryMeta";
 
   function openRangeMenu() {
     if (!rangeBtn) return;
+    dismissOutlineMenu();
     const modes: OutlineRangeMode[] = ["scroll", "month", "week"];
     const menu = new Menu();
     for (const mode of modes) {
       menu.addItem((item) => {
         item.setTitle(outlineRangeModeLabel(mode));
         item.setChecked(mode === rangeMode);
-        item.onClick(() => selectRangeMode(mode));
+        item.onClick(() => {
+          selectRangeMode(mode);
+          dismissOutlineMenu();
+        });
       });
     }
+    activeOutlineMenu = menu;
     const rect = rangeBtn.getBoundingClientRect();
     menu.showAtPosition({ x: rect.left, y: rect.bottom + 4 });
   }
@@ -255,14 +291,19 @@ import { stripJournalLineForDisplay } from "../../notes/journalEntryMeta";
 
   function openHeadingMenu() {
     if (headingMenuItems.length <= 1 || !headingBtn) return;
+    dismissOutlineMenu();
     const menu = new Menu();
     for (const heading of headingMenuItems) {
       menu.addItem((item) => {
         item.setTitle(heading);
         item.setChecked(heading === journalHeading);
-        item.onClick(() => selectHeading(heading));
+        item.onClick(() => {
+          selectHeading(heading);
+          dismissOutlineMenu();
+        });
       });
     }
+    activeOutlineMenu = menu;
     const rect = headingBtn.getBoundingClientRect();
     menu.showAtPosition({ x: rect.left, y: rect.bottom + 4 });
   }
@@ -324,9 +365,13 @@ import { stripJournalLineForDisplay } from "../../notes/journalEntryMeta";
     updateRefSelectButton();
     updateTimeToggleButton();
   });
+
+  onDestroy(() => {
+    dismissOutlineMenu();
+  });
 </script>
 
-<div class="udn-refPanel">
+<div class="udn-timeline">
   <div class="udn-timelineToolbar">
     <div class="udn-timelineHead">
       <div class="udn-timelineHeadFilters">
@@ -390,10 +435,11 @@ import { stripJournalLineForDisplay } from "../../notes/journalEntryMeta";
     <p class="{dk.empty} udn-refEmpty">Keine Treffer für „{textFilterQuery.trim()}“.</p>
   {:else}
     <div
-      class="{dk.list} udn-timelineList udn-refList"
+      class="{dk.list} udn-timelineList"
       class:udn-timelineList--noTime={!showTimeBubbles}
     >
       {#each dayGroups as day, dayIndex (day.filePath)}
+        {@const timelineDay = refDayToTimelineDay(day)}
         <div
           class="udn-timelineDay"
           style="--ref-hue: {entryHueFromIndex(dayIndex)}"
@@ -409,35 +455,16 @@ import { stripJournalLineForDisplay } from "../../notes/journalEntryMeta";
             <span class="udn-timelineDayCount">{refCountLabel(day.entries.length)}</span>
           </div>
           <div class="udn-timelineDayEntries">
-            {#each day.entries as entry (day.filePath + entry.sourceLine + entry.line)}
-              {@const display = parseJournalEntryDisplay(stripJournalLineForDisplay(entry.line))}
-              {@const feedProfile = journalProfileForHeading(entry.section ?? "")?.id}
-              <div class="udn-outlineEntry">
-                {#if showTimeBubbles && display.time}
-                  <span class="udn-timeBubble">{display.time}</span>
-                {/if}
-                <span class="udn-timelineEntryBody">
-                  {#if showSectionLabels && entry.section}
-                    <span class="udn-entrySectionInline">{entry.section} · </span>
-                  {/if}
-                  {#each parseJournalLinks(display.body) as seg, si (si + seg.kind + (seg.kind === "text" ? seg.value : seg.kind === "wiki" ? seg.dest : seg.href))}
-                    {#if seg.kind === "wiki"}
-                      <a
-                        href="#"
-                        class="internal-link udn-feedLinkBubble {feedLinkBubbleClass(seg.dest, feedProfile)}"
-                        use:sidebarPointerAction={() => openWikiLink(seg.dest, entry.dailyNotePath)}
-                      >{seg.label}</a>
-                    {:else if seg.kind === "url"}
-                      <a
-                        href={seg.href}
-                        class="external-link"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >{seg.label}</a>
-                    {:else}{seg.value}{/if}
-                  {/each}
-                </span>
-              </div>
+            {#each timelineDay.entries as entry, entryIndex (day.filePath + entry.line + entryIndex)}
+              <TimelineOutlineEntry
+                {app}
+                day={timelineDay}
+                {entry}
+                {showTimeBubbles}
+                readOnly={true}
+                onOpenWikiLink={openWikiLink}
+                onOpenComposerEntry={openRefEntry}
+              />
             {/each}
           </div>
         </div>

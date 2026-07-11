@@ -3,13 +3,54 @@ import {
   buildChipEntryText,
   chipsForHeading,
   COMPOSER_SECTION_PRESETS,
+  composerEntryText,
   rewriteJournalBullets,
   suggestSummaryFromEntries,
+  syncWalkEntryContexts,
   updateSummaryInContent,
+  walkContextFromTimelineBody,
   DEFAULT_COMPOSER_CHIPS,
 } from "./dailyComposer";
 import { finalizeJournalHeadings } from "./journalHeadingFilter";
 import { extractJournalLines, extractJournalLinesFromCallout } from "./dailyNoteTimeline";
+
+describe("walk composer helpers", () => {
+  it("strips garmin marker from walk context derivation", () => {
+    expect(
+      walkContextFromTimelineBody("Spaziergang: Heidküppel <!-- udn-garmin:23526370532 -->"),
+    ).toBe("Spaziergang: Heidküppel");
+  });
+
+  it("syncs stale walk context from timeline body", () => {
+    const [next] = syncWalkEntryContexts([
+      {
+        id: "line-1",
+        line: 1,
+        time: "19:01",
+        body: "Spaziergang: Heidküppel",
+        rawLine: "",
+        profile: "spaziergang",
+        context: "Spaziergang: Ebersburg Gehen",
+        entryId: "mjf3",
+      },
+    ]);
+    expect(next?.context).toBe("Spaziergang: Heidküppel");
+  });
+
+  it("keeps garmin marker on saved journal line but not in composer body field", () => {
+    const line = composerEntryText({
+      time: "19:01",
+      body: "Spaziergang: Heidküppel",
+      profile: "spaziergang",
+      context: "Spaziergang: Heidküppel",
+      entryId: "mjf3",
+      garminSyncId: "23526370532",
+    });
+    expect(line).toContain("Spaziergang: Heidküppel");
+    expect(line).toContain("<!-- udn-garmin:23526370532 -->");
+    expect(line).not.toContain("Ebersburg");
+  });
+});
 
 describe("rewriteJournalBullets", () => {
   it("writes Tagebuch entries into a dated callout", () => {

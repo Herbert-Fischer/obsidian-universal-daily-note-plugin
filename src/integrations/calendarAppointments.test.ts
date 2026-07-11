@@ -7,6 +7,7 @@ import {
 } from "./calendarAppointments";
 import {
   collectCalendarSyncIds,
+  dedupeCalendarAppointmentEntries,
   parseCalendarSyncId,
   stripCalendarSyncMarker,
   stripMarkdownCalendarAppointmentEntries,
@@ -176,6 +177,16 @@ describe("calendar appointment journal lines", () => {
         DEFAULT_SYNC_SETTINGS,
       ),
     ).toBe(false);
+  });
+
+  it("removes orphan termin rows when a marked row exists at the same time", () => {
+    const existing = [
+      "10:00 Termin: Zahnarzt (Nachkontrolle) Zahnarzt Zahnarzt   [[Zahnarztpraxis Fulda Horas|Zahnarzt]]",
+      "10:00 Termin: Zahnarzt (Nachkontrolle) <!-- udn-cal:caldav:event:c886e065 -->",
+    ];
+    expect(dedupeCalendarAppointmentEntries(existing)).toEqual([
+      "10:00 Termin: Zahnarzt (Nachkontrolle) <!-- udn-cal:caldav:event:c886e065 -->",
+    ]);
   });
 
   it("filters all-day and markdown in getCalendarItemsForDay", () => {

@@ -9,6 +9,7 @@ import { extractSectionRange } from "./journalCallout";
 import { formatGermanShortDate } from "./journalCallout";
 import { journalProfileById } from "./journalProfiles";
 import { formatTrackSummary, type TrackMatch } from "../tracks/gpxImport";
+import { resolveWalkBeschreibung } from "./walkStatsBeschreibung";
 import { normalizeDailyNotePhotoPath, normalizeWandernTrackPath } from "./attachJournalMedia";
 import { processVaultFile } from "./vaultProcess";
 import {
@@ -17,6 +18,7 @@ import {
   type PhotoCollageLayout,
   stripPhotoEmbed,
 } from "./photoCollage";
+import { parseWalkEntryGeoFields, type WalkEntryGeoFields } from "./walkEntryGeo";
 
 export type WandernMeta = {
   kurz: string;
@@ -26,7 +28,7 @@ export type WandernMeta = {
   fotos: string[];
   titel: string;
   layout?: PhotoCollageLayout | "";
-};
+} & WalkEntryGeoFields;
 
 export type WandernComposerData = {
   titel: string;
@@ -135,6 +137,7 @@ export function parseWandernMetaLine(line: string): WandernMeta | null {
       trackPath: parsed.trackPath?.trim() ?? "",
       fotos: Array.isArray(parsed.fotos) ? parsed.fotos.map(String) : [],
       titel: parsed.titel?.trim() ?? "",
+      ...parseWalkEntryGeoFields(parsed as Record<string, unknown>),
     };
   } catch {
     return null;
@@ -282,7 +285,7 @@ export function renderWandernTemplate(options: RenderWandernTemplateOptions): st
   const replacements: Record<string, string> = {
     titel: options.titel.trim() || "Wandern",
     kurz: options.kurz.trim(),
-    beschreibung: options.beschreibung.trim(),
+    beschreibung: resolveWalkBeschreibung(options.beschreibung, options.kurz, options.track),
     track_summary: options.track ? formatTrackSummary(options.track) : "",
     track_link: trackPath ? buildTrackLink(trackPath) : "",
     track_gpx: trackPath,

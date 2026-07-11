@@ -32,6 +32,11 @@ import {
   stripCalendarSyncMarker,
   withCalendarSyncMarker,
 } from "../integrations/calendarSyncMarker";
+import {
+  parseGarminSyncId,
+  stripGarminSyncMarker,
+  withGarminSyncMarker,
+} from "../integrations/garminSyncMarker";
 import { readDailyNoteSummary } from "./dailyNoteSummary";
 import {
   buildPhotoCollageMarkdownAsync,
@@ -83,6 +88,8 @@ export type ComposerEntry = {
   supplementTrackPath?: string;
   /** Optionale Reise-Zuordnung bei Profil wandern (erscheint zusätzlich unter ## Reisen). */
   reiseAssignment?: string;
+  /** Garmin-Aktivitäts-ID (unsichtbar im Composer, bleibt in der Journal-Zeile erhalten). */
+  garminSyncId?: string;
 };
 
 export type ComposerState = {
@@ -191,7 +198,7 @@ function profileFromJournalBody(body: string): FeedProfile | undefined {
   return undefined;
 }
 
-function entryToComposer(entry: TimelineEntry): ComposerEntry {
+export function entryToComposer(entry: TimelineEntry): ComposerEntry {
   const rawText = entry.rawLine
     .trim()
     .replace(/^>\s*/, "")
@@ -199,7 +206,8 @@ function entryToComposer(entry: TimelineEntry): ComposerEntry {
   const stripped = stripEntryMeta(rawText);
   const { time, body } = parseJournalEntryDisplay(stripped.body);
   const calendarId = parseCalendarSyncId(stripped.body) ?? undefined;
-  const displayBody = stripCalendarSyncMarker(body);
+  const garminSyncId = parseGarminSyncId(stripped.body) ?? undefined;
+  const displayBody = stripGarminSyncMarker(stripCalendarSyncMarker(body));
   const meta = stripped.meta;
   let profile =
     meta?.profile && meta.profile !== "tagebuch"
@@ -219,6 +227,10 @@ function entryToComposer(entry: TimelineEntry): ComposerEntry {
     const detail = displayBody.replace(/^wandern:\s*/i, "").trim();
     if (detail) context = detail;
   }
+  if (profile === "wandern" || profile === "spaziergang") {
+    const fromBody = walkContextFromTimelineBody(displayBody);
+    if (fromBody) context = fromBody;
+  }
   const entryId = meta?.id || entry.entryId || (profile || context ? generateEntryId() : undefined);
   const reiseAssignment =
     profile === "wandern" || profile === "spaziergang" || profile === "sonstiges"
@@ -236,6 +248,7 @@ function entryToComposer(entry: TimelineEntry): ComposerEntry {
     context,
     reiseAssignment,
     calloutId: meta?.callout || entry.calloutId,
+    garminSyncId,
   };
 }
 
@@ -303,11 +316,15 @@ export function composerEntryText(
     | "supplementKurz"
     | "supplementTrackPath"
     | "reiseAssignment"
+    | "garminSyncId"
   >,
 ): string {
   let body = entry.body.trim();
   if (entry.calendarId) {
     body = withCalendarSyncMarker(body, entry.calendarId);
+  }
+  if (entry.garminSyncId) {
+    body = withGarminSyncMarker(body, entry.garminSyncId);
   }
   const line = formatJournalEntryText(entry.time, body);
   const calloutId =
@@ -355,7 +372,7 @@ function supplementEntryDedupeKey(entry: ComposerEntry): string | null {
   const bodyKey = stripLeadingTimeFromKurz(lead).trim().toLowerCase();
   if (entry.profile === "wandern" || entry.profile === "spaziergang") {
     const ctxKey = walkTitleFromText(entry.context ?? "").trim().toLowerCase();
-    const titleKey = ctxKey.length > bodyKey.length ? ctxKey : bodyKey;
+    const titleKey = bodyKey || ctxKey;
     return `${entry.profile}::${titleKey}`;
   }
   const ctx = (entry.context ?? "").trim().toLowerCase();
@@ -365,6 +382,23 @@ function supplementEntryDedupeKey(entry: ComposerEntry): string | null {
 function walkTitleFromText(text: string): string {
   const { lead } = splitFeedEntrySuffix(stripJournalLineForDisplay(text));
   return stripLeadingTimeFromKurz(lead).trim();
+}
+
+/** Title derived from timeline body for Wandern/Spaziergang context and callout sync. */
+export function walkContextFromTimelineBody(body: string): string {
+  const cleaned = stripGarminSyncMarker(body.trim());
+  const parsed = parseJournalEntryDisplay(cleaned);
+  return walkTitleFromText(parsed.body.trim() || cleaned);
+}
+
+/** Align walk profile context with timeline body (fixes stale udn-entry context). */
+export function syncWalkEntryContexts(entries: ComposerEntry[]): ComposerEntry[] {
+  return entries.map((entry) => {
+    if (entry.profile !== "wandern" && entry.profile !== "spaziergang") return entry;
+    const context = walkContextFromTimelineBody(entry.body);
+    if (!context || context === entry.context) return entry;
+    return { ...entry, context };
+  });
 }
 
 function supplementEntryRichness(entry: ComposerEntry): number {
@@ -693,6 +727,7 @@ export async function loadComposerState(
   const spaziergangLoaded = await loadSpaziergangSupplements(app, file);
   entries = mergeSpaziergangSupplementsIntoEntries(entries, spaziergangLoaded);
   entries = dedupeSupplementProfileEntries(entries);
+  entries = syncWalkEntryContexts(entries);
   const priorTexts = entries.map(composerEntryText);
   entries = entries.map((entry) => {
     const body = resolveJournalBodyWikiLinks(app, entry.body, file.path);

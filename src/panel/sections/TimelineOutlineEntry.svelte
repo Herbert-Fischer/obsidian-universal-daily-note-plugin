@@ -29,8 +29,11 @@
   export let onOpenWikiLink: (dest: string, sourcePath: string) => void = () => {};
   export let onSelectDay: (day: TimelineDay) => void = () => {};
   export let onOpenComposerEntry: (day: TimelineDay, entry: TimelineEntry) => void = () => {};
+  /** Verweise-Panel: gleiche Darstellung, ohne Inline-Bearbeitung. */
+  export let readOnly = false;
 
   $: display = parseJournalEntryDisplay(stripJournalLineForDisplay(entry.text));
+  $: entryTitle = readOnly ? "Zur Tagesnotiz springen" : "Im Composer bearbeiten";
   $: displayBody = stripCalendarSyncMarker(display.body);
   $: storedTime = display.time ?? "";
   $: hasWikiLinks = bodyHasWikiLinks(displayBody);
@@ -45,7 +48,7 @@
   }
 
   function onTimeFocus() {
-    if (editing) return;
+    if (readOnly || editing) return;
     timeEditing = true;
     timeDraft = storedTime;
   }
@@ -87,14 +90,18 @@
 
 <div
   class="udn-outlineEntry"
-  class:udn-outlineEntry--editing={editing}
+  class:udn-outlineEntry--editing={!readOnly && editing}
   class:udn-outlineEntry--hasLinks={hasWikiLinks}
-  title="Im Composer bearbeiten"
+  title={entryTitle}
   use:panelTapAction={onEntryTap}
 >
   <div class="udn-outlineEntryMain">
     {#if showTimeBubbles}
-      {#if editing}
+      {#if readOnly}
+        {#if display.time}
+          <span class="udn-timeBubble">{display.time}</span>
+        {/if}
+      {:else if editing}
         <input
           type="text"
           class="{dk.input} udn-timeBubble udn-timeBubbleInput"
@@ -119,14 +126,16 @@
     {#if showProfileBubble}
       <ProfileBubble
         profile={effectiveProfile}
-        title={`${feedProfileLabel(effectiveProfile)} — im Composer bearbeiten`}
+        title={readOnly
+          ? `${feedProfileLabel(effectiveProfile)} — zur Tagesnotiz`
+          : `${feedProfileLabel(effectiveProfile)} — im Composer bearbeiten`}
         onClick={(ev) => {
           ev.stopPropagation();
           onOpenComposerEntry(day, entry);
         }}
       />
     {/if}
-    {#if editing}
+    {#if !readOnly && editing}
       <input
         type="text"
         class="{dk.input} udn-timelineEntryEdit"
@@ -143,9 +152,9 @@
         feedProfile={entry.feedProfile}
         feedContext={entry.feedContext ?? ""}
         sourcePath={day.filePath}
-        title="Im Composer bearbeiten"
+        title={entryTitle}
         onOpenWikiLink={onOpenWikiLink}
-        onDblclick={() => onOpenComposerEntry(day, entry)}
+        onDblclick={readOnly ? undefined : () => onOpenComposerEntry(day, entry)}
       />
     {/if}
   </div>

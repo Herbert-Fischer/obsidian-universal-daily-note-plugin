@@ -27,6 +27,17 @@ describe("spaziergangComposer", () => {
     ).toBe("Spaziergang: Heidküppel (mit Hund) (test)");
   });
 
+  it("prefers journal body over longer stale context for callout title", () => {
+    expect(
+      spaziergangCalloutTitle({
+        body: "Spaziergang: Heidküppel",
+        context: "Spaziergang: Ebersburg Gehen",
+        time: "11:00",
+        profile: "spaziergang",
+      }),
+    ).toBe("Spaziergang: Heidküppel");
+  });
+
   it("parses spaziergang entry meta comment", () => {
     const meta = parseSpaziergangEntryMetaLine(
       '<!-- udn-spaziergang-entry: {"entryId":"s1","titel":"Park","kurz":"2 km","beschreibung":"Schön","trackPath":"Calendar/tracks/a.gpx","track":"a.gpx"} -->',

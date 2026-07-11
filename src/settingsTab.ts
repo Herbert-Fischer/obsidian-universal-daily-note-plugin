@@ -1,6 +1,14 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
 import type UniversalDailyNotePlugin from "./main";
+import { DEFAULT_SETTINGS } from "./settings";
+import { DEFAULT_SPAZIERGANG_LAYOUT_TEMPLATE } from "./notes/spaziergangLayout";
 import { DEFAULT_WANDERN_LAYOUT_TEMPLATE } from "./notes/wandernLayout";
+import {
+  renderSettingsIntro,
+  renderSettingsSection,
+  renderSettingsSubheading,
+  renderWalkLayoutSettings,
+} from "./settings/settingsTabUi";
 
 export class UniversalDailyNoteSettingTab extends PluginSettingTab {
   plugin: UniversalDailyNotePlugin;
@@ -13,507 +21,474 @@ export class UniversalDailyNoteSettingTab extends PluginSettingTab {
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
+    containerEl.addClass("udn-settings-tab");
 
     containerEl.createEl("h2", { text: "Universal Daily Note" });
+    renderSettingsIntro(containerEl);
 
-    new Setting(containerEl)
-      .setName("Outline beim Start öffnen")
-      .setDesc("Tagebuch-Outline rechts unten öffnen, wenn das Plugin aktiviert wird.")
-      .addToggle((t) =>
-        t.setValue(this.plugin.settings.openPanelOnEnable).onChange(async (value) => {
-          this.plugin.settings.openPanelOnEnable = value;
-          await this.plugin.saveSettings();
-        }),
-      );
+    const save = () => this.plugin.saveSettings();
 
-    containerEl.createEl("h3", { text: "Tagebuch-Outline" });
+    this.renderGeneralAndOutline(containerEl, save);
+    this.renderComposer(containerEl, save);
+    this.renderIntegrations(containerEl, save);
+    this.renderProfilesAndTracks(containerEl, save);
+    this.renderAdvanced(containerEl, save);
+  }
 
-    const ol = this.plugin.settings.outline;
+  private renderGeneralAndOutline(container: HTMLElement, save: () => Promise<void>): void {
+    const s = this.plugin.settings;
+    const ol = s.outline;
+    const tv = s.tagebuchVerweise;
 
-    new Setting(containerEl)
-      .setName("Zeitraum (Tage)")
-      .setDesc("Anzahl Tage rückwärts ab Kalenderdatum (wie Daily Note Outline).")
-      .addText((t) =>
-        t
-          .setValue(String(ol.durationDays))
-          .onChange(async (value) => {
-            const n = Math.max(1, parseInt(value, 10) || 365);
-            ol.durationDays = n;
-            await this.plugin.saveSettings();
-          }),
-      );
+    renderSettingsSection(
+      container,
+      "Allgemein & Outline",
+      (body) => {
+        new Setting(body)
+          .setName("Outline beim Start öffnen")
+          .setDesc("Tagebuch-Outline rechts unten öffnen, wenn das Plugin aktiviert wird.")
+          .addToggle((t) =>
+            t.setValue(s.openPanelOnEnable).onChange(async (value) => {
+              s.openPanelOnEnable = value;
+              await save();
+            }),
+          );
 
-    new Setting(containerEl)
-      .setName("Standard-Abschnitt")
-      .setDesc("Start-Abschnitt (Standard: Tagebuch). Aufgaben/Tasks erscheinen nicht in der Auswahl.")
-      .addText((t) =>
-        t.setValue(ol.journalHeading).onChange(async (value) => {
-          ol.journalHeading = value.trim() || "Tagebuch";
-          await this.plugin.saveSettings();
-        }),
-      );
+        renderSettingsSubheading(body, "Timeline", "Darstellung und Filter in der Tagebuch-Outline.");
 
-    new Setting(containerEl)
-      .setName("Zeitraum-Modus")
-      .setDesc("Monat/Woche folgen dem Universal Calendar; Alle = ohne Datumsfilter (scrollen).")
-      .addDropdown((d) =>
-        d
-          .addOptions({
-            scroll: "Alle",
-            month: "Monat (Kalender)",
-            week: "Woche (Kalender)",
-          })
-          .setValue(ol.rangeMode ?? "scroll")
-          .onChange(async (value) => {
-            ol.rangeMode = (value as typeof ol.rangeMode) || "scroll";
-            await this.plugin.saveSettings();
-          }),
-      );
+        new Setting(body)
+          .setName("Zeitraum (Tage)")
+          .setDesc("Anzahl Tage rückwärts ab Kalenderdatum.")
+          .addText((t) =>
+            t.setValue(String(ol.durationDays)).onChange(async (value) => {
+              ol.durationDays = Math.max(1, parseInt(value, 10) || 365);
+              await save();
+            }),
+          );
 
-    new Setting(containerEl)
-      .setName("Tage pro Seite")
-      .setDesc("Nur im Modus „Alle“: Tagebuch-Tage pro Ladung; beim Scrollen weitere.")
-      .addText((t) =>
-        t
-          .setValue(String(ol.pageSize ?? 10))
-          .onChange(async (value) => {
-            ol.pageSize = Math.max(1, parseInt(value, 10) || 10);
-            await this.plugin.saveSettings();
-          }),
-      );
+        new Setting(body)
+          .setName("Standard-Abschnitt")
+          .setDesc('Start-Abschnitt in der Outline (Standard: „Tagebuch").')
+          .addText((t) =>
+            t.setValue(ol.journalHeading).onChange(async (value) => {
+              ol.journalHeading = value.trim() || "Tagebuch";
+              await save();
+            }),
+          );
 
-    new Setting(containerEl)
-      .setName("Zeit-Bubbles anzeigen")
-      .setDesc("Uhrzeit vor Tagebuch-Einträgen in der Outline (auch per Toolbar-Uhr umschaltbar).")
-      .addToggle((t) =>
-        t.setValue(ol.showTimeBubbles ?? true).onChange(async (value) => {
-          ol.showTimeBubbles = value;
-          await this.plugin.saveSettings();
-        }),
-      );
+        new Setting(body)
+          .setName("Zeitraum-Modus")
+          .setDesc("Monat/Woche folgen dem Universal Calendar; „Alle“ = scrollen ohne Datumsfilter.")
+          .addDropdown((d) =>
+            d
+              .addOptions({
+                scroll: "Alle",
+                month: "Monat (Kalender)",
+                week: "Woche (Kalender)",
+              })
+              .setValue(ol.rangeMode ?? "scroll")
+              .onChange(async (value) => {
+                ol.rangeMode = (value as typeof ol.rangeMode) || "scroll";
+                await save();
+              }),
+          );
 
-    new Setting(containerEl)
-      .setName("Gruppenfilter")
-      .setDesc(
-        "Optional: Einträge nach Gruppenname filtern (Reise, Wanderung, Vorfall …). Abschnitte (Tagebuch, Reisen, …) wählst du in der Outline-Toolbar.",
-      )
-      .addText((t) =>
-        t.setValue(ol.feedContextFilter ?? "").onChange(async (value) => {
-          ol.feedContextFilter = value.trim();
-          await this.plugin.saveSettings();
-        }),
-      );
+        new Setting(body)
+          .setName("Tage pro Seite")
+          .setDesc('Nur im Modus „Alle“: Tage pro Ladung beim Scrollen.')
+          .addText((t) =>
+            t.setValue(String(ol.pageSize ?? 10)).onChange(async (value) => {
+              ol.pageSize = Math.max(1, parseInt(value, 10) || 10);
+              await save();
+            }),
+          );
 
-    const wx = this.plugin.settings.weatherCapture;
+        new Setting(body)
+          .setName("Zeit-Bubbles in der Outline")
+          .setDesc("Uhrzeit vor Einträgen (auch per Toolbar-Uhr umschaltbar).")
+          .addToggle((t) =>
+            t.setValue(ol.showTimeBubbles ?? true).onChange(async (value) => {
+              ol.showTimeBubbles = value;
+              await save();
+            }),
+          );
 
-    containerEl.createEl("h3", { text: "Wetter & Ort" });
+        new Setting(body)
+          .setName("Gruppenfilter")
+          .setDesc("Optional: nach Gruppenname filtern (Reise, Wanderung, Vorfall …).")
+          .addText((t) =>
+            t.setValue(ol.feedContextFilter ?? "").onChange(async (value) => {
+              ol.feedContextFilter = value.trim();
+              await save();
+            }),
+          );
 
-    new Setting(containerEl)
-      .setName("Frontmatter Location")
-      .setDesc("Ort in Frontmatter Location: schreiben.")
-      .addToggle((t) =>
-        t.setValue(wx.updateFrontmatter).onChange(async (value) => {
-          wx.updateFrontmatter = value;
-          await this.plugin.saveSettings();
-        }),
-      );
+        renderSettingsSubheading(body, "Tagebuch-Verweise", "Panel mit Verweisen auf Daily Notes.");
 
-    containerEl.createEl("p", {
-      cls: "setting-item-description",
-      text: "Wetter erscheint nur in der Callout-Überschrift (tagebuch-ref) und in der Outline — kein Tagebuch-Eintrag, kein Frontmatter.",
-    });
+        new Setting(body)
+          .setName("Daily-Notes-Ordner")
+          .addText((t) =>
+            t.setValue(tv.dailyNotesFolder).onChange(async (value) => {
+              tv.dailyNotesFolder = value.trim();
+              await save();
+            }),
+          );
 
-    const cal = this.plugin.settings.calendarSync;
+        new Setting(body)
+          .setName("Daily-Notes fileClass")
+          .setDesc("Frontmatter fileClass für Tagebuch-Dateien.")
+          .addText((t) =>
+            t.setValue(tv.dailyNotesFileClass).onChange(async (value) => {
+              tv.dailyNotesFileClass = value.trim();
+              await save();
+            }),
+          );
 
-    containerEl.createEl("h3", { text: "Kalender-Termine" });
+        new Setting(body)
+          .setName("Zeit-Bubbles in Verweisen")
+          .addToggle((t) =>
+            t.setValue(tv.showTimeBubbles ?? false).onChange(async (value) => {
+              tv.showTimeBubbles = value;
+              await save();
+            }),
+          );
+      },
+      { description: "Outline, Timeline und Verweise-Panel." },
+    );
+  }
 
-    new Setting(containerEl)
-      .setName("Termine automatisch übernehmen")
-      .setDesc("Universal Calendar: CalDAV-Termine mit Uhrzeit als „Termin:“-Zeilen immer in ## Tagebuch.")
-      .addToggle((t) =>
-        t.setValue(cal.enabled).onChange(async (value) => {
-          cal.enabled = value;
-          await this.plugin.saveSettings();
-        }),
-      );
+  private renderComposer(container: HTMLElement, save: () => Promise<void>): void {
+    const s = this.plugin.settings;
+    const composer = s.composer ?? DEFAULT_SETTINGS.composer;
+    const composerWindow = s.composerWindow ?? DEFAULT_SETTINGS.composerWindow;
+    const tpl = s.composerTemplates ?? DEFAULT_SETTINGS.composerTemplates;
+    const qc = s.quickCapture;
 
-    new Setting(containerEl)
-      .setName("Beim Outline-Laden")
-      .setDesc("Termine beim Anzeigen eines Tages in der Outline synchronisieren (einmal pro Sitzung und Tag).")
-      .addToggle((t) =>
-        t.setValue(cal.syncOnOutlineLoad).onChange(async (value) => {
-          cal.syncOnOutlineLoad = value;
-          await this.plugin.saveSettings();
-        }),
-      );
+    renderSettingsSection(
+      container,
+      "Tages-Composer",
+      (body) => {
+        new Setting(body)
+          .setName("Composer automatisch öffnen")
+          .setDesc("Mobil: beim Befehl oder beim Öffnen der heutigen Daily Note.")
+          .addDropdown((d) =>
+            d
+              .addOptions({
+                never: "Nie",
+                todayCommand: "Beim Befehl „Heutige Daily Note öffnen“",
+                todayNoteOpen: "Beim Öffnen der heutigen Daily Note",
+              })
+              .setValue(composer.autoOpen)
+              .onChange(async (value) => {
+                composer.autoOpen = (value as typeof composer.autoOpen) || "todayCommand";
+                await save();
+              }),
+          );
 
-    new Setting(containerEl)
-      .setName("CalDAV-Aufgaben (VTODO)")
-      .setDesc("Auch CalDAV-Todos als Termin-Zeile übernehmen (nur mit konkreter Uhrzeit).")
-      .addToggle((t) =>
-        t.setValue(cal.includeTodos).onChange(async (value) => {
-          cal.includeTodos = value;
-          await this.plugin.saveSettings();
-        }),
-      );
+        new Setting(body)
+          .setName("Fensterposition zurücksetzen")
+          .setDesc("Composer wieder zentriert öffnen (Desktop).")
+          .addButton((btn) =>
+            btn.setButtonText("Zurücksetzen").onClick(async () => {
+              composerWindow.x = null;
+              composerWindow.y = null;
+              await save();
+            }),
+          );
 
-    containerEl.createEl("p", {
-      cls: "setting-item-description",
-      text: "Nur CalDAV-Termine mit konkreter Startzeit — keine Vault-Rechnungen oder Markdown-Notizen aus dem Kalender.",
-    });
-
-    const tpl = this.plugin.settings.composerTemplates ?? {
-      tagebuchBulkEnabled: true,
-      reisenBulkEnabled: true,
-      wandernBulkEnabled: true,
-      spaziergangBulkEnabled: true,
-      lastTripLabel: "",
-    };
-
-    const composer = this.plugin.settings.composer ?? { autoOpen: "todayCommand" };
-
-    containerEl.createEl("h3", { text: "Tages-Composer" });
-
-    new Setting(containerEl)
-      .setName("Composer automatisch öffnen")
-      .setDesc(
-        "Mobil: Composer beim Öffnen der heutigen Daily Note oder nur über den Befehl „Heutige Daily Note öffnen“.",
-      )
-      .addDropdown((d) =>
-        d
-          .addOptions({
-            never: "Nie",
-            todayCommand: "Beim Befehl „Heutige Daily Note öffnen“",
-            todayNoteOpen: "Beim Öffnen der heutigen Daily Note",
-          })
-          .setValue(composer.autoOpen)
-          .onChange(async (value) => {
-            composer.autoOpen = (value as typeof composer.autoOpen) || "todayCommand";
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    containerEl.createEl("p", {
-      cls: "setting-item-description",
-      text: "Mobil: Ribbon-Icon „Tages-Composer“, Befehl „Heutige Notiz im Composer öffnen“ oder Tastenkürzel. Home-Screen: obsidian://udn-composer?date=YYYY-MM-DD",
-    });
-
-    containerEl.createEl("h3", { text: "Composer-Vorlagen" });
-
-    new Setting(containerEl)
-      .setName("Typischer Tag (Tagebuch)")
-      .setDesc("Bulk-Vorlage: Wetter, Aufstehen, Mittagessen, Spaziergang, Kalender-Termine.")
-      .addToggle((t) =>
-        t.setValue(tpl.tagebuchBulkEnabled).onChange(async (value) => {
-          tpl.tagebuchBulkEnabled = value;
-          await this.plugin.saveSettings();
-        }),
-      );
-
-    new Setting(containerEl)
-      .setName("Typischer Reisetag")
-      .setDesc("Bulk-Vorlage: Standort, Etappen, Highlights, optional Foto und GPX-Track.")
-      .addToggle((t) =>
-        t.setValue(tpl.reisenBulkEnabled).onChange(async (value) => {
-          tpl.reisenBulkEnabled = value;
-          await this.plugin.saveSettings();
-        }),
-      );
-
-    new Setting(containerEl)
-      .setName("Typische Wanderung (Wandern)")
-      .setDesc("Bulk-Vorlage: Standort, Start, Kurz- und Beschreibung, optional Foto und GPX-Track.")
-      .addToggle((t) =>
-        t.setValue(tpl.wandernBulkEnabled).onChange(async (value) => {
-          tpl.wandernBulkEnabled = value;
-          await this.plugin.saveSettings();
-        }),
-      );
-
-    new Setting(containerEl)
-      .setName("Typischer Spaziergang")
-      .setDesc("Bulk-Vorlage für ## Spaziergang: Standort, Start, Kurz- und Beschreibung, optional Foto und GPX-Track.")
-      .addToggle((t) =>
-        t.setValue(tpl.spaziergangBulkEnabled ?? true).onChange(async (value) => {
-          tpl.spaziergangBulkEnabled = value;
-          await this.plugin.saveSettings();
-        }),
-      );
-
-    new Setting(containerEl)
-      .setName("Typischer Heizungseintrag")
-      .setDesc("Bulk-Vorlage für ## Heizung: Kurz, Detail, optional Foto.")
-      .addToggle((t) =>
-        t.setValue(tpl.heizungBulkEnabled ?? true).onChange(async (value) => {
-          tpl.heizungBulkEnabled = value;
-          await this.plugin.saveSettings();
-        }),
-      );
-
-    new Setting(containerEl)
-      .setName("Typischer Lüftungseintrag")
-      .setDesc("Bulk-Vorlage für ## Lüftung: Kurz, Detail, optional Foto.")
-      .addToggle((t) =>
-        t.setValue(tpl.lueftungBulkEnabled ?? true).onChange(async (value) => {
-          tpl.lueftungBulkEnabled = value;
-          await this.plugin.saveSettings();
-        }),
-      );
-
-    const feedDetail = this.plugin.settings.feedDetailLayout ?? {
-      heizungPhotosFolder: "Atlas/Immobilien/EFH Hettenhausen/Anhänge/Heizung/Probleme",
-      lueftungPhotosFolder: "Atlas/Immobilien/EFH Hettenhausen/Anhänge/Lueftung/Wartungsprotokoll Fotos",
-      maxPhotos: 6,
-    };
-
-    containerEl.createEl("h3", { text: "Heizung & Lüftung (Feed + Detail)" });
-
-    new Setting(containerEl)
-      .setName("Heizung Fotos-Ordner")
-      .addText((t) =>
-        t.setValue(feedDetail.heizungPhotosFolder).onChange(async (value) => {
-          feedDetail.heizungPhotosFolder = value.trim() || feedDetail.heizungPhotosFolder;
-          await this.plugin.saveSettings();
-        }),
-      );
-
-    new Setting(containerEl)
-      .setName("Lüftung Fotos-Ordner")
-      .setDesc("Jahres-Unterordner wird automatisch angehängt (z. B. …/2026).")
-      .addText((t) =>
-        t.setValue(feedDetail.lueftungPhotosFolder).onChange(async (value) => {
-          feedDetail.lueftungPhotosFolder = value.trim() || feedDetail.lueftungPhotosFolder;
-          await this.plugin.saveSettings();
-        }),
-      );
-
-    new Setting(containerEl)
-      .setName("Max. Fotos (Heizung/Lüftung)")
-      .addText((t) =>
-        t.setValue(String(feedDetail.maxPhotos ?? 6)).onChange(async (value) => {
-          feedDetail.maxPhotos = Math.max(1, Number.parseInt(value, 10) || 6);
-          await this.plugin.saveSettings();
-        }),
-      );
-
-    const composerWindow = this.plugin.settings.composerWindow ?? { x: null, y: null };
-
-    containerEl.createEl("h3", { text: "Composer-Fenster" });
-
-    new Setting(containerEl)
-      .setName("Position zurücksetzen")
-      .setDesc("Composer wieder zentriert öffnen (Desktop).")
-      .addButton((btn) =>
-        btn.setButtonText("Zurücksetzen").onClick(async () => {
-          composerWindow.x = null;
-          composerWindow.y = null;
-          await this.plugin.saveSettings();
-        }),
-      );
-
-    const wl = this.plugin.settings.wandernLayout ?? {
-      template: "",
-      maxPhotos: 3,
-      track3dEnabled: true,
-      track3dHeight: 400,
-      track3dElevationExaggeration: 4,
-      photosFolder: "Calendar/Anhänge/Bilder",
-      tracksFolder: "Calendar/Anhänge/GPX",
-    };
-    if (!wl.template.trim()) {
-      wl.template = DEFAULT_WANDERN_LAYOUT_TEMPLATE;
-    }
-
-    containerEl.createEl("h3", { text: "Wandern-Layout" });
-
-    containerEl.createEl("p", {
-      cls: "setting-item-description",
-      text: "Platzhalter: {{titel}}, {{kurz}}, {{beschreibung}}, {{track_summary}}, {{track_link}}, {{track_gpx}}, {{track3d}}, {{fotos}}, {{foto1}}…{{fotoN}}, {{datum}}. Fotos: <Fotos-Ordner>/<Callout-Titel>/01.jpg. GPX: <Track-Ordner>/<Callout-Titel>.gpx.",
-    });
-
-    new Setting(containerEl)
-      .setName("Fotos-Ordner")
-      .setDesc("Basisordner für Wandern-Fotos; Unterordner = Callout-Titel (z. B. Calendar/Anhänge/Bilder).")
-      .addText((t) =>
-        t.setValue(wl.photosFolder ?? "Calendar/Anhänge/Bilder").onChange(async (value) => {
-          wl.photosFolder = value.trim() || "Calendar/Anhänge/Bilder";
-          await this.plugin.saveSettings();
-        }),
-      );
-
-    new Setting(containerEl)
-      .setName("Track-Ordner")
-      .setDesc("Zielordner für GPX beim Speichern; Dateiname = Callout-Titel (z. B. Calendar/Anhänge/GPX).")
-      .addText((t) =>
-        t.setValue(wl.tracksFolder ?? "Calendar/Anhänge/GPX").onChange(async (value) => {
-          wl.tracksFolder = value.trim() || "Calendar/Anhänge/GPX";
-          await this.plugin.saveSettings();
-        }),
-      );
-
-    new Setting(containerEl)
-      .setName("Markdown-Vorlage")
-      .setDesc("Wird beim Speichern von ## Wandern in die Daily Note geschrieben.")
-      .addTextArea((t) => {
-        t.inputEl.rows = 12;
-        t.setValue(wl.template).onChange(async (value) => {
-          wl.template = value;
-          await this.plugin.saveSettings();
+        body.createEl("p", {
+          cls: "setting-item-description",
+          text: "Ribbon „Tages-Composer“, Befehl „Heutige Notiz im Composer öffnen“ oder obsidian://udn-composer?date=YYYY-MM-DD",
         });
-      });
 
-    new Setting(containerEl)
-      .setName("Max. Fotos")
-      .addText((t) =>
-        t.setValue(String(wl.maxPhotos ?? 3)).onChange(async (value) => {
-          const n = Math.max(1, Number.parseInt(value, 10) || 3);
-          wl.maxPhotos = n;
-          await this.plugin.saveSettings();
-        }),
-      );
+        renderSettingsSubheading(body, "Schnell-Chips", "Präfixe für Chip-Buttons im Composer.");
 
-    new Setting(containerEl)
-      .setName("3D-Track in Vorlage")
-      .setDesc("{{track3d}} erzeugt einen udn-track-3d Codeblock.")
-      .addToggle((t) =>
-        t.setValue(wl.track3dEnabled ?? true).onChange(async (value) => {
-          wl.track3dEnabled = value;
-          await this.plugin.saveSettings();
-        }),
-      );
+        new Setting(body)
+          .setName("Zeitformat")
+          .addText((t) =>
+            t.setValue(qc.timeFormat).onChange(async (value) => {
+              qc.timeFormat = value.trim() || "HH:mm";
+              await save();
+            }),
+          );
 
-    new Setting(containerEl)
-      .setName("3D-Track Höhe (px)")
-      .addText((t) =>
-        t.setValue(String(wl.track3dHeight ?? 400)).onChange(async (value) => {
-          const n = Math.max(120, Number.parseInt(value, 10) || 400);
-          wl.track3dHeight = n;
-          await this.plugin.saveSettings();
-        }),
-      );
+        new Setting(body)
+          .setName("Chip-Präfixe")
+          .setDesc("Kommagetrennt, z. B. Mittagessen:, Termin:, Spaziergang:")
+          .addTextArea((t) => {
+            t.inputEl.rows = 4;
+            t.setValue(qc.entryPrefixes.join(", ")).onChange(async (value) => {
+              qc.entryPrefixes = value
+                .split(",")
+                .map((part) => part.trim())
+                .filter(Boolean);
+              await save();
+            });
+          });
 
-    new Setting(containerEl)
-      .setName("3D-Track Höhen-Exaggeration")
-      .setDesc("Vertikale Überhöhung der GPX-Höhendaten (Standard 4).")
-      .addText((t) =>
-        t.setValue(String(wl.track3dElevationExaggeration ?? 4)).onChange(async (value) => {
-          const n = Math.max(1, Number.parseFloat(value) || 4);
-          wl.track3dElevationExaggeration = n;
-          await this.plugin.saveSettings();
-        }),
-      );
+        new Setting(body)
+          .setName("Anhänge-Ordner")
+          .setDesc("Basisordner für Composer-Fotos.")
+          .addText((t) =>
+            t.setValue(qc.attachmentsFolder).onChange(async (value) => {
+              qc.attachmentsFolder = value.trim() || qc.attachmentsFolder;
+              await save();
+            }),
+          );
 
-    const tr = this.plugin.settings.tracks ?? { enabled: true, folder: "Calendar/Tracks" };
+        renderSettingsSubheading(body, "Bulk-Vorlagen", "„Typischer Tag“-Vorlagen im Composer.");
 
-    containerEl.createEl("h3", { text: "GPS-Tracks" });
+        const bulkTemplates: Array<{ key: keyof typeof tpl; name: string; desc: string }> = [
+          { key: "tagebuchBulkEnabled", name: "Typischer Tag (Tagebuch)", desc: "Wetter, Aufstehen, Mittagessen, Spaziergang, Termine." },
+          { key: "reisenBulkEnabled", name: "Typischer Reisetag", desc: "Standort, Etappen, Highlights, optional Foto und GPX." },
+          { key: "wandernBulkEnabled", name: "Typische Wanderung", desc: "Standort, Start, Kurz- und Beschreibung, optional Foto und GPX." },
+          { key: "spaziergangBulkEnabled", name: "Typischer Spaziergang", desc: "Wie Wanderung, für ## Spaziergang." },
+          { key: "heizungBulkEnabled", name: "Typischer Heizungseintrag", desc: "Kurz, Detail, optional Foto." },
+          { key: "lueftungBulkEnabled", name: "Typischer Lüftungseintrag", desc: "Kurz, Detail, optional Foto." },
+        ];
 
-    new Setting(containerEl)
-      .setName("Tracks für Reisen- und Wandern-Vorlage")
-      .setDesc("GPX/TCX aus Vault-Ordner laden (Dateiname enthält YYYY-MM-DD).")
-      .addToggle((t) =>
-        t.setValue(tr.enabled).onChange(async (value) => {
-          tr.enabled = value;
-          await this.plugin.saveSettings();
-        }),
-      );
+        for (const item of bulkTemplates) {
+          new Setting(body)
+            .setName(item.name)
+            .setDesc(item.desc)
+            .addToggle((t) =>
+              t.setValue(tpl[item.key] ?? true).onChange(async (value) => {
+                (tpl as Record<string, boolean>)[item.key] = value;
+                await save();
+              }),
+            );
+        }
+      },
+      { description: "Composer-Verhalten, Chips und Vorlagen." },
+    );
+  }
 
-    new Setting(containerEl)
-      .setName("Track-Ordner")
-      .setDesc("z. B. Calendar/Tracks/Garmin oder Calendar/Tracks/Google")
-      .addText((t) =>
-        t.setValue(tr.folder).onChange(async (value) => {
-          tr.folder = value.trim() || "Calendar/Tracks";
-          await this.plugin.saveSettings();
-        }),
-      );
+  private renderIntegrations(container: HTMLElement, save: () => Promise<void>): void {
+    const s = this.plugin.settings;
+    const cal = s.calendarSync;
+    const garmin = s.garminSync;
+    const wx = s.weatherCapture;
 
-    containerEl.createEl("p", {
-      cls: "setting-item-description",
-      text: "Garmin: GPX pro Aktivität exportieren. Google Timeline: JSON am Android-Gerät exportieren und mit einem Konverter in Tages-GPX umwandeln.",
-    });
+    renderSettingsSection(
+      container,
+      "Integrationen",
+      (body) => {
+        renderSettingsSubheading(body, "Kalender-Termine", "Universal Calendar → ## Tagebuch.");
 
-    const an = this.plugin.settings.analytics;
+        new Setting(body)
+          .setName("Termine automatisch übernehmen")
+          .setDesc("CalDAV-Termine mit Uhrzeit als „Termin:“-Zeilen in ## Tagebuch.")
+          .addToggle((t) =>
+            t.setValue(cal.enabled).onChange(async (value) => {
+              cal.enabled = value;
+              await save();
+            }),
+          );
 
-    containerEl.createEl("h3", { text: "Auswertung" });
+        new Setting(body)
+          .setName("Beim Outline-Laden synchronisieren")
+          .setDesc("Einmal pro Sitzung und Tag beim Anzeigen eines Tages.")
+          .addToggle((t) =>
+            t.setValue(cal.syncOnOutlineLoad).onChange(async (value) => {
+              cal.syncOnOutlineLoad = value;
+              await save();
+            }),
+          );
 
-    new Setting(containerEl)
-      .setName("Auswertung anzeigen")
-      .addToggle((t) =>
-        t.setValue(an.enabled).onChange(async (value) => {
-          an.enabled = value;
-          await this.plugin.saveSettings();
-        }),
-      );
+        new Setting(body)
+          .setName("CalDAV-Aufgaben (VTODO)")
+          .setDesc("Todos mit konkreter Uhrzeit als Termin-Zeile.")
+          .addToggle((t) =>
+            t.setValue(cal.includeTodos).onChange(async (value) => {
+              cal.includeTodos = value;
+              await save();
+            }),
+          );
 
-    const fallback = this.plugin.settings.dailyNoteFallback;
+        body.createEl("p", {
+          cls: "setting-item-description",
+          text: "Nur CalDAV-Termine mit Startzeit — keine Vault-Rechnungen oder Markdown-Notizen.",
+        });
 
-    containerEl.createEl("h3", { text: "Daily Notes (Fallback)" });
+        renderSettingsSubheading(
+          body,
+          "Garmin-Aktivitäten",
+          "Import aus universal-garmin-sync (Host-Cron) in Tagebuch und ## Wandern/Spaziergang.",
+        );
 
-    new Setting(containerEl)
-      .setName("Fallback-Ordner")
-      .setDesc("Vault-Ordner, wenn das Core-Plugin „Daily notes“ deaktiviert ist.")
-      .addText((t) =>
-        t.setValue(fallback.folder).onChange(async (value) => {
-          fallback.folder = value;
-          await this.plugin.saveSettings();
-        }),
-      );
+        new Setting(body)
+          .setName("Garmin-Import aktiv")
+          .addToggle((t) =>
+            t.setValue(garmin.enabled).onChange(async (value) => {
+              garmin.enabled = value;
+              await save();
+            }),
+          );
 
-    new Setting(containerEl)
-      .setName("Fallback-Dateiname")
-      .setDesc("Format mit YYYY, MM, DD (z. B. YYYY-MM-DD).")
-      .addText((t) =>
-        t.setValue(fallback.filenameFormat).onChange(async (value) => {
-          fallback.filenameFormat = value;
-          await this.plugin.saveSettings();
-        }),
-      );
+        new Setting(body)
+          .setName("Pending-Manifest")
+          .setDesc("Pfad zur pending.json im Vault (vom Garmin-Sync geschrieben).")
+          .addText((t) =>
+            t.setValue(garmin.pendingManifestPath).onChange(async (value) => {
+              garmin.pendingManifestPath = value.trim() || garmin.pendingManifestPath;
+              await save();
+            }),
+          );
 
-    new Setting(containerEl)
-      .setName("Fallback-Vorlage")
-      .setDesc("Optionaler Vault-Pfad zu einer Markdown-Vorlage.")
-      .addText((t) =>
-        t
-          .setPlaceholder("x/Templates/Daily.md")
-          .setValue(fallback.templatePath ?? "")
-          .onChange(async (value) => {
-            fallback.templatePath = value.trim() || null;
-            await this.plugin.saveSettings();
-          }),
-      );
+        new Setting(body)
+          .setName("Beim Plugin-Start importieren")
+          .setDesc("Desktop: pending.json beim Laden verarbeiten.")
+          .addToggle((t) =>
+            t.setValue(garmin.syncOnLoad).onChange(async (value) => {
+              garmin.syncOnLoad = value;
+              await save();
+            }),
+          );
 
-    const tv = this.plugin.settings.tagebuchVerweise;
+        renderSettingsSubheading(body, "Wetter & Ort");
 
-    containerEl.createEl("h3", { text: "Tagebuch-Verweise" });
+        new Setting(body)
+          .setName("Frontmatter Location")
+          .setDesc("Ort in Frontmatter Location: schreiben.")
+          .addToggle((t) =>
+            t.setValue(wx.updateFrontmatter).onChange(async (value) => {
+              wx.updateFrontmatter = value;
+              await save();
+            }),
+          );
 
-    new Setting(containerEl)
-      .setName("Daily-Notes-Ordner")
-      .setDesc("Vault-Ordner für Tagebuch-Einträge. Zeitraum und Abschnitt in der Toolbar wie in der Outline.")
-      .addText((t) =>
-        t.setValue(tv.dailyNotesFolder).onChange(async (value) => {
-          tv.dailyNotesFolder = value.trim();
-          await this.plugin.saveSettings();
-        }),
-      );
+        body.createEl("p", {
+          cls: "setting-item-description",
+          text: "Wetter erscheint in der Callout-Überschrift (tagebuch-ref) und in der Outline — kein eigener Tagebuch-Eintrag.",
+        });
+      },
+      { description: "Kalender, Garmin, Wetter." },
+    );
+  }
 
-    new Setting(containerEl)
-      .setName("Daily-Notes fileClass")
-      .setDesc("Frontmatter fileClass für Tagebuch-Dateien.")
-      .addText((t) =>
-        t.setValue(tv.dailyNotesFileClass).onChange(async (value) => {
-          tv.dailyNotesFileClass = value.trim();
-          await this.plugin.saveSettings();
-        }),
-      );
+  private renderProfilesAndTracks(container: HTMLElement, save: () => Promise<void>): void {
+    const s = this.plugin.settings;
+    const feedDetail = s.feedDetailLayout ?? DEFAULT_SETTINGS.feedDetailLayout;
+    const wl = s.wandernLayout ?? DEFAULT_SETTINGS.wandernLayout;
+    const sl = s.spaziergangLayout ?? DEFAULT_SETTINGS.spaziergangLayout;
 
-    new Setting(containerEl)
-      .setName("Zeit-Bubbles anzeigen")
-      .setDesc("Uhrzeit vor Verweis-Einträgen (auch per Toolbar-Uhr umschaltbar).")
-      .addToggle((t) =>
-        t.setValue(tv.showTimeBubbles ?? false).onChange(async (value) => {
-          tv.showTimeBubbles = value;
-          await this.plugin.saveSettings();
-        }),
-      );
+    renderSettingsSection(
+      container,
+      "Profil-Layouts & Tracks",
+      (body) => {
+        renderWalkLayoutSettings(body, wl, {
+          title: "Wandern",
+          description: "Markdown für ## Wandern beim Speichern aus dem Composer.",
+          defaultTemplate: DEFAULT_WANDERN_LAYOUT_TEMPLATE,
+          save,
+        });
+
+        renderWalkLayoutSettings(body, sl, {
+          title: "Spaziergang",
+          description: "Markdown für ## Spaziergang beim Speichern aus dem Composer.",
+          defaultTemplate: DEFAULT_SPAZIERGANG_LAYOUT_TEMPLATE,
+          save,
+        });
+
+        renderSettingsSubheading(body, "Heizung & Lüftung", "Foto-Ordner für Feed-Detail-Callouts.");
+
+        new Setting(body)
+          .setName("Heizung Fotos-Ordner")
+          .addText((t) =>
+            t.setValue(feedDetail.heizungPhotosFolder).onChange(async (value) => {
+              feedDetail.heizungPhotosFolder = value.trim() || feedDetail.heizungPhotosFolder;
+              await save();
+            }),
+          );
+
+        new Setting(body)
+          .setName("Lüftung Fotos-Ordner")
+          .setDesc("Jahres-Unterordner wird automatisch angehängt (z. B. …/2026).")
+          .addText((t) =>
+            t.setValue(feedDetail.lueftungPhotosFolder).onChange(async (value) => {
+              feedDetail.lueftungPhotosFolder = value.trim() || feedDetail.lueftungPhotosFolder;
+              await save();
+            }),
+          );
+
+        new Setting(body)
+          .setName("Max. Fotos (Heizung/Lüftung)")
+          .addText((t) =>
+            t.setValue(String(feedDetail.maxPhotos ?? 6)).onChange(async (value) => {
+              feedDetail.maxPhotos = Math.max(1, Number.parseInt(value, 10) || 6);
+              await save();
+            }),
+          );
+
+        body.createEl("p", {
+          cls: "setting-item-description",
+          text: "GPX-Ordner unter Wandern/Spaziergang gelten auch für Reisen-Vorlagen und Garmin-Sync.",
+        });
+      },
+      { description: "Callout-Layouts, Fotos und GPX-Quellen.", collapsed: true },
+    );
+  }
+
+  private renderAdvanced(container: HTMLElement, save: () => Promise<void>): void {
+    const s = this.plugin.settings;
+    const fallback = s.dailyNoteFallback;
+    const an = s.analytics;
+
+    renderSettingsSection(
+      container,
+      "Erweitert",
+      (body) => {
+        renderSettingsSubheading(
+          body,
+          "Daily Notes (Fallback)",
+          "Nur wenn das Core-Plugin „Daily notes“ deaktiviert ist.",
+        );
+
+        new Setting(body)
+          .setName("Fallback-Ordner")
+          .addText((t) =>
+            t.setValue(fallback.folder).onChange(async (value) => {
+              fallback.folder = value;
+              await save();
+            }),
+          );
+
+        new Setting(body)
+          .setName("Fallback-Dateiname")
+          .setDesc("Format mit YYYY, MM, DD.")
+          .addText((t) =>
+            t.setValue(fallback.filenameFormat).onChange(async (value) => {
+              fallback.filenameFormat = value;
+              await save();
+            }),
+          );
+
+        new Setting(body)
+          .setName("Fallback-Vorlage")
+          .setDesc("Optionaler Vault-Pfad zu einer Markdown-Vorlage.")
+          .addText((t) =>
+            t
+              .setPlaceholder("x/Templates/Daily.md")
+              .setValue(fallback.templatePath ?? "")
+              .onChange(async (value) => {
+                fallback.templatePath = value.trim() || null;
+                await save();
+              }),
+          );
+
+        renderSettingsSubheading(body, "Auswertung");
+
+        new Setting(body)
+          .setName("Auswertung anzeigen")
+          .setDesc("Analytics-Bereich in der Outline.")
+          .addToggle((t) =>
+            t.setValue(an.enabled).onChange(async (value) => {
+              an.enabled = value;
+              await save();
+            }),
+          );
+      },
+      { description: "Fallback-Pfade und Analytics.", collapsed: true },
+    );
   }
 }

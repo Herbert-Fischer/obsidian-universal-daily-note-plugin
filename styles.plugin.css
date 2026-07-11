@@ -1619,8 +1619,8 @@ body.is-mobile .udn-composer--mobile {
   flex: 1 1 0;
   min-height: 0;
   height: auto;
-  --udn-mobile-control: 26px;
-  --udn-time-bubble-width: 3.1em;
+  --udn-mobile-control: 30px;
+  --udn-time-bubble-width: 5.5ch;
   --udn-mobile-font: var(--font-ui-smaller);
   font-size: 0.9em;
   line-height: 1.35;
@@ -1639,7 +1639,7 @@ body.is-mobile .udn-composerHeadCompact {
   flex-direction: column;
   gap: 4px;
   min-width: 0;
-  --udn-mobile-control: 26px;
+  --udn-mobile-control: 30px;
 }
 
 body.is-mobile .udn-composerHeadCompactTop {
@@ -1741,8 +1741,8 @@ body.is-mobile .udn-composerMobileFoot {
 }
 
 body.is-mobile .udn-composer--mobile .udn-composerSection {
-  padding: 2px 6px;
-  gap: 3px;
+  padding: 4px 10px;
+  gap: 6px;
   flex: 1 1 0;
   min-height: 0;
   overflow-y: auto;
@@ -1857,11 +1857,13 @@ body.is-mobile .udn-composer--mobile .udn-composerSummaryInput {
 
 body.is-mobile .udn-composerMobileDock .udn-composerAddRow--pinned {
   border-top: none;
-  padding: 4px 6px 2px;
+  padding: 6px 8px 4px;
   display: flex;
+  flex-direction: row;
   flex-wrap: nowrap;
-  align-items: center;
   gap: 4px;
+  align-items: center;
+  min-width: 0;
 }
 
 body.is-mobile .udn-composerMobileDock .udn-composerFoot--mobile {
@@ -1882,103 +1884,163 @@ body.is-mobile .udn-composerSummary {
   display: none;
 }
 
-body.is-mobile .udn-composerEntry.udn-outlineEntry {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: nowrap;
+body.is-mobile .udn-composer--mobile .udn-composerEntry.udn-composerEntry--stacked.udn-outlineEntry {
+  display: grid;
+  grid-template-columns: max-content max-content minmax(0, 1fr) var(--udn-mobile-control, 30px);
+  grid-template-areas: "time profile body remove";
+  column-gap: 2px;
+  row-gap: 0;
   align-items: center;
-  gap: 4px;
   min-width: 0;
-  padding: 2px 0;
-  min-height: 24px;
+  padding: 5px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--background-modifier-border) 65%, transparent);
 }
 
-body.is-mobile .udn-composer--mobile .udn-composerEntry.udn-outlineEntry.udn-composerEntry--expanded {
-  flex-wrap: wrap;
-  align-items: flex-start;
-  row-gap: 3px;
+body.is-mobile .udn-composer--mobile .udn-composerEntry.udn-composerEntry--stacked.udn-outlineEntry:last-child {
+  border-bottom: none;
 }
 
-body.is-mobile .udn-composer--mobile .udn-composerEntry--expanded .udn-timeBubbleInput {
-  order: 1;
+body.is-mobile .udn-composer--mobile .udn-composerEntry--stacked .udn-timeBubbleWrap {
+  grid-area: time;
+  order: unset;
+  justify-self: start;
+  flex-shrink: 0;
 }
 
-body.is-mobile .udn-composer--mobile .udn-composerEntry--expanded .udn-profileBubble {
-  order: 2;
+body.is-mobile .udn-composer--mobile .udn-timeBubbleWrap {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
 }
 
-body.is-mobile .udn-composer--mobile .udn-composerEntry--expanded .udn-composerEntryRemove {
-  order: 3;
-  margin-left: auto;
-}
-
-body.is-mobile .udn-composer--mobile .udn-composerEntry--expanded .udn-composerEntryInput,
-body.is-mobile .udn-composer--mobile .udn-composerEntry--expanded .udn-timelineEntryBody {
-  order: 4;
-  flex: 1 1 100%;
-  max-width: 100%;
-  white-space: normal;
-  overflow: visible;
-  text-overflow: clip;
-}
-
-body.is-mobile .udn-composer--mobile .udn-composerEntry--expanded .udn-composerEntryInput--empty:not(:focus) {
-  flex: 0 0 0;
-  width: 0;
-  min-width: 0;
-  max-width: 0;
-  padding: 0;
-  margin: 0;
-  border-width: 0;
-  overflow: hidden;
-  opacity: 0;
-}
-
-body.is-mobile .udn-composer--mobile .udn-composerEntry--expanded .udn-composerEntryExpand {
-  order: 5;
-}
-
-body.is-mobile .udn-composer--mobile .udn-composerEntry .dk-input {
-  width: auto;
+body.is-mobile .udn-composer--mobile .udn-timeBubbleDisplay {
+  width: var(--udn-time-bubble-width, 5.5ch);
+  min-width: var(--udn-time-bubble-width, 5.5ch);
+  max-width: var(--udn-time-bubble-width, 5.5ch);
   min-height: var(--udn-mobile-control);
   height: var(--udn-mobile-control);
-  padding: 0 4px;
-  font-size: var(--udn-mobile-font, var(--font-ui-smaller));
-  border-radius: var(--dk-radius);
+  padding: 0 2px;
+  margin: 0;
+  border-radius: 999px;
+  text-align: center;
+  font-size: var(--font-ui-smaller);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--text-muted);
+  box-sizing: border-box;
 }
 
-body.is-mobile .udn-composer--mobile .udn-composerEntry .udn-timeBubbleInput {
-  flex: 0 0 var(--udn-time-bubble-width, 3.1em);
-  width: var(--udn-time-bubble-width, 3.1em);
-  min-width: var(--udn-time-bubble-width, 3.1em);
-  max-width: var(--udn-time-bubble-width, 3.1em);
+body.is-mobile .udn-composer--mobile .udn-timeBubbleDisplay--placeholder {
+  opacity: 0.65;
+}
+
+body.is-mobile .udn-composerMobileDock .udn-timeBubbleWrap {
+  flex: 0 0 auto;
+}
+
+.udn-timeBubblePicker {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  pointer-events: none;
+}
+
+body.is-mobile .udn-composer--mobile .udn-composerEntry--stacked .udn-timeBubbleInput {
+  grid-area: time;
+  order: unset;
+  justify-self: start;
+  width: var(--udn-time-bubble-width, 5.5ch);
+  min-width: var(--udn-time-bubble-width, 5.5ch);
+  max-width: var(--udn-time-bubble-width, 5.5ch);
+  min-height: var(--udn-mobile-control);
+  height: var(--udn-mobile-control);
   padding: 0 2px;
   text-align: center;
+  font-size: var(--font-ui-smaller);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  border-radius: var(--radius-s);
+  flex-shrink: 0;
 }
 
-body.is-mobile .udn-composer--mobile .udn-composerEntry .udn-timelineEntryBody {
-  flex: 1 1 0;
+body.is-mobile .udn-composer--mobile .udn-composerEntry--stacked .udn-profileBubble {
+  grid-area: profile;
+  order: unset;
+  justify-self: start;
+  width: 20px;
+  min-width: 20px;
+  height: 20px;
+  margin: 0;
+  padding: 0 !important;
+}
+
+body.is-mobile .udn-composer--mobile .udn-composerEntry--stacked .udn-composerEntryRemove {
+  grid-area: remove;
+  order: unset;
+  margin-left: 0;
+  justify-self: end;
+}
+
+body.is-mobile .udn-composer--mobile .udn-composerEntry--stacked .udn-composerEntryInput,
+body.is-mobile .udn-composer--mobile .udn-composerEntry--stacked .udn-timelineEntryBody,
+body.is-mobile .udn-composer--mobile .udn-composerEntry--stacked .udn-timelineEntryEdit {
+  grid-area: body;
+  order: unset;
+  display: block;
+  width: 100%;
   min-width: 0;
   max-width: 100%;
+  min-height: var(--udn-mobile-control);
+  height: var(--udn-mobile-control);
+  margin-left: 2px;
   font-size: var(--udn-mobile-font, var(--font-ui-smaller));
-  line-height: 1.3;
+  line-height: 1.35;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-body.is-mobile .udn-composer--mobile .udn-composerEntry .udn-composerEntryInput,
-body.is-mobile .udn-composer--mobile .udn-composerEntry .udn-timelineEntryEdit {
-  flex: 1 1 0;
-  min-width: 0;
-  max-width: 100%;
-  width: 100%;
-  min-height: var(--udn-mobile-control);
-  font-size: var(--udn-mobile-font, var(--font-ui-smaller));
-  line-height: 1.3;
+body.is-mobile .udn-composer--mobile .udn-composerEntry--stacked .udn-composerEntryInput:focus,
+body.is-mobile .udn-composer--mobile .udn-composerEntry--stacked .udn-timelineEntryEdit:focus,
+body.is-mobile .udn-composer--mobile .udn-composerEntry--stacked .udn-composerEntryInput input:focus,
+body.is-mobile .udn-composer--mobile .udn-composerEntry--stacked .udn-timelineEntryEdit input:focus {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
 }
 
-body.is-mobile .udn-composer--mobile .udn-composerEntryRemove {
+body.is-mobile .udn-composer--mobile .udn-composerEntry--stacked .udn-composerEntryExpand {
+  grid-column: 1 / -1;
+  order: unset;
+  width: 100%;
+  max-width: 100%;
+}
+
+body.is-mobile .udn-composer--mobile .udn-composerEntry--stacked.udn-composerEntry--expanded .udn-composerEntryInput--empty:not(:focus) {
+  flex: unset;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0 8px;
+  margin: 0;
+  border-width: 1px;
+  overflow: visible;
+  opacity: 1;
+}
+
+body.is-mobile .udn-composer--mobile .udn-composerEntry--stacked .udn-composerEntryRemove {
   flex: 0 0 var(--udn-mobile-control, 28px);
   width: var(--udn-mobile-control, 28px);
   height: var(--udn-mobile-control, 28px);
@@ -1989,21 +2051,15 @@ body.is-mobile .udn-composer--mobile .udn-composerEntryRemove {
   opacity: 0.85;
 }
 
-body.is-mobile .udn-composerMobileDock .udn-timeBubbleInput {
-  flex: 0 0 var(--udn-time-bubble-width, 3.1em);
-  width: var(--udn-time-bubble-width, 3.1em);
-  min-width: var(--udn-time-bubble-width, 3.1em);
-  max-width: var(--udn-time-bubble-width, 3.1em);
-}
-
 body.is-mobile .udn-composerMobileDock .udn-composerAddInput {
-  flex: 1 1 0;
+  flex: 1 1 auto;
+  order: unset;
   width: auto;
   min-width: 0;
   font-size: var(--font-ui-smaller);
   min-height: var(--udn-mobile-control);
   height: var(--udn-mobile-control);
-  padding: 0 6px;
+  padding: 0 8px;
 }
 
 body.is-mobile .udn-composerEntry--empty {
@@ -2012,6 +2068,9 @@ body.is-mobile .udn-composerEntry--empty {
 }
 
 body.is-mobile .udn-composerMobileDock .dk-btnPrimary {
+  flex: 0 0 var(--udn-mobile-control);
+  order: unset;
+  margin-left: 0;
   min-width: var(--udn-mobile-control);
   min-height: var(--udn-mobile-control);
   width: var(--udn-mobile-control);
@@ -2745,6 +2804,20 @@ body.is-mobile .udn-composer--mobile .udn-profileBubble {
   min-width: 20px;
 }
 
+body.is-mobile .udn-composer--mobile input.udn-timeBubbleInput {
+  width: var(--udn-time-bubble-width, 5.5ch);
+  min-width: var(--udn-time-bubble-width, 5.5ch);
+  max-width: var(--udn-time-bubble-width, 5.5ch);
+  min-height: var(--udn-mobile-control);
+  height: var(--udn-mobile-control);
+  flex-shrink: 0;
+  box-sizing: border-box;
+  padding: 0 2px;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+  border-radius: var(--radius-s);
+}
+
 body.is-mobile .udn-composer--mobile .udn-profileBubbleIcon svg {
   width: 11px;
   height: 11px;
@@ -2990,4 +3063,53 @@ body.is-mobile .udn-composerSplitDetailTitle {
   body.is-mobile .udn-view--outline {
     --udn-time-bubble-width: 4.2em;
   }
+}
+
+/* Plugin settings tab */
+.udn-settings-tab .udn-settings-intro {
+  margin: 0 0 1rem;
+}
+
+.udn-settings-tab .udn-settings-section {
+  margin: 0 0 0.75rem;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  padding: 0.35rem 0.65rem 0.5rem;
+}
+
+.udn-settings-tab .udn-settings-section-title {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: var(--font-ui-medium);
+  padding: 0.35rem 0;
+  list-style: none;
+}
+
+.udn-settings-tab .udn-settings-section-title::-webkit-details-marker {
+  display: none;
+}
+
+.udn-settings-tab .udn-settings-section-desc {
+  margin: 0 0 0.5rem;
+}
+
+.udn-settings-tab .udn-settings-section-body {
+  padding-top: 0.25rem;
+}
+
+.udn-settings-tab .udn-settings-subheading {
+  margin: 1rem 0 0.35rem;
+  font-size: var(--font-ui-small);
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.udn-settings-tab .udn-settings-subheading:first-child {
+  margin-top: 0;
+}
+
+.udn-settings-tab .udn-settings-section-body > .setting-item {
+  border-top: none;
 }

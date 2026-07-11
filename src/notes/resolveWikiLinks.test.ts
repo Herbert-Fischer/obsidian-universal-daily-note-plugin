@@ -100,6 +100,43 @@ describe("resolveWikiLinks", () => {
     expect(formatTerminProseWithTrailingLinks(app, formatted, "note.md")).toBe(formatted);
   });
 
+  it("is idempotent with a single space before trailing links", () => {
+    const app = mockApp(
+      [{ path: "Atlas/Vereine/Turnverein/Turnverein.md", basename: "Turnverein 1863 Gersfeld e.V." }],
+      {},
+    );
+    const formatted = "Pilates @ TVG [[Turnverein 1863 Gersfeld e.V.|TVG]]";
+    const once = formatTerminProseWithTrailingLinks(app, formatted, "note.md");
+    expect(once).toBe("Pilates @ TVG   [[Turnverein 1863 Gersfeld e.V.|TVG]]");
+    expect(formatTerminProseWithTrailingLinks(app, once, "note.md")).toBe(once);
+  });
+
+  it("repairs repeated trailing aliases in corrupted termin prose", () => {
+    const app = mockApp(
+      [{ path: "Atlas/Vereine/Boxer-Klub/Boxer-Klub.md", basename: "Boxer-Klub Ebersburg-Rhön e.V." }],
+      {},
+    );
+    const corrupted =
+      "Boxer-Klub (Übungsstunde) Boxer-Klub Boxer-Klub Boxer-Klub   [[Boxer-Klub Ebersburg-Rhön e.V.|Boxer-Klub]]";
+    expect(formatTerminProseWithTrailingLinks(app, corrupted, "note.md")).toBe(
+      "Boxer-Klub (Übungsstunde)   [[Boxer-Klub Ebersburg-Rhön e.V.|Boxer-Klub]]",
+    );
+  });
+
+  it("does not grow termin lines when upgraded repeatedly", () => {
+    const app = mockApp(
+      [{ path: "Atlas/Vereine/Turnverein/Turnverein.md", basename: "Turnverein 1863 Gersfeld e.V." }],
+      {},
+    );
+    const input = ["19:00 Termin: Pilates @ TVG [[Turnverein 1863 Gersfeld e.V.|TVG]] <!-- udn-cal:evt-1 -->"];
+    const once = upgradeJournalEntryTextsLinks(app, input, "Calendar/Notes/2026-07-07.md");
+    const twice = upgradeJournalEntryTextsLinks(app, once, "Calendar/Notes/2026-07-07.md");
+    const thrice = upgradeJournalEntryTextsLinks(app, twice, "Calendar/Notes/2026-07-07.md");
+    expect(twice[0]).toBe(once[0]);
+    expect(thrice[0]).toBe(once[0]);
+    expect(once[0]).not.toMatch(/TVG\s+TVG/);
+  });
+
   it("splitTrailingWikiLinkBlock separates prose and links", () => {
     const split = splitTrailingWikiLinkBlock(
       "Lindengut mit Mona   [[Biohotel Lindengut|Lindengut]] [[Mona Buchmann|Mona]]",

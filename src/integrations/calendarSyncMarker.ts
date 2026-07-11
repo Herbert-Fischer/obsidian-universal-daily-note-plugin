@@ -26,6 +26,35 @@ export function collectCalendarSyncIds(entryTexts: string[]): Set<string> {
   return ids;
 }
 
+/** Drop duplicate calendar rows and orphan Termin lines when a marked row exists at the same time. */
+export function dedupeCalendarAppointmentEntries(entryTexts: string[]): string[] {
+  const seenIds = new Set<string>();
+  const markedTimes = new Set<string>();
+
+  for (const text of entryTexts) {
+    const id = parseCalendarSyncId(text);
+    if (!id) continue;
+    const { time } = parseJournalEntryDisplay(text);
+    if (time) markedTimes.add(time);
+  }
+
+  const out: string[] = [];
+  for (const text of entryTexts) {
+    const id = parseCalendarSyncId(text);
+    if (id) {
+      if (seenIds.has(id)) continue;
+      seenIds.add(id);
+      out.push(text);
+      continue;
+    }
+
+    const { time, body } = parseJournalEntryDisplay(text);
+    if (/^termin:/i.test(body.trim()) && time && markedTimes.has(time)) continue;
+    out.push(text);
+  }
+  return out;
+}
+
 /** Universal Calendar markdown / invoice ids (not CalDAV appointments). */
 export function isMarkdownCalendarSyncId(id: string): boolean {
   return id.trim().toLowerCase().startsWith("md:");

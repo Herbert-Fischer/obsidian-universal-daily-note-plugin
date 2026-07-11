@@ -55,6 +55,8 @@ Plugin-spezifisch: `obsidian-daily-notes-interface`.
 | `notes/composerTemplates.ts` | Kontext-Vorlagen (Typischer Tag / Reisetag / Wanderung) |
 | `notes/*Composer.ts` | Profil-Sync (Reisen, Wandern, Heizung, Lüftung, Gedanken, Sonstiges) |
 | `tracks/gpxImport.ts` | GPX/TCX-Import für Reise-Etappen und Wander-/Spaziergang-Tracks |
+| `tracks/track3dView.ts` | 3D-Höhenprofil (`udn-track-3d`, `mountTrack3dBlock`) |
+| `tracks/walkTrackEnrichment.ts` | Reading View: 3D nachrüsten wenn `trackPath` ohne Codeblock |
 | `integrations/garminCalendarFilter.ts` | Garmin-CalDAV-Termine vom Kalender-Sync ausschließen |
 | `integrations/garminSync.ts` | Garmin-Import + Entfernen doppelter `Termin:`-Zeilen |
 | `integrations/garminPendingImport.ts` | Import aus `Calendar/.garmin/pending.json` |
@@ -63,16 +65,16 @@ Plugin-spezifisch: `obsidian-daily-notes-interface`.
 
 Im **Tages-Composer** (Vorlage-Menü) hängen die Angebote vom aktiven Abschnitt ab. **Profil-Integration:** Reisen, Heizung, Lüftung, Gedanken und Wandern als expandierbare Felder am Tagebuch-Eintrag; **Sonstiges** als eigener Composer-Abschnitt (Heading „Sonstiges“).
 
-### Wandern mit optionaler Reise-Zuordnung (ab 1.2.6)
+### Wandern / Spaziergang mit optionaler Reise-Zuordnung (ab 1.2.6)
 
-Ein Tagebuch-Eintrag mit Profil **Wandern** hat zwei unabhängige Gruppenfelder:
+Ein Tagebuch-Eintrag mit Profil **Wandern** oder **Spaziergang** hat zwei unabhängige Gruppenfelder:
 
 | Feld | Bedeutung | Ziel-Abschnitt |
 |------|-----------|----------------|
-| **Wanderung** (`context` in `udn-entry`) | Name der Tour (Callout-Titel) | `## Wandern` (Mountain-Callout, GPX, Fotos) |
+| **Tour** (`context` in `udn-entry`) | Name der Tour (Callout-Titel) | `## Wandern` / `## Spaziergang` (GPX, Fotos) |
 | **Reise (optional)** (`reise` in `udn-entry`) | Zuordnung zu einer Reise | zusätzlich `## Reisen` (Compass-Callout) |
 
-Die **Beschreibung** der Wanderung erscheint in `## Wandern` und — bei gesetzter Reise — auch als Erläuterung unter `## Reisen` (für das [[Reise-Tagebuch]]-Dataview).
+Die **Beschreibung** erscheint im Profil-Abschnitt und — bei gesetzter Reise — auch als Erläuterung unter `## Reisen` (für das Reise-Tagebuch-Dataview).
 
 Beispiel Meta am Bullet:
 
@@ -85,6 +87,7 @@ Beispiel Meta am Bullet:
 | **Tagebuch** | Typischer Tag (Wetter, Aufstehen, Mittagessen, Spaziergang, Kalender) | Aufstehen, Mahlzeiten, Termin, … |
 | **Reisen** | Typischer Reisetag (Standort, Etappen, Highlights, optional Foto + GPX) | Abfahrt, Etappe, Highlight, Ankunft, … |
 | **Wandern** | Typische Wanderung (Standort, Start, Beschreibung, optional Foto + GPX) | Start, Beschreibung, Gipfel, Track, Foto, … |
+| **Spaziergang** | Typischer Spaziergang (analog Wandern) | Start, Beschreibung, Track, Foto, … |
 | **Sonstiges** | — | Notiz, Geschenk, Besuch, Erledigt, … |
 | **Heizung / Lüftung / Gedanken** | — | profilspezifische Chips (Störung, Wartung, Einfall, …) |
 
@@ -108,9 +111,9 @@ Live-Abruf von Garmin Connect oder Google Maps ist **im Plugin nicht möglich**.
 | **Garmin** | Aktivität als GPX exportieren (Connect, `garmin-connect-export`, …) | `Calendar/Anhänge/GPX/2026-06-24-Wanderung.gpx` |
 | **Google Timeline** | Android: Einstellungen → Standort → Timeline → Export JSON → Konverter zu Tages-GPX ([Timeline-GPX-Exporter](https://github.com/pe1hvh/Timeline-GPX-Exporter), [Dawarich](https://dawarich.app/tools/google-timeline-converter/)) | `Calendar/Tracks/Google/2026-06-24.gpx` |
 
-Der Dateiname muss das Datum `YYYY-MM-DD` enthalten. Bei **Typischer Reisetag** wird der Track in die Etappe-Zeile übernommen; bei **Typische Wanderung** / **Typischer Spaziergang** in die Track-Zeile (Distanz, Dauer, Wiki-Link). Kartenansicht im Plugin: `udn-track-3d`; optional Community-Plugin [Map View](https://github.com/esm7/obsidian-map-view).
+Der Dateiname muss das Datum `YYYY-MM-DD` enthalten. Bei **Typischer Reisetag** wird der Track in die Etappe-Zeile übernommen; bei **Typische Wanderung** / **Typischer Spaziergang** in die Track-Zeile (Distanz, Dauer, Wiki-Link). Kartenansicht: Markdown-Codeblock `udn-track-3d`, Reading-View-Nachreichung (`walkTrackEnrichment`) und Dataview via `mountTrack3dBlock`; optional Community-Plugin [Map View](https://github.com/esm7/obsidian-map-view).
 
-Einstellungen: **Track-Ordner** (`tracks.folder`, Default `Calendar/Tracks`) und **Wandern/Spaziergang GPX-Ordner** (`wandernLayout.tracksFolder`, Default `Calendar/Anhänge/GPX`).
+Einstellungen: **GPX-Ordner** unter Wandern/Spaziergang (`wandernLayout.tracksFolder` / `spaziergangLayout.tracksFolder`, Default `Calendar/Anhänge/GPX`; Reisen-Vorlagen nutzen den Wandern-Ordner), **3D aktiv** (`wandernLayout.track3dEnabled` / `spaziergangLayout.track3dEnabled`, Default `true`).
 
 Vault-Doku: [[Atlas/Technologien/Obsidian Plugins/Universal Daily Note/Plugin — Detail Garmin Sync CalDAV und Thunderbird|Garmin Sync — CalDAV & Thunderbird]].
 
@@ -146,7 +149,19 @@ plug.openComposerForDate(new Date(2026, 5, 14), {
 });
 ```
 
-`focusEntryId` hat Vorrang vor `focusEntryLine`. Wird u. a. vom **Reise-Tagebuch**-Dataview genutzt (Klick auf Zeit oder Titel eines Eintrags).
+`focusEntryId` hat Vorrang vor `focusEntryLine`. Wird u. a. vom **Reise-Tagebuch**- und **Tagebuch-Chronik**-Dataview genutzt (Klick auf Zeit oder Titel eines Eintrags).
+
+**3D-Track in eigenen Views:**
+
+```javascript
+const plug = app.plugins.plugins["universal-daily-note"];
+const wrap = container.createDiv();
+await plug.mountTrack3dBlock(wrap, {
+  path: "Calendar/Anhänge/GPX/2026-06-24-Wanderung.gpx",
+  height: 400,
+  exaggeration: 4,
+});
+```
 
 
 Siehe **[`.devcontainer/README.md`](.devcontainer/README.md)**. Repo-Mount: **`/workspace/universal-daily-note-plugin`**.

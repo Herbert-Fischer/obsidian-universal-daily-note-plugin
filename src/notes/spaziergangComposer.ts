@@ -20,6 +20,9 @@ import {
 } from "./photoCollage";
 import type { TrackMatch } from "../tracks/gpxImport";
 import { formatTrackSummary } from "../tracks/gpxImport";
+import { enrichEntryMetaWithTrackGeo, loadGeocodeCache } from "../tracks/gpxGeo";
+import { parseWalkEntryGeoFields, type WalkEntryGeoFields } from "./walkEntryGeo";
+import { resolveWalkBeschreibung } from "./walkStatsBeschreibung";
 import {
   parseSpaziergangMetaLine,
   renderSpaziergangTemplate,
@@ -40,7 +43,7 @@ export type SpaziergangEntryMeta = {
   track: string;
   fotos?: string[];
   layout?: PhotoCollageLayout | "";
-};
+} & WalkEntryGeoFields;
 
 export type SpaziergangSupplement = {
   titel: string;
@@ -93,6 +96,7 @@ export function parseSpaziergangEntryMetaLine(line: string): SpaziergangEntryMet
       track: parsed.track?.trim() ?? "",
       fotos: Array.isArray(parsed.fotos) ? parsed.fotos.map((f) => stripPhotoEmbed(String(f))) : undefined,
       layout: (parsed.layout as PhotoCollageLayout | "") ?? "",
+      ...parseWalkEntryGeoFields(parsed as Record<string, unknown>),
     };
   } catch {
     return null;
@@ -209,11 +213,9 @@ export function spaziergangCalloutTitle(entry: SpaziergangSyncEntry): string {
   const body = entry.body.trim();
   const parsed = parseJournalEntryDisplay(body);
   const fromBody = spaziergangTitleFromText(parsed.body.trim() || body);
-  const fromContext = entry.context?.trim() ? spaziergangTitleFromText(entry.context) : "";
-  const candidates = [fromBody, fromContext].filter(Boolean);
-  if (candidates.length > 0) {
-    return candidates.reduce((best, cur) => (cur.length > best.length ? cur : best));
-  }
+  if (fromBody) return fromBody;
+  const ctx = entry.context?.trim();
+  if (ctx) return spaziergangTitleFromText(ctx);
   return "Spaziergang";
 }
 
@@ -276,11 +278,12 @@ async function normalizeSpaziergangSyncEntry(
   }
 
   const track = trackPath ? trackMatchFromPath(trackPath) : null;
+  const kurz = entry.supplementKurz?.trim() ?? "";
 
   const data: SpaziergangComposerData = {
     titel,
-    kurz: entry.supplementKurz?.trim() ?? "",
-    beschreibung: entry.supplementDetail ?? "",
+    kurz,
+    beschreibung: resolveWalkBeschreibung(entry.supplementDetail ?? "", kurz, track),
     track,
     photos,
   };
@@ -348,6 +351,7 @@ export async function renderSpaziergangSectionBody(
 ): Promise<string[]> {
   const sorted = sortSpaziergangEntries(dedupeByTitle(entries));
   const out: string[] = [];
+  let geoCache = await loadGeocodeCache(app);
 
   for (const entry of sorted) {
     const { data, layoutClass } = await normalizeSpaziergangSyncEntry(app, entry, date, layout);
@@ -379,7 +383,19 @@ export async function renderSpaziergangSectionBody(
         layoutClass,
       }),
     );
-    out.push(spaziergangEntryMetaComment({ ...meta, entryId: entry.entryId ?? "", fotos: meta.fotos, layout: meta.layout }));
+    const baseMeta: SpaziergangEntryMeta = {
+      ...meta,
+      entryId: entry.entryId ?? "",
+      fotos: meta.fotos,
+      layout: meta.layout,
+    };
+    const { meta: enrichedMeta, cache: nextCache } = await enrichEntryMetaWithTrackGeo(
+      app,
+      baseMeta,
+      geoCache,
+    );
+    geoCache = nextCache;
+    out.push(`> ${spaziergangEntryMetaComment(enrichedMeta)}`);
     out.push("");
   }
 
@@ -403,7 +419,7 @@ export function mergeSpaziergangSupplementsIntoEntries(
     return {
       ...entry,
       supplementKurz: sup.kurz,
-      supplementDetail: sup.beschreibung,
+      supplementDetail: resolveWalkBeschreibung(sup.beschreibung, sup.kurz, trackMatchFromPath(sup.trackPath)),
       supplementTrackPath: sup.trackPath,
       supplementPhotos: sup.photos,
       calloutId: entryId || entry.calloutId,

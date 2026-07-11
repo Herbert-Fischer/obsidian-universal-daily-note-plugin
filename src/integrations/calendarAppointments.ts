@@ -10,6 +10,7 @@ import { resolveWikiLinksInText, buildVaultLinkIndex, upgradeJournalEntryTextsLi
 import { formatJournalEntryText, sortJournalEntryTexts } from "../notes/parseJournalEntryDisplay";
 import {
   collectCalendarSyncIds,
+  dedupeCalendarAppointmentEntries,
   parseCalendarSyncId,
   stripMarkdownCalendarAppointmentEntries,
   withCalendarSyncMarker,
@@ -19,6 +20,7 @@ import { isGarminActivityCalendarItem } from "./garminCalendarFilter";
 
 export {
   collectCalendarSyncIds,
+  dedupeCalendarAppointmentEntries,
   isMarkdownCalendarSyncId,
   parseCalendarSyncId,
   stripCalendarSyncMarker,
@@ -57,9 +59,11 @@ const INVOICE_USED_PROPERTIES = new Set([
 ]);
 
 const outlineSyncSession = new Set<string>();
+const outlineSyncInflight = new Map<string, Promise<number>>();
 
 export function resetCalendarSyncSession(): void {
   outlineSyncSession.clear();
+  outlineSyncInflight.clear();
 }
 
 function isInvoiceMarkdownItem(item: CalendarItemLike, invoicePathPrefix: string): boolean {
@@ -144,7 +148,7 @@ export function mergeCalendarAppointmentTexts(
     linkOverrides?: Record<string, string>;
   },
 ): string[] {
-  const base = stripMarkdownCalendarAppointmentEntries(entryTexts);
+  const base = dedupeCalendarAppointmentEntries(stripMarkdownCalendarAppointmentEntries(entryTexts));
   if (!options.settings.enabled) return base;
 
   const items = getCalendarItemsForDay(app, date, options.settings);
@@ -158,7 +162,7 @@ export function mergeCalendarAppointmentTexts(
     .map((item) => formatCalendarAppointmentEntry(item, app, sourcePath, linkOverrides));
 
   if (additions.length === 0) return base;
-  return sortJournalEntryTexts([...base, ...additions]);
+  return sortJournalEntryTexts(dedupeCalendarAppointmentEntries([...base, ...additions]));
 }
 
 export type SyncCalendarAppointmentsOptions = {
@@ -187,6 +191,27 @@ export async function syncCalendarAppointmentsIntoDailyNote(
     return 0;
   }
 
+  const inflight = outlineSyncInflight.get(sessionKey);
+  if (inflight) return inflight;
+
+  const run = syncCalendarAppointmentsIntoDailyNoteInner(app, options, sessionKey);
+  outlineSyncInflight.set(sessionKey, run);
+  try {
+    return await run;
+  } finally {
+    if (outlineSyncInflight.get(sessionKey) === run) {
+      outlineSyncInflight.delete(sessionKey);
+    }
+  }
+}
+
+async function syncCalendarAppointmentsIntoDailyNoteInner(
+  app: App,
+  options: SyncCalendarAppointmentsOptions,
+  sessionKey: string,
+): Promise<number> {
+  const heading = CALENDAR_SYNC_JOURNAL_HEADING;
+
   const state = await loadComposerState(
     app,
     options.date,
@@ -201,23 +226,17 @@ export async function syncCalendarAppointmentsIntoDailyNote(
     | undefined;
   const linkOverrides = plugin?.settings?.calendarLinkOverrides ?? {};
 
-  const sessionDone = options.oncePerSession && outlineSyncSession.has(sessionKey);
-  let merged: string[];
-  if (sessionDone) {
-    merged = stripMarkdownCalendarAppointmentEntries(upgraded);
-  } else {
-    merged = mergeCalendarAppointmentTexts(app, options.date, upgraded, {
-      settings: options.settings,
-      sourcePath: state.file.path,
-      linkOverrides,
-    });
-  }
+  const merged = mergeCalendarAppointmentTexts(app, options.date, upgraded, {
+    settings: options.settings,
+    sourcePath: state.file.path,
+    linkOverrides,
+  });
 
   const changed =
     merged.length !== existing.length || merged.some((line, index) => line !== existing[index]);
 
   if (!changed) {
-    if (!sessionDone) outlineSyncSession.add(sessionKey);
+    if (options.oncePerSession) outlineSyncSession.add(sessionKey);
     return 0;
   }
 
@@ -234,6 +253,6 @@ export async function syncCalendarAppointmentsIntoDailyNote(
     merged,
   );
 
-  if (!sessionDone) outlineSyncSession.add(sessionKey);
+  if (options.oncePerSession) outlineSyncSession.add(sessionKey);
   return merged.length - existing.length;
 }

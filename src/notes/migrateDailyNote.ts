@@ -18,11 +18,29 @@ import {
   parseReisenTripLabel,
 } from "./journalCallout";
 
-const NAV_CALLOUT_RE = /^>\s*\[! *(mfh|calendar|script)\]/i;
+const NAV_CALLOUT_RE = /^>\s*\[! *(mfh|calendar|script|Industry|capacities-sidebar)\]/i;
+const LEGACY_NAV_DV_RE = /dv\.current\(\)\.up/;
 
-/** Denkarium nav bar — matches daily note template. */
-export const DAILY_NOTE_MFH_CALLOUT =
-  ">[!mfh]+ `$= dv.current().up` | `$= dv.array(dv.current().related || []).join(\" | \")`";
+/** Denkarium Pfadfinder — matches daily note template. */
+export const DAILY_NOTE_VAULT_NAV_BLOCK = [
+  "```dataviewjs",
+  'await dv.view("x/scripts/views/Vault-Nav.view");',
+  "```",
+].join("\n");
+
+function isLegacyNavCalloutLine(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith(">")) return false;
+  if (/^>\s*\[! *(mfh|calendar|script)\]/i.test(trimmed)) return true;
+  if (/^>\s*\[! *(Industry|capacities-sidebar)\]/i.test(trimmed) && LEGACY_NAV_DV_RE.test(trimmed)) {
+    return true;
+  }
+  return false;
+}
+
+function hasVaultNavBlock(lines: string[]): boolean {
+  return lines.some((line) => line.includes("Vault-Nav.view"));
+}
 
 function parseFrontmatter(content: string): { fm: string; body: string } | null {
   const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(content);
@@ -54,7 +72,7 @@ function stripLegacyNavCallouts(lines: string[]): string[] {
   let i = 0;
   while (i < lines.length) {
     const trimmed = lines[i]?.trim() ?? "";
-    if (NAV_CALLOUT_RE.test(trimmed)) {
+    if (isLegacyNavCalloutLine(trimmed)) {
       i++;
       while (i < lines.length && (lines[i]?.trim() ?? "").startsWith(">")) i++;
       continue;
@@ -66,10 +84,17 @@ function stripLegacyNavCallouts(lines: string[]): string[] {
   return out;
 }
 
-export function ensureMfhNavCallout(lines: string[]): string[] {
+export function ensureVaultNavCallout(lines: string[]): string[] {
   const body = stripLegacyNavCallouts(lines);
-  if (body.length === 0) return [DAILY_NOTE_MFH_CALLOUT, ""];
-  return [DAILY_NOTE_MFH_CALLOUT, "", ...body];
+  if (hasVaultNavBlock(body)) return body;
+  const navLines = DAILY_NOTE_VAULT_NAV_BLOCK.split("\n");
+  if (body.length === 0) return [...navLines, ""];
+  return [...navLines, "", ...body];
+}
+
+/** @deprecated Use ensureVaultNavCallout */
+export function ensureMfhNavCallout(lines: string[]): string[] {
+  return ensureVaultNavCallout(lines);
 }
 
 function hasH2Section(lines: string[], heading: string): boolean {
@@ -283,7 +308,7 @@ export function migrateDailyNoteBody(lines: string[], dateKey: string): string[]
   const excluded = new Set(DEFAULT_EXCLUDED_JOURNAL_HEADINGS.map((h) => h.toLowerCase()));
   // Sonstiges migration is handled separately to avoid losing legacy free-text bullets.
   excluded.add("sonstiges");
-  let next = ensureMfhNavCallout(lines);
+  let next = ensureVaultNavCallout(lines);
   next = migrateMisplacedReisenTrips(next);
   next = wrapSonstigesBulletsInNotesCallout(next);
 

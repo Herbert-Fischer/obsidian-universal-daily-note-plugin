@@ -3,7 +3,6 @@ import type {
   CalendarSyncSettings,
   ComposerTemplatesSettings,
   DailyNoteFallbackSettings,
-  TracksSettings,
 } from "../settings";
 import { addLocalDays } from "../panel/dateUtils";
 import {
@@ -357,7 +356,7 @@ export type ApplyBulkTemplateOptions = {
   calloutTitle: string;
   calendarSync: CalendarSyncSettings;
   templateSettings: ComposerTemplatesSettings;
-  tracksSettings: TracksSettings;
+  tracksFolder: string;
   lastLocation: string;
   filePath?: string;
   linkOverrides?: Record<string, string>;
@@ -453,11 +452,11 @@ export async function applyBulkTemplate(
     }
   }
 
-  if (actions.includes("track") && options.tracksSettings.enabled) {
+  if (actions.includes("track") && options.tracksFolder.trim()) {
     const trackPrefix = trackPrefixForPack(pack);
     const tracks = options.selectedTrack
       ? [options.selectedTrack]
-      : await findTracksForDay(options.app, options.date, options.tracksSettings);
+      : await findTracksForDay(options.app, options.date, options.tracksFolder);
     if (tracks.length === 1) {
       entries = applyTrackToPrefixEntry(entries, tracks[0]!, trackPrefix);
     } else if (tracks.length > 1 && options.selectedTrack) {

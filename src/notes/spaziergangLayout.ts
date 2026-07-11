@@ -9,6 +9,7 @@ import { extractSectionRange } from "./journalCallout";
 import { formatGermanShortDate } from "./journalCallout";
 import { journalProfileById } from "./journalProfiles";
 import { formatTrackSummary, type TrackMatch } from "../tracks/gpxImport";
+import { resolveWalkBeschreibung } from "./walkStatsBeschreibung";
 import { normalizeDailyNotePhotoPath, normalizeWandernTrackPath } from "./attachJournalMedia";
 import { processVaultFile } from "./vaultProcess";
 import {
@@ -17,6 +18,7 @@ import {
   type PhotoCollageLayout,
   stripPhotoEmbed,
 } from "./photoCollage";
+import { parseWalkEntryGeoFields, type WalkEntryGeoFields } from "./walkEntryGeo";
 
 export type SpaziergangMeta = {
   kurz: string;
@@ -26,7 +28,7 @@ export type SpaziergangMeta = {
   fotos: string[];
   titel: string;
   layout?: PhotoCollageLayout | "";
-};
+} & WalkEntryGeoFields;
 
 export type SpaziergangComposerData = {
   titel: string;
@@ -132,6 +134,7 @@ export function parseSpaziergangMetaLine(line: string): SpaziergangMeta | null {
       fotos: Array.isArray(parsed.fotos) ? parsed.fotos.map(String) : [],
       titel: parsed.titel?.trim() ?? "",
       layout: (parsed.layout as PhotoCollageLayout | "") ?? "",
+      ...parseWalkEntryGeoFields(parsed as Record<string, unknown>),
     };
   } catch {
     return null;
@@ -275,7 +278,7 @@ export function renderSpaziergangTemplate(options: RenderSpaziergangTemplateOpti
 
   const tpl = layout.template?.trim() ? layout.template : DEFAULT_SPAZIERGANG_LAYOUT_TEMPLATE;
   const short = kurz.trim() ? `**Kurz:** ${kurz.trim()}` : "";
-  const desc = beschreibung.trim();
+  const desc = resolveWalkBeschreibung(beschreibung, kurz, track);
 
   const trackLink = track?.path?.trim() ? buildTrackLink(track.path) : "";
   const trackText = track ? formatTrackSummary(track) : "";
